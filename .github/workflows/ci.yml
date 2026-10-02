@@ -24,3 +24,25 @@ jobs:
     uses: ./.github/workflows/security.yml
     permissions:
       contents: read
+
+  conventions:
+    uses: ./.github/workflows/conventions.yml
+    permissions:
+      contents: read
+    with:
+      config: tests/fixtures/selftest.yaml
+
+  # The scripts the workflows carry, and the workflows written from them.
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Workflows match their templates
+        run: ./build.py --check

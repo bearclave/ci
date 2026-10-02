@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""Tests of src/conventions.py: the HCL reader and every rule.
+
+Each test writes a small repository to a temporary directory (the rules read
+the files git tracks) and runs the checker over it.
+
+Run: python3 -m unittest discover -s tests
+"""
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+import conventions  # noqa: E402
+
+TERRAGRUNT = {
+    "units": ["mg-corp/**/terragrunt.hcl", "tenant/**/terragrunt.hcl"],
+    "rules": {
+        "module-source": {"level": "error"},
+        "dependencies-in-common": {"level": "error", "dir": "_common/deps"},
+        "mock-outputs": {"level": "error", "dir": "_common/deps", "mocks_file": "_common/mocks.hcl",
+                         "forbidden_commands": ["apply", "destroy"]},
+        "tags-required": {"level": "error", "allowed_values": "_common/tags.hcl",
+                          "files": {"subscription.hcl": ["entity", "environment"],
+                                    "rg.hcl": ["criticality", "data_classification"]}},
+        "no-hardcoded-ids": {"level": "error", "id_files": ["account.hcl", "**/subscription.hcl"]},
+        "no-hardcoded-location": {"level": "error", "locations": ["westeurope", "northeurope"]},
+        "no-envcommon": {"level": "error"},
+        "lock-none-needs-reason": {"level": "warn", "criticality": ["high"]},
+    },
+}
+SUB = "11111111-2222-3333-4444-555555555555"
+SOURCE = 'terraform {\n  source = "${include.root.locals.modules}//platform/resource-group?ref=${include.root.locals.modules_ref}"\n}\n'
+GOOD_TREE = {
+    "account.hcl": f'locals {{\n  tenant_id = "99999999-8888-7777-6666-555555555555"\n}}\n',
+    "_common/tags.hcl": 'locals {\n  allowed = {\n    entity = ["shared", "sro"]\n'
+                        '    environment = ["prod"]\n    criticality = ["high", "low"]\n'
+                        '    data_classification = ["internal", "confidential"]\n  }\n}\n',
+    "_common/mocks.hcl": 'locals {\n  read_only_commands = ["validate", "plan", "import"]\n}\n',
+    "_common/deps/groups.hcl": 'locals {\n  mocks = read_terragrunt_config("x").locals\n}\n'
+                               'dependency "groups" {\n  config_path = "../tenant/groups"\n'
+                               '  mock_outputs = { ids = {} }\n'
+                               '  mock_outputs_allowed_terraform_commands = local.mocks.read_only_commands\n}\n',
+    "mg-corp/sub-a/subscription.hcl": f'locals {{\n  subscription_id = "{SUB}"\n  entity = "sro"\n  environment = "prod"\n}}\n',
+    "mg-corp/sub-a/weu/rg-x/rg.hcl": 'locals {\n  criticality = "high"\n  data_classification = "internal"\n}\n',
+    "mg-corp/sub-a/weu/rg-x/terragrunt.hcl": SOURCE + 'inputs = {\n  # Nothing in it worth keeping.\n  lock = "none"\n}\n',
+    "mg-corp/sub-a/weu/rg-x/kv/terragrunt.hcl": SOURCE + 'inputs = {\n  lock = "CanNotDelete"\n'
+                                                '  description = <<-DESC\n    a heredoc with "quotes" and westeurope\n  DESC\n'
+                                                '  name = "kv-${local.x}-{literal}"\n}\n',
+    "tenant/groups/terragrunt.hcl": SOURCE + 'inputs = {}\n',
+}
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.tmp.name)
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, files):
+        for path, text in files.items():
+            p = self.root / path
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text)
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
+
+    def check(self, config):
+        violations, errors = conventions.check(config, str(self.root))
+        return violations, errors
+
+    def rules_hit(self, config):
+        violations, errors = self.check(config)
+        self.assertEqual(errors, [])
+        return sorted((v["rule"], v["path"], v["line"]) for v in violations if not v["exception"])
+
+
+class Parser(unittest.TestCase):
+    def test_blocks_attributes_and_labels(self):
+        root = conventions.parse(conventions.tokenize(
+            'variable "a" {\n  type = string\n  default = "x"\n}\n'
+            'resource "t" "n" {\n  nested {\n    k = 1\n  }\n}\n')[0])
+        self.assertEqual([b.kind for b in root.blocks], ["variable", "resource"])
+        self.assertEqual(root.blocks[0].labels, ["a"])
+        self.assertEqual(root.blocks[0].attrs["default"].line, 3)
+        self.assertEqual(root.blocks[1].labels, ["t", "n"])
+        self.assertEqual(root.blocks[1].blocks[0].attrs["k"].line, 7)
+
+    def test_strings_with_interpolation_braces_and_quotes(self):
+        tokens, _ = conventions.tokenize('a = "x-${ {b = "}"}.b }-y"\nc = 1\n')
+        root = conventions.parse(tokens)
+        self.assertEqual(root.attrs["a"].string(), 'x-${ {b = "}"}.b }-y')
+        self.assertIn("c", root.attrs)
+        self.assertEqual(root.attrs["c"].line, 2)
+
+    def test_heredoc_keeps_line_numbers(self):
+        tokens, _ = conventions.tokenize('a = <<-EOT\n  one\n  "two"\n  EOT\nb = "x"\n')
+        root = conventions.parse(tokens)
+        self.assertEqual(root.attrs["b"].line, 5)
+
+    def test_comments_are_not_code_and_are_remembered(self):
+        tokens, comments = conventions.tokenize(
+            '# default = 1\nvariable "a" {\n  // default = 2\n  type = string /* default */\n}\n')
+        root = conventions.parse(tokens)
+        self.assertNotIn("default", root.blocks[0].attrs)
+        self.assertEqual(comments, {1, 3, 4})
+
+    def test_multiline_value(self):
+        root = conventions.parse(conventions.tokenize('a = {\n  b = [\n    1,\n  ]\n}\nc = 2\n')[0])
+        self.assertEqual(sorted(root.attrs), ["a", "c"])
+
+    def test_literal(self):
+        tokens, _ = conventions.tokenize('a = { x = ["p", "q"], y = "s", z = true }\n')
+        root = conventions.parse(tokens)
+        self.assertEqual(conventions.literal(root.attrs["a"].value),
+                         {"x": ["p", "q"], "y": "s", "z": True})
+
+    def test_glob(self):
+        self.assertTrue(conventions.matches("a/b/c.tf", "**/*.tf"))
+        self.assertTrue(conventions.matches("c.tf", "**/*.tf"))
+        self.assertFalse(conventions.matches("a/b/c.tf", "*.tf"))
+        self.assertTrue(conventions.matches("mg-corp/x/terragrunt.hcl", "mg-corp/**/terragrunt.hcl"))
+        # **/ spans zero directories too, as in .gitignore.
+        self.assertTrue(conventions.matches("mg-corp/terragrunt.hcl", "mg-corp/**/terragrunt.hcl"))
+
+
+class Modules(Base):
+    CONFIG = {"rules": {"variable-no-default": {"level": "error"},
+                        "variable-documented": {"level": "warn"}}}
+
+    def test_clean_module(self):
+        self.write({"m/variables.tf": 'variable "a" {\n  description = "A."\n  type = string\n}\n'})
+        self.assertEqual(self.rules_hit(self.CONFIG), [])
+
+    def test_default_and_optional_default(self):
+        self.write({"m/variables.tf":
+                    'variable "a" {\n  description = "A."\n  type = string\n  default = "x"\n}\n'
+                    'variable "b" {\n  description = "B."\n  type = object({\n'
+                    '    p = optional(string)\n    q = optional(map(string), {})\n  })\n}\n'})
+        self.assertEqual(self.rules_hit(self.CONFIG), [
+            ("variable-no-default", "m/variables.tf", 4),
+            ("variable-no-default", "m/variables.tf", 10),
+        ])
+
+    def test_undocumented(self):
+        self.write({"m/variables.tf": 'variable "a" {\n  type = string\n}\n'})
+        violations, _ = self.check(self.CONFIG)
+        self.assertEqual([(v["rule"], v["level"]) for v in violations], [("variable-documented", "warn")])
+
+
+class Terragrunt(Base):
+    def test_good_tree(self):
+        self.write(GOOD_TREE)
+        self.assertEqual(self.rules_hit(TERRAGRUNT), [])
+
+    def with_changes(self, changes):
+        self.write({**GOOD_TREE, **changes})
+        return self.rules_hit(TERRAGRUNT)
+
+    def test_module_source_from_a_local_path(self):
+        self.assertEqual(self.with_changes({
+            "tenant/groups/terragrunt.hcl": 'terraform {\n  source = "../../modules/x"\n}\n'}),
+            [("module-source", "tenant/groups/terragrunt.hcl", 2)])
+
+    def test_dependency_in_a_unit(self):
+        self.assertEqual(self.with_changes({
+            "tenant/groups/terragrunt.hcl": SOURCE + 'dependency "x" {\n  config_path = "../x"\n}\n'}),
+            [("dependencies-in-common", "tenant/groups/terragrunt.hcl", 4)])
+
+    def test_mocks_missing_or_reaching_apply(self):
+        hits = self.with_changes({"_common/deps/users.hcl":
+                                  'dependency "users" {\n  config_path = "../u"\n}\n'
+                                  'dependency "other" {\n  config_path = "../o"\n  mock_outputs = {}\n'
+                                  '  mock_outputs_allowed_terraform_commands = ["plan", "apply"]\n}\n'})
+        self.assertEqual(hits, [
+            ("mock-outputs", "_common/deps/users.hcl", 1),
+            ("mock-outputs", "_common/deps/users.hcl", 1),
+            ("mock-outputs", "_common/deps/users.hcl", 7),
+        ])
+
+    def test_mocks_file_allowing_destroy(self):
+        hits = self.with_changes({"_common/mocks.hcl":
+                                  'locals {\n  read_only_commands = ["plan", "destroy"]\n}\n'})
+        self.assertEqual(hits, [("mock-outputs", "_common/deps/groups.hcl", 7)])
+
+    def test_tags_missing_and_not_allowed(self):
+        hits = self.with_changes({"mg-corp/sub-a/weu/rg-x/rg.hcl": 'locals {\n  criticality = "extreme"\n}\n'})
+        self.assertEqual(hits, [("tags-required", "mg-corp/sub-a/weu/rg-x/rg.hcl", 1),
+                                ("tags-required", "mg-corp/sub-a/weu/rg-x/rg.hcl", 2)])
+
+    def test_hardcoded_ids(self):
+        hits = self.with_changes({"tenant/groups/terragrunt.hcl": SOURCE +
+                                  f'inputs = {{\n  a = "{SUB}"\n'
+                                  f'  b = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/x"\n'
+                                  '  c = "12345678-1234-1234-1234-123456789012"\n}\n'})
+        self.assertEqual(hits, [("no-hardcoded-ids", "tenant/groups/terragrunt.hcl", 5),
+                                ("no-hardcoded-ids", "tenant/groups/terragrunt.hcl", 6)])
+
+    def test_hardcoded_location_but_not_in_a_heredoc_sentence(self):
+        hits = self.with_changes({"tenant/groups/terragrunt.hcl": SOURCE + 'inputs = {\n  l = "westeurope"\n}\n'})
+        self.assertEqual(hits, [("no-hardcoded-location", "tenant/groups/terragrunt.hcl", 5)])
+
+    def test_envcommon(self):
+        self.assertEqual(self.with_changes({"_envcommon/x.hcl": "locals {}\n"}),
+                         [("no-envcommon", "_envcommon/x.hcl", 1)])
+
+    def test_unlocked_without_a_reason(self):
+        self.write({**GOOD_TREE, "mg-corp/sub-a/weu/rg-x/terragrunt.hcl": SOURCE + 'inputs = {\n  lock = "none"\n}\n'})
+        violations, _ = self.check(TERRAGRUNT)
+        self.assertEqual([(v["rule"], v["level"], v["line"]) for v in violations],
+                         [("lock-none-needs-reason", "warn", 5)])
+
+    def test_unlocked_in_low_criticality_is_fine(self):
+        self.assertEqual(self.with_changes({
+            "mg-corp/sub-a/weu/rg-x/rg.hcl": 'locals {\n  criticality = "low"\n  data_classification = "internal"\n}\n',
+            "mg-corp/sub-a/weu/rg-x/terragrunt.hcl": SOURCE + 'inputs = {\n  lock = "none"\n}\n'}), [])
+
+
+class Config(Base):
+    def test_exception_needs_a_reason(self):
+        self.write(GOOD_TREE)
+        _, errors = self.check({**TERRAGRUNT, "exceptions": [{"rule": "no-envcommon", "path": "**"}]})
+        self.assertEqual(len(errors), 1)
+        self.assertIn("no reason", errors[0])
+
+    def test_unknown_rule_and_level(self):
+        self.write(GOOD_TREE)
+        _, errors = self.check({"rules": {"nope": {}, "no-envcommon": {"level": "loud"}}})
+        self.assertEqual(len(errors), 2)
+
+    def test_exception_by_path_and_match(self):
+        self.write({**GOOD_TREE, "tenant/groups/terragrunt.hcl": SOURCE +
+                    'inputs = {\n  l = "westeurope"\n  m = "northeurope"\n}\n'})
+        config = {**TERRAGRUNT, "exceptions": [{"rule": "no-hardcoded-location", "path": "tenant/**",
+                                                "match": "westeurope", "reason": "test"}]}
+        violations, errors = self.check(config)
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted((v["line"], bool(v["exception"])) for v in violations),
+                         [(5, True), (6, False)])
+
+    def test_off(self):
+        self.write({**GOOD_TREE, "_envcommon/x.hcl": "locals {}\n"})
+        config = {**TERRAGRUNT, "rules": {**TERRAGRUNT["rules"], "no-envcommon": {"level": "off"}}}
+        self.assertEqual(self.rules_hit(config), [])
+
+    def test_exit_code_and_annotations(self):
+        self.write({**GOOD_TREE, "_envcommon/x.hcl": "locals {}\n"})
+        cfg = self.root / "c.json"
+        cfg.write_text(json.dumps(TERRAGRUNT))
+        env = {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+        proc = subprocess.run([sys.executable, str(ROOT / "src" / "conventions.py"), str(cfg), str(self.root)],
+                              capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("::error file=_envcommon/x.hcl,line=1,title=no-envcommon::", proc.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

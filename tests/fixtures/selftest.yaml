@@ -1,0 +1,10 @@
+# The conventions workflow run over this repository by ci.yml, so that a pull
+# request here tries the generated workflow end to end (yq, the embedded
+# script, the summary) before the v1 tag moves.
+rules:
+  no-envcommon:
+    level: error
+  variable-no-default:
+    level: error
+    files: ["tests/fixtures/**/*.tf"]
+exceptions: []
