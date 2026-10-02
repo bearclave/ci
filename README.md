@@ -9,6 +9,7 @@ each repository that drifts on its own.
 | Workflow | What it checks | Check name in the caller |
 |---|---|---|
 | `security.yml` | gitleaks over the whole history, actionlint, zizmor, shellcheck | `security / scan` |
+| `conventions.yml` | the code conventions the repository lists in `conventions.yaml` | `conventions / check` |
 
 The `main-checks` ruleset of the organisation requires `security / scan` on
 every repository that has workflows.
@@ -30,6 +31,58 @@ call it.
 **Template repositories cannot.** `template-iac-*` are copied to customers,
 whose organisations cannot reach a private `bearclave` repository, so the
 templates keep their own copy of the checks.
+
+## Conventions
+
+`conventions.yml` reads `conventions.yaml` of the calling repository (another
+path with the `config` input): which rules apply, how strictly, and the
+exceptions. The rules are in `src/conventions.py`.
+
+```yaml
+units:                       # the unit files, for the terragrunt rules
+  - mg-corp/**/terragrunt.hcl
+rules:
+  tags-required:
+    level: error             # error fails the check, warn only reports, off skips
+    allowed_values: _common/tags.hcl
+    files:
+      rg.hcl: [criticality, data_classification]
+exceptions:
+  - rule: no-hardcoded-location
+    path: mg-corp/policy-assignments/terragrunt.hcl
+    match: westeurope        # optional: text on the line or in the message
+    reason: The allowed-locations policy lists the regions it allows.
+```
+
+| Rule | What it holds | Parameters |
+|---|---|---|
+| `variable-no-default` | a module variable has no `default`, and no `optional(type, default)` | `files` |
+| `variable-documented` | a module variable has a `description` and a `type` | `files` |
+| `module-source` | a unit takes its module from git with `modules_ref` | `pattern` |
+| `dependencies-in-common` | no `dependency` block in a unit, only in the shared directory | `dir` |
+| `mock-outputs` | every dependency has mocks, and the mocks never reach apply or destroy | `dir`, `mocks_file`, `forbidden_commands` |
+| `tags-required` | context files set their tags, with an allowed value | `files`, `allowed_values` |
+| `no-hardcoded-ids` | no subscription or tenant ID and no `/subscriptions/<id>` written out in a unit | `id_files` |
+| `no-hardcoded-location` | no region written out in a unit | `locations` |
+| `no-envcommon` | no `_envcommon` | - |
+| `lock-none-needs-reason` | `lock = "none"` in a resource group of the listed criticality has a comment on or above the line | `criticality` |
+
+Each violation is an annotation on its line and a row in the job summary. An
+exception without a `reason`, an unknown rule or level fail the check.
+
+The script reads HCL with a small parser of its own (blocks, attributes,
+strings, heredocs, comments) and needs only the Python standard library; the
+workflow turns the YAML into JSON with the `yq` of the runner.
+
+## How a script gets into a workflow
+
+A reusable workflow runs in the calling repository, and the caller's token
+cannot read this private repository: a script here cannot be checked out next
+to the workflow. So it travels inside it. `templates/<name>.yml` has a line
+`@@include src/<script>@@` inside a heredoc, and `./build.py` writes
+`.github/workflows/<name>.yml` with the script in its place. Edit the template
+or `src/`, never the generated file, and run `./build.py`; the `python` job
+fails when the two do not match.
 
 ## Versions
 
@@ -61,7 +114,8 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
 
 1. Change the workflow in a pull request. The pull request runs the changed
    workflow from its own branch (`.github/workflows/ci.yml`), so it is tried
-   on this repository before anything else sees it.
+   on this repository before anything else sees it, along with the unit tests
+   in `tests/`.
 2. Merge.
 3. Move `v1` to the merge commit:
 
