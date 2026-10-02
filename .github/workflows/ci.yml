@@ -1,0 +1,26 @@
+# The workflows of this repository checked on this repository: a pull request
+# runs them from its own branch, so a change is tried out before the v1 tag
+# moves and every other repository picks it up.
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  # main holds only what a pull request already checked; the weekly run is
+  # there for new gitleaks rules over the old history.
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
