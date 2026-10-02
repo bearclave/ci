@@ -32,6 +32,13 @@ jobs:
     with:
       config: tests/fixtures/selftest.yaml
 
+  sentinel:
+    uses: ./.github/workflows/sentinel-lint.yml
+    permissions:
+      contents: read
+    with:
+      config: tests/fixtures/sentinel-selftest.yaml
+
   # The scripts the workflows carry, and the workflows written from them.
   python:
     runs-on: ubuntu-latest

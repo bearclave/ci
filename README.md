@@ -10,6 +10,7 @@ each repository that drifts on its own.
 |---|---|---|
 | `security.yml` | gitleaks over the whole history, actionlint, zizmor, shellcheck | `security / scan` |
 | `conventions.yml` | the code conventions the repository lists in `conventions.yaml` | `conventions / check` |
+| `sentinel-lint.yml` | Microsoft Sentinel analytic rules, as `sentinel-lint.yaml` says where they are | `sentinel / lint` |
 
 The `main-checks` ruleset of the organisation requires `security / scan` on
 every repository that has workflows.
@@ -73,6 +74,46 @@ exception without a `reason`, an unknown rule or level fail the check.
 The script reads HCL with a small parser of its own (blocks, attributes,
 strings, heredocs, comments) and needs only the Python standard library; the
 workflow turns the YAML into JSON with the `yq` of the runner.
+
+## Sentinel analytic rules
+
+`sentinel-lint.yml` reads `sentinel-lint.yaml` of the calling repository:
+
+```yaml
+rules:
+  - path: mg-corp/.../analytic-rules/rules
+    format: pair                  # <name>.json + <name>.kql, ${placeholders}
+    substitutions_from: mg-corp/.../analytic-rules/terragrunt.hcl
+  - path: ARM/4-AnalyticRules
+    format: arm                   # ARM templates with .../alertRules inside
+watchlists:                       # where `alias = "X"` or "watchlistAlias" is defined
+  - mg-corp/.../watchlists/terragrunt.hcl
+checks:                           # error unless listed
+  watchlist-exists: warn
+exceptions:
+  - check: tactics
+    rule: ARM/**/an-mdca-*.json   # a glob of the file
+    reason: why it is accepted
+```
+
+| Check | What it catches |
+|---|---|
+| `json-valid` | a rule file that is not JSON |
+| `kql-present` | a scheduled or NRT rule without a query (the `.kql` beside a pair missing) |
+| `kind`, `severity`, `trigger` | values outside what the alertRules API takes |
+| `schedule` | frequency or period outside 5 minutes to 14 days, not ISO 8601, or a frequency longer than the period - the events in between are never seen |
+| `tactics` | a tactic outside the API's AttackTactic |
+| `techniques` | a technique that is not `Tdddd`, a sub-technique without its technique |
+| `alert-details` | a broken `{{column}}` in the alert name or description, more than 3 columns |
+| `entities` | more than 10 mappings, an unknown entity type, other than 1 to 3 identifiers |
+| `custom-details` | more than 20 custom details |
+| `grouping` | grouping by an entity or custom detail the rule does not have, `Selected` with nothing selected |
+| `unique-name` | two rules with the same display name |
+| `substitutions` | a `${placeholder}` the unit's `substitutions` do not fill (pair format) |
+| `watchlist-exists` | `_GetWatchlist('X')` for a watchlist the repository does not define |
+
+The KQL itself is not run: that needs a workspace and an identity that may
+read it.
 
 ## How a script gets into a workflow
 

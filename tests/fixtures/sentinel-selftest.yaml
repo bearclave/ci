@@ -1,0 +1,7 @@
+# The sentinel-lint workflow run over the sample rule in tests/fixtures by
+# ci.yml, so that a pull request here tries the generated workflow end to end.
+rules:
+  - path: tests/fixtures/sentinel/rules
+    format: pair
+watchlists:
+  - tests/fixtures/sentinel/watchlists.hcl
