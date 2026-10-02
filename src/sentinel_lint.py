@@ -278,7 +278,9 @@ def lint(rule, report, aliases):
 
     if rule.substitutions is not None:
         for name in sorted(rule.placeholders - rule.substitutions):
-            add("substitutions", "displayName", f"${{{name}}} is not in the substitutions of the unit")
+            # Spelled out: the two characters together would start an
+            # expression in the workflow this script is carried in.
+            add("substitutions", "displayName", "$" + "{" + name + "} is not in the substitutions of the unit")
 
     if aliases is not None:
         for alias in sorted(set(RE_WATCHLIST.findall(rule.query or ""))):

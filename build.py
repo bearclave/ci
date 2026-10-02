@@ -27,7 +27,12 @@ def render(template: pathlib.Path) -> str:
             out.append(line)
             continue
         indent, path = m.groups()
-        for src in (ROOT / path).read_text(encoding="utf-8").splitlines():
+        source = (ROOT / path).read_text(encoding="utf-8")
+        # GitHub reads ${{ anywhere in a workflow as the start of an
+        # expression, heredoc or not, and rejects the whole file.
+        if "${{" in source:
+            sys.exit(f"{path} contains '$' + '{{{{', which a workflow cannot carry")
+        for src in source.splitlines():
             out.append((indent + src).rstrip() + "\n" if src.strip() else "\n")
     return "".join(out)
 
