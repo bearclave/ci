@@ -1,0 +1,68 @@
+{
+  "kind": "Scheduled",
+  "properties": {
+    "displayName": "Break glass sign-in",
+    "description": "A break glass account signed in.",
+    "severity": "High",
+    "enabled": true,
+    "queryFrequency": "PT1H",
+    "queryPeriod": "PT1H",
+    "triggerOperator": "GreaterThan",
+    "triggerThreshold": 0,
+    "suppressionDuration": "PT5H",
+    "suppressionEnabled": false,
+    "tactics": [
+      "InitialAccess",
+      "Persistence"
+    ],
+    "techniques": [
+      "T1078"
+    ],
+    "subTechniques": [
+      "T1078.004"
+    ],
+    "alertDetailsOverride": {
+      "alertDisplayNameFormat": "Sign-in by {{Account}}",
+      "alertDescriptionFormat": "{{Account}} from {{IP}}"
+    },
+    "entityMappings": [
+      {
+        "entityType": "Account",
+        "fieldMappings": [
+          {
+            "identifier": "Name",
+            "columnName": "Account"
+          }
+        ]
+      },
+      {
+        "entityType": "IP",
+        "fieldMappings": [
+          {
+            "identifier": "Address",
+            "columnName": "IP"
+          }
+        ]
+      }
+    ],
+    "customDetails": {
+      "Country": "Location"
+    },
+    "incidentConfiguration": {
+      "createIncident": true,
+      "groupingConfiguration": {
+        "enabled": true,
+        "matchingMethod": "Selected",
+        "groupByEntities": [
+          "Account"
+        ],
+        "groupByAlertDetails": [
+          "DisplayName"
+        ],
+        "groupByCustomDetails": [
+          "Country"
+        ]
+      }
+    }
+  }
+}

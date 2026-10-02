@@ -1,0 +1,56 @@
+# Checks Microsoft Sentinel analytic rules before a deploy would find what is
+# wrong with them: a broken {{column}} in the alert name, a tactic Sentinel
+# does not know, more entities than it takes, a schedule with gaps, grouping by
+# an entity the rule does not map, a watchlist that is not there. Where the
+# rules are and which checks apply is in sentinel-lint.yaml of the calling
+# repository; the checks are in src/sentinel_lint.py of bearclave/ci.
+#
+#   jobs:
+#     sentinel:
+#       uses: bearclave/ci/.github/workflows/sentinel-lint.yml@v1
+#       permissions:
+#         contents: read
+#
+# The check reports as "sentinel / lint".
+name: sentinel-lint
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: Path of the lint config in the calling repository
+        type: string
+        default: sentinel-lint.yaml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The script travels inside this workflow (see build.py): the caller's
+      # token cannot read bearclave/ci.
+      - name: Analytic rules
+        env:
+          CONFIG: ${{ inputs.config }}
+        run: |
+          script="$RUNNER_TEMP/sentinel_lint.py"
+          cat >"$script" <<'PY'
+          @@include src/sentinel_lint.py@@
+          PY
+          if [ ! -f "$CONFIG" ]; then
+            echo "::error::$CONFIG not found"
+            exit 1
+          fi
+          yq -o=json '.' "$CONFIG" >"$RUNNER_TEMP/sentinel-lint.json"
+          python3 "$script" "$RUNNER_TEMP/sentinel-lint.json" .
