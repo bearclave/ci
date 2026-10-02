@@ -42,6 +42,21 @@ to this organisation (the header, zizmor's allowance for `bearclave/*`):
 
 Run it after every release, in a pull request per template.
 
+`sync-templates.py` does the same for everything else a template shares with
+its live repository - the pipeline, the scripts and their tests, the runner of
+`iac-m365`, the modules - and keeps what is the tenant (account.hcl, the units,
+the configuration, the README). Each template has its rules in the script:
+what is copied, what is replaced (`bearclave/iac-modules` -> `contoso/...`),
+and the edits a template needs on top (the jobs that sign in to a tenant wait
+for the customer's variables). It stops when a file would bring the
+organisation or its tenant into a template, and when an edit no longer finds
+its text because the live file changed shape:
+
+```bash
+./sync-templates.py --check ..                       # what is out of date
+./sync-templates.py .. template-iac-terragrunt       # write one template
+```
+
 ## Conventions
 
 `conventions.yml` reads `conventions.yaml` of the calling repository (another
