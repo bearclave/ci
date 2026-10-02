@@ -31,7 +31,16 @@ call it.
 
 **Template repositories cannot.** `template-iac-*` are copied to customers,
 whose organisations cannot reach a private `bearclave` repository, so the
-templates keep their own copy of the checks.
+templates call a local copy (`uses: ./.github/workflows/security.yml`). The
+copies are written by `export-for-templates.py`, which takes out what belongs
+to this organisation (the header, zizmor's allowance for `bearclave/*`):
+
+```bash
+./export-for-templates.py ../template-iac-modules ../template-iac-terragrunt ../template-iac-m365
+./export-for-templates.py --check ../template-iac-*     # are the copies current?
+```
+
+Run it after every release, in a pull request per template.
 
 ## Conventions
 
