@@ -79,7 +79,7 @@ TEMPLATES = {
     "template-iac-m365": {
         "live": "iac-m365",
         "copy": [".github/scripts", ".github/workflows/m365.yml", ".github/workflows/drift.yml",
-                 "src/Runner", "src/Gaps", "src/Resolve.psm1", "src/Schema.psm1", "src/Order.psd1",
+                 "src/Runner", "src/Gaps", "src/Resolve.psm1", "src/Schema.psm1", "src/Order.psd1", "src/Routing.psd1",
                  "tests", "tools/Test-Configuration.ps1", "tools/Update-SelfServicePurchaseProducts.ps1"],
         "keep": [],
         "replace": [SHARED_CALL, ("noreply@bearclave.cz", "noreply@contoso.com")],
