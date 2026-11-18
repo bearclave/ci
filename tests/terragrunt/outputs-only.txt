@@ -1,0 +1,27 @@
+12:14:03.174 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+├── shared/dns
+╰── tenant/groups
+12:14:03.177 INFO   [tenant/groups] Downloading Terraform configurations from ./tenant/groups into ./tenant/groups/.terragrunt-cache/EPcPZPRpwIXwU1IUOo4ZqPQt31g/mdcjNuTHtiySSjzjWNTw8KjQGbo
+12:14:03.208 INFO   [shared/dns] terraform: Initializing the backend...
+12:14:03.208 INFO   [tenant/groups] terraform: Initializing the backend...
+12:14:03.209 INFO   [tenant/groups] terraform: Initializing provider plugins...
+12:14:03.209 INFO   [tenant/groups] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:14:03.209 INFO   [tenant/groups] terraform: Terraform has been successfully initialized!
+12:14:03.209 INFO   [shared/dns] terraform: Initializing provider plugins...
+12:14:03.210 INFO   [shared/dns] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:14:03.210 INFO   [shared/dns] terraform: Terraform has been successfully initialized!
+12:14:03.251 STDOUT [tenant/groups] terraform: terraform_data.team: Refreshing state... [id=a36b63b1-7d34-d1ba-60f6-b861fef57d21]
+12:14:03.251 STDOUT [shared/dns] terraform: terraform_data.zone: Refreshing state... [id=d6e72628-002e-4299-516d-5ed6c35a4044]
+12:14:03.251 STDOUT [shared/dns] terraform: No changes. Your infrastructure matches the configuration.
+12:14:03.251 STDOUT [shared/dns] terraform: Terraform has compared your real infrastructure against your configuration
+12:14:03.251 STDOUT [shared/dns] terraform: and found no differences, so no changes are needed.
+12:14:03.253 STDOUT [tenant/groups] terraform: Changes to Outputs:
+12:14:03.253 STDOUT [tenant/groups] terraform:   + team_id = "a36b63b1-7d34-d1ba-60f6-b861fef57d21"
+12:14:03.253 STDOUT [tenant/groups] terraform: You can apply this plan to save these new output values to the Terraform
+12:14:03.253 STDOUT [tenant/groups] terraform: state, without changing any real infrastructure.
+
+❯❯ Run Summary  2 units  79ms
+   ────────────────────────────
+   Succeeded    2
+

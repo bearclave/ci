@@ -1,0 +1,64 @@
+12:14:03.603 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+├── tenant/groups
+├── web/db
+╰── web/site
+12:14:03.615 INFO   [web/site] Downloading Terraform configurations from ./web/site into ./web/site/.terragrunt-cache/Otxj8muPmThiO9BPF9kHnDuvlBc/Jw8sAWvFZ-LTR4gk4-7ZG2NYQVM
+12:14:03.617 INFO   [web/db] Downloading Terraform configurations from ./web/db into ./web/db/.terragrunt-cache/263xt5lstut4ShPwXA1UMxlmJls/ouvpUPNCXLipFQbLmPiJx8C5QbY
+12:14:03.618 INFO   [tenant/groups] Downloading Terraform configurations from ./tenant/groups into ./tenant/groups/.terragrunt-cache/otkYmSzNbclIhAOZ0Vb9Aduqfd4/GC8O3xv07dembl3sEfJlI7nexGE
+12:14:03.654 INFO   [web/site] terraform: Initializing the backend...
+12:14:03.664 INFO   [tenant/groups] terraform: Initializing the backend...
+12:14:03.664 INFO   [web/db] terraform: Initializing the backend...
+12:14:03.665 INFO   [web/db] terraform: Successfully configured the backend "local"! Terraform will automatically
+12:14:03.665 INFO   [web/db] terraform: use this backend unless the backend configuration changes.
+12:14:03.667 INFO   [web/db] terraform: Initializing provider plugins...
+12:14:03.667 INFO   [web/db] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:14:03.667 INFO   [web/db] terraform: Terraform has been successfully initialized!
+12:14:03.667 INFO   [web/site] terraform: Successfully configured the backend "local"! Terraform will automatically
+12:14:03.667 INFO   [web/site] terraform: use this backend unless the backend configuration changes.
+12:14:03.667 INFO   [web/site] terraform: Initializing provider plugins...
+12:14:03.667 INFO   [web/site] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:14:03.667 INFO   [web/site] terraform: Terraform has been successfully initialized!
+12:14:03.668 INFO   [tenant/groups] terraform: Successfully configured the backend "local"! Terraform will automatically
+12:14:03.668 INFO   [tenant/groups] terraform: use this backend unless the backend configuration changes.
+12:14:03.668 INFO   [tenant/groups] terraform: Initializing provider plugins...
+12:14:03.668 INFO   [tenant/groups] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:14:03.669 INFO   [tenant/groups] terraform: Terraform has been successfully initialized!
+12:14:03.672 INFO   [tenant/groups] Executing hook: slow
+12:14:03.710 STDOUT [web/site] terraform: Terraform used the selected providers to generate the following execution
+12:14:03.710 STDOUT [web/site] terraform: plan. Resource actions are indicated with the following symbols:
+12:14:03.710 STDOUT [web/site] terraform:   + create
+12:14:03.710 STDOUT [web/site] terraform: Terraform will perform the following actions:
+12:14:03.711 STDOUT [web/site] terraform:   # terraform_data.site will be created
+12:14:03.711 STDOUT [web/site] terraform:   + resource "terraform_data" "site" {
+12:14:03.711 STDOUT [web/site] terraform:       + id     = (known after apply)
+12:14:03.711 STDOUT [web/site] terraform:       + input  = "a"
+12:14:03.711 STDOUT [web/site] terraform:       + output = (known after apply)
+12:14:03.711 STDOUT [web/site] terraform:     }
+12:14:03.711 STDOUT [web/site] terraform: Plan: 1 to add, 0 to change, 0 to destroy.
+12:14:03.713 STDOUT [web/db] terraform: Terraform used the selected providers to generate the following execution
+12:14:03.713 STDOUT [web/db] terraform: plan. Resource actions are indicated with the following symbols:
+12:14:03.713 STDOUT [web/db] terraform:   + create
+12:14:03.713 STDOUT [web/db] terraform: Terraform will perform the following actions:
+12:14:03.714 STDOUT [web/db] terraform:   # terraform_data.db will be created
+12:14:03.714 STDOUT [web/db] terraform:   + resource "terraform_data" "db" {
+12:14:03.714 STDOUT [web/db] terraform:       + id     = (known after apply)
+12:14:03.714 STDOUT [web/db] terraform:       + input  = "a"
+12:14:03.714 STDOUT [web/db] terraform:       + output = (known after apply)
+12:14:03.714 STDOUT [web/db] terraform:     }
+12:14:03.714 STDOUT [web/db] terraform:   # terraform_data.zone will be created
+12:14:03.714 STDOUT [web/db] terraform:   + resource "terraform_data" "zone" {
+12:14:03.714 STDOUT [web/db] terraform:       + id     = (known after apply)
+12:14:03.714 STDOUT [web/db] terraform:       + input  = "b"
+12:14:03.714 STDOUT [web/db] terraform:       + output = (known after apply)
+12:14:03.714 STDOUT [web/db] terraform:     }
+12:14:03.714 STDOUT [web/db] terraform: Plan: 2 to add, 0 to change, 0 to destroy.
+12:14:11.279 INFO   Interrupt signal received. Gracefully shutting down...
+12:14:11.280 ERROR  [tenant/groups] Hook "slow" (command: sleep 30) exited with non-zero exit code -1
+12:14:11.280 ERROR  [tenant/groups] Errors encountered running before_hooks. Not running 'terraform'.
+
+❯❯ Run Summary  3 units  7s
+   ────────────────────────────
+   Succeeded    2
+   Failed       1
+

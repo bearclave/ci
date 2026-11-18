@@ -1,0 +1,31 @@
+# Terragrunt cannot authenticate its own git against a private repository,
+# so the modules go on disk and TG_SOURCE_MAP points there.
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  with:
+    repository: bearclave/iac-modules
+    path: iac-modules
+    ssh-key: ${{ secrets.modules-deploy-key }}
+    persist-credentials: false
+
+@@include templates/_fragments/scripts-common.yml@@
+
+- name: Tool versions
+  id: versions
+  run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
+
+- uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+  with:
+    terraform_version: ${{ steps.versions.outputs.TERRAFORM_VERSION }}
+    terraform_wrapper: false
+
+- uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+  with:
+    path: ${{ env.TOOLS_DIR }}
+    key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
+
+- name: Install terragrunt and wireguard-tools
+  run: |
+    set -euo pipefail
+    install-tools.sh terragrunt
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq wireguard-tools >/dev/null

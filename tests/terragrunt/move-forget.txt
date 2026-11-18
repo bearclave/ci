@@ -1,0 +1,53 @@
+12:06:39.008 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+├── shared/dns
+├── tenant/groups
+╰── tenant/users
+12:06:39.015 INFO   [tenant/users] Downloading Terraform configurations from ./tenant/users into ./tenant/users/.terragrunt-cache/LwFfEQvXl_V8Kpyjs8mTGIWyqdM/SV4vbnYrB3QnfgS8nlWQr7Hfn6Q
+12:06:39.020 INFO   [tenant/groups] Downloading Terraform configurations from ./tenant/groups into ./tenant/groups/.terragrunt-cache/Y5tw5WicAzZSiz9jZ8IFdOuvnv4/9aBc0FRJ7HRNMf4egQvOgmbTmYU
+12:06:39.053 INFO   [shared/dns] terraform: Initializing the backend...
+12:06:39.058 INFO   [shared/dns] terraform: Initializing provider plugins...
+12:06:39.058 INFO   [shared/dns] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:06:39.058 INFO   [shared/dns] terraform: Terraform has been successfully initialized!
+12:06:39.072 INFO   [tenant/users] terraform: Initializing the backend...
+12:06:39.072 INFO   [tenant/users] terraform: Initializing provider plugins...
+12:06:39.072 INFO   [tenant/users] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:06:39.072 INFO   [tenant/users] terraform: Terraform has been successfully initialized!
+12:06:39.077 INFO   [tenant/groups] terraform: Initializing the backend...
+12:06:39.078 INFO   [tenant/groups] terraform: Initializing provider plugins...
+12:06:39.078 INFO   [tenant/groups] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:06:39.078 INFO   [tenant/groups] terraform: Terraform has been successfully initialized!
+12:06:39.116 STDOUT [shared/dns] terraform: terraform_data.zone: Refreshing state... [id=e82f549d-b4e2-5b11-abd7-44eb44829cce]
+12:06:39.118 STDOUT [shared/dns] terraform: No changes. Your infrastructure matches the configuration.
+12:06:39.119 STDOUT [shared/dns] terraform: Terraform has compared your real infrastructure against your configuration
+12:06:39.119 STDOUT [shared/dns] terraform: and found no differences, so no changes are needed.
+12:06:39.132 STDOUT [tenant/groups] terraform: terraform_data.sales: Refreshing state... [id=92b3ddec-cc36-5817-e662-7dc1afd1d64b]
+12:06:39.134 STDOUT [tenant/groups] terraform: Terraform will perform the following actions:
+12:06:39.134 STDOUT [tenant/groups] terraform:   # terraform_data.team has moved to terraform_data.sales
+12:06:39.134 STDOUT [tenant/groups] terraform:     resource "terraform_data" "sales" {
+12:06:39.134 STDOUT [tenant/groups] terraform:         id     = "92b3ddec-cc36-5817-e662-7dc1afd1d64b"
+12:06:39.134 STDOUT [tenant/groups] terraform:         # (2 unchanged attributes hidden)
+12:06:39.134 STDOUT [tenant/groups] terraform:     }
+12:06:39.134 STDOUT [tenant/groups] terraform: Plan: 0 to add, 0 to change, 0 to destroy.
+12:06:39.135 STDOUT [tenant/users] terraform: terraform_data.keep: Refreshing state... [id=45abf178-2271-1d2a-e0a4-f5e0fce7d707]
+12:06:39.136 STDOUT [tenant/users] terraform: Terraform used the selected providers to generate the following execution
+12:06:39.137 STDOUT [tenant/users] terraform: plan. Resource actions are indicated with the following symbols:
+12:06:39.138 STDOUT [tenant/users] terraform: Terraform will perform the following actions:
+12:06:39.138 STDOUT [tenant/users] terraform:  # terraform_data.legacy will no longer be managed by Terraform, but will not be destroyed
+12:06:39.138 STDOUT [tenant/users] terraform:  # (destroy = false is set in the configuration)
+12:06:39.138 STDOUT [tenant/users] terraform:  . resource "terraform_data" "legacy" {
+12:06:39.138 STDOUT [tenant/users] terraform:         id     = "7e3dd762-392d-9e7e-bcbf-57eebf0e1350"
+12:06:39.138 STDOUT [tenant/users] terraform:         # (2 unchanged attributes hidden)
+12:06:39.138 STDOUT [tenant/users] terraform:     }
+12:06:39.138 STDOUT [tenant/users] terraform: Plan: 0 to add, 0 to change, 0 to destroy.
+12:06:39.138 STDOUT [tenant/users] terraform: Warning: Some objects will no longer be managed by Terraform
+12:06:39.138 STDOUT [tenant/users] terraform: If you apply this plan, Terraform will discard its tracking information for
+12:06:39.138 STDOUT [tenant/users] terraform: the following objects, but it will not delete them:
+12:06:39.138 STDOUT [tenant/users] terraform:  - terraform_data.legacy
+12:06:39.138 STDOUT [tenant/users] terraform: After applying this plan, Terraform will no longer manage these objects. You
+12:06:39.138 STDOUT [tenant/users] terraform: will need to import them into Terraform to manage them again.
+
+❯❯ Run Summary  3 units  125ms
+   ────────────────────────────
+   Succeeded    3
+

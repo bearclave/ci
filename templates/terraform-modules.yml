@@ -1,0 +1,122 @@
+# The pipeline of a repository of Terraform modules (iac-modules). Nothing
+# reaches a cloud: no credentials, no backend, no apply.
+#
+#   formatting, init -backend=false + validate per module, tflint, trivy
+#   config over the modules, and the conventions in conventions.yaml
+#
+#   jobs:
+#     pipeline:
+#       uses: bearclave/ci/.github/workflows/terraform-modules.yml@v2
+#       permissions:
+#         contents: read
+#
+# Versions: TERRAFORM_VERSION, TFLINT_*, TRIVY_* in the caller's
+# .github/tool-versions.env. The required check is "pipeline / gate".
+name: terraform-modules
+
+on:
+  workflow_call:
+    inputs:
+      conventions-config:
+        description: Path of the conventions file
+        type: string
+        default: conventions.yaml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TOOLS_DIR: ${{ github.workspace }}/.tools/bin
+  TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tfcache
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      @@include templates/_fragments/scripts-common.yml@@
+
+      - name: Tool versions
+        id: versions
+        run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.versions.outputs.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Restore tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOLS_DIR }}
+          key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
+
+      # Every module declares only a range, so the resolved provider is the
+      # newest one that fits. Keyed on the declarations, not on a lock file -
+      # the exact version is pinned by the consuming repository.
+      - name: Restore provider cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: providers-${{ runner.os }}-${{ hashFiles('**/versions.tf') }}
+          restore-keys: providers-${{ runner.os }}-
+
+      - name: Install tools
+        run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          install-tools.sh tflint trivy
+
+      - name: Formatting
+        run: terraform fmt -check -recursive -diff
+
+      # init -backend=false + validate over every directory that holds .tf
+      # files. One failing module does not stop the others, so a single run
+      # reports everything that is broken.
+      - name: Module validation
+        run: |
+          set -uo pipefail
+          fail=0
+          while read -r dir; do
+            echo "::group::$dir"
+            if ! terraform -chdir="$dir" init -backend=false -input=false -no-color >/dev/null; then
+              echo "::error file=$dir::terraform init failed"
+              fail=1
+            elif ! terraform -chdir="$dir" validate -no-color; then
+              echo "::error file=$dir::terraform validate failed"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done < <(find . -name '*.tf' -not -path '*/.terraform/*' -not -path './.tools/*' -exec dirname {} \; | sort -u)
+          exit $fail
+
+      - name: tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tflint --init --config="$PWD/.tflint.hcl"
+          tflint --recursive --config="$PWD/.tflint.hcl"
+
+      - name: trivy config
+        run: trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml .
+
+  conventions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      @@include templates/_fragments/conventions-steps.yml@@
+
+  gate:
+    needs: [terraform, conventions]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      @@include templates/_fragments/gate-step.yml@@

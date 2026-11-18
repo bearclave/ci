@@ -1,0 +1,224 @@
+11:40:41.767 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+├── shared/dns
+├── shared/vault
+├── web/db
+├── web/misc
+╰── web/site
+11:40:41.783 INFO   [web/db] Downloading Terraform configurations from ./web/db into ./web/db/.terragrunt-cache/aHPozJPYNJeph4mhGKmDzGAkn8Y/is3L-SQbkKczTq7dOZTZ49-wTa4
+11:40:41.784 INFO   [web/misc] Downloading Terraform configurations from ./web/misc into ./web/misc/.terragrunt-cache/K1gxDTsOTQa66gyNXkuLA7qh46M/9etyY3jJk_J0B4h7cxKTZASbuqU
+11:40:41.785 INFO   [web/site] Downloading Terraform configurations from ./web/site into ./web/site/.terragrunt-cache/m6R1TeBk4z4C29smmMrqxenmk2o/9uj6Qlr2DZz5q8GGNeFzHJxpIxg
+11:40:41.787 INFO   [shared/vault] Downloading Terraform configurations from ./shared/vault into ./shared/vault/.terragrunt-cache/dB66pUZUawDrbWcFOYQ8FS9Rkg8/kI8DQh6RNUFlVZe3qN6JuBoNf-o
+11:40:41.829 INFO   [web/misc] terraform: Initializing the backend...
+11:40:41.831 INFO   [web/misc] terraform: Initializing provider plugins...
+11:40:41.831 INFO   [web/misc] terraform: - terraform.io/builtin/terraform is built in to Terraform
+11:40:41.831 INFO   [web/misc] terraform: Terraform has been successfully initialized!
+11:40:41.843 INFO   [shared/vault] terraform: Initializing the backend...
+11:40:41.844 INFO   [shared/vault] terraform: Initializing provider plugins...
+11:40:41.844 INFO   [shared/vault] terraform: - terraform.io/builtin/terraform is built in to Terraform
+11:40:41.844 INFO   [shared/vault] terraform: Terraform has been successfully initialized!
+11:40:41.845 INFO   [shared/dns] terraform: Initializing the backend...
+11:40:41.846 INFO   [shared/dns] terraform: Initializing provider plugins...
+11:40:41.846 INFO   [shared/dns] terraform: - terraform.io/builtin/terraform is built in to Terraform
+11:40:41.846 INFO   [shared/dns] terraform: Terraform has been successfully initialized!
+11:40:41.848 INFO   [web/db] terraform: Initializing the backend...
+11:40:41.850 INFO   [web/db] terraform: Initializing provider plugins...
+11:40:41.850 INFO   [web/db] terraform: - terraform.io/builtin/terraform is built in to Terraform
+11:40:41.850 INFO   [web/db] terraform: Terraform has been successfully initialized!
+11:40:41.858 INFO   [web/site] terraform: Initializing the backend...
+11:40:41.860 INFO   [web/site] terraform: Initializing provider plugins...
+11:40:41.860 INFO   [web/site] terraform: - terraform.io/builtin/terraform is built in to Terraform
+11:40:41.860 INFO   [web/site] terraform: Terraform has been successfully initialized!
+11:40:41.914 STDOUT [web/misc] terraform: terraform_data.k["Reader on sub"]: Refreshing state... [id=76a1965a-f985-28c8-bab3-a91a4ad1026c]
+11:40:41.920 STDERR [shared/vault] terraform: Error: Invalid function argument
+11:40:41.920 STDERR [shared/vault] terraform:   on main.tf line 1, in resource "terraform_data" "vault":
+11:40:41.920 STDERR [shared/vault] terraform:    1: resource "terraform_data" "vault" { input = jsondecode(file("${path.module}/policy.json")) }
+11:40:41.920 STDERR [shared/vault] terraform:     ├────────────────
+11:40:41.920 STDERR [shared/vault] terraform:     │ while calling file(path)
+11:40:41.920 STDERR [shared/vault] terraform:     │ path.module is "."
+11:40:41.920 STDERR [shared/vault] terraform: Invalid value for "path" parameter: no file exists at "./policy.json"; this
+11:40:41.920 STDERR [shared/vault] terraform: function works only with files that are distributed as part of the
+11:40:41.920 STDERR [shared/vault] terraform: configuration source code, so if this file will be created by a resource in
+11:40:41.920 STDERR [shared/vault] terraform: this configuration you must instead obtain this result from an attribute of
+11:40:41.920 STDERR [shared/vault] terraform: that resource.
+11:40:41.922 STDOUT [web/misc] terraform: terraform_data.k["x"]: Refreshing state... [id=3467c4ab-c0cf-132e-513e-ef0b64c8058d]
+11:40:41.922 STDOUT [web/misc] terraform: terraform_data.m2: Refreshing state... [id=86130e30-214c-c453-24d9-c7e5006b6d27]
+11:40:41.922 STDOUT [web/misc] terraform: terraform_data.a: Refreshing state... [id=6302bbd0-7042-6e9f-4e44-aa435856ebc2]
+11:40:41.925 STDOUT [web/misc] terraform: Terraform used the selected providers to generate the following execution
+11:40:41.925 STDOUT [web/misc] terraform: plan. Resource actions are indicated with the following symbols:
+11:40:41.925 STDOUT [web/misc] terraform:   - destroy
+11:40:41.925 STDOUT [web/misc] terraform: -/+ destroy and then create replacement
+11:40:41.925 STDOUT [web/misc] terraform: Terraform will perform the following actions:
+11:40:41.925 STDOUT [web/misc] terraform:   # terraform_data.a is tainted, so must be replaced
+11:40:41.925 STDOUT [web/misc] terraform: -/+ resource "terraform_data" "a" {
+11:40:41.925 STDOUT [web/misc] terraform:       ~ id     = "6302bbd0-7042-6e9f-4e44-aa435856ebc2" -> (known after apply)
+11:40:41.925 STDOUT [web/misc] terraform:       ~ output = "a" -> (known after apply)
+11:40:41.925 STDOUT [web/misc] terraform:         # (1 unchanged attribute hidden)
+11:40:41.925 STDOUT [web/misc] terraform:     }
+11:40:41.925 STDOUT [web/misc] terraform:  # terraform_data.d will no longer be managed by Terraform, but will not be destroyed
+11:40:41.925 STDOUT [web/misc] terraform:  # (destroy = false is set in the configuration)
+11:40:41.925 STDOUT [web/misc] terraform:  . resource "terraform_data" "d" {
+11:40:41.925 STDOUT [web/misc] terraform:         id     = "b9a976ae-8cef-b5bd-c05a-f7329e9318c7"
+11:40:41.925 STDOUT [web/misc] terraform:         # (2 unchanged attributes hidden)
+11:40:41.925 STDOUT [web/misc] terraform:     }
+11:40:41.925 STDOUT [web/misc] terraform:   # terraform_data.k["Reader on sub"] will be destroyed
+11:40:41.925 STDOUT [web/misc] terraform:   # (because key ["Reader on sub"] is not in for_each map)
+11:40:41.925 STDOUT [web/misc] terraform:   - resource "terraform_data" "k" {
+11:40:41.925 STDOUT [web/misc] terraform:       - id     = "76a1965a-f985-28c8-bab3-a91a4ad1026c" -> null
+11:40:41.925 STDOUT [web/misc] terraform:       - input  = "Reader on sub" -> null
+11:40:41.925 STDOUT [web/misc] terraform:       - output = "Reader on sub" -> null
+11:40:41.925 STDOUT [web/misc] terraform:     }
+11:40:41.925 STDOUT [web/misc] terraform:   # terraform_data.m has moved to terraform_data.m2
+11:40:41.925 STDOUT [web/misc] terraform:     resource "terraform_data" "m2" {
+11:40:41.925 STDOUT [web/misc] terraform:         id     = "86130e30-214c-c453-24d9-c7e5006b6d27"
+11:40:41.925 STDOUT [web/misc] terraform:         # (2 unchanged attributes hidden)
+11:40:41.925 STDOUT [web/misc] terraform:     }
+11:40:41.925 STDOUT [web/misc] terraform: Plan: 1 to add, 0 to change, 2 to destroy.
+11:40:41.925 STDOUT [web/misc] terraform: Warning: Some objects will no longer be managed by Terraform
+11:40:41.925 STDOUT [web/misc] terraform: If you apply this plan, Terraform will discard its tracking information for
+11:40:41.925 STDOUT [web/misc] terraform: the following objects, but it will not delete them:
+11:40:41.925 STDOUT [web/misc] terraform:  - terraform_data.d
+11:40:41.925 STDOUT [web/misc] terraform: After applying this plan, Terraform will no longer manage these objects. You
+11:40:41.925 STDOUT [web/misc] terraform: will need to import them into Terraform to manage them again.
+11:40:41.940 STDOUT [web/db] terraform: terraform_data.db: Refreshing state... [id=8b27f61e-8a2b-6d47-181a-fde7337ee271]
+11:40:41.942 STDOUT [web/db] terraform: Terraform used the selected providers to generate the following execution
+11:40:41.942 STDOUT [web/db] terraform: plan. Resource actions are indicated with the following symbols:
+11:40:41.942 STDOUT [web/db] terraform:   + create
+11:40:41.942 STDOUT [web/db] terraform:   ~ update in-place
+11:40:41.942 STDOUT [web/db] terraform: Terraform will perform the following actions:
+11:40:41.942 STDOUT [web/db] terraform:   # terraform_data.db will be updated in-place
+11:40:41.942 STDOUT [web/db] terraform:   ~ resource "terraform_data" "db" {
+11:40:41.942 STDOUT [web/db] terraform:         id     = "8b27f61e-8a2b-6d47-181a-fde7337ee271"
+11:40:41.942 STDOUT [web/db] terraform:       ~ input  = {
+11:40:41.942 STDOUT [web/db] terraform:           ~ size = 10 -> 20
+11:40:41.942 STDOUT [web/db] terraform:         }
+11:40:41.942 STDOUT [web/db] terraform:       ~ output = {
+11:40:41.942 STDOUT [web/db] terraform:           - size = 10
+11:40:41.942 STDOUT [web/db] terraform:         } -> (known after apply)
+11:40:41.942 STDOUT [web/db] terraform:     }
+11:40:41.942 STDOUT [web/db] terraform:   # terraform_data.replica will be created
+11:40:41.942 STDOUT [web/db] terraform:   + resource "terraform_data" "replica" {
+11:40:41.942 STDOUT [web/db] terraform:       + id     = (known after apply)
+11:40:41.942 STDOUT [web/db] terraform:       + input  = {
+11:40:41.942 STDOUT [web/db] terraform:           + size = 20
+11:40:41.943 STDOUT [web/db] terraform:           + zone = "2"
+11:40:41.943 STDOUT [web/db] terraform:         }
+11:40:41.943 STDOUT [web/db] terraform:       + output = (known after apply)
+11:40:41.943 STDOUT [web/db] terraform:     }
+11:40:41.943 STDOUT [web/db] terraform: Plan: 1 to add, 1 to change, 0 to destroy.
+11:40:41.946 STDOUT [web/site] terraform: terraform_data.old: Refreshing state... [id=b423fbac-ba62-ac07-6301-436cc175cc8a]
+11:40:41.947 STDOUT [web/site] terraform: terraform_data.site: Refreshing state... [id=277d20bd-1b4f-7de1-9947-57360ff6de39]
+11:40:41.948 STDOUT [web/site] terraform: terraform_data.cert: Refreshing state... [id=53dc95bd-6dc8-dcfd-4913-83b3dcd64190]
+11:40:41.950 STDOUT [shared/dns] terraform: terraform_data.zone: Refreshing state... [id=000fe78a-dbcd-5b2f-e7ce-c77e51848be6]
+11:40:41.951 STDOUT [shared/dns] terraform: No changes. Your infrastructure matches the configuration.
+11:40:41.951 STDOUT [shared/dns] terraform: Terraform has compared your real infrastructure against your configuration
+11:40:41.951 STDOUT [shared/dns] terraform: and found no differences, so no changes are needed.
+11:40:41.951 STDOUT [web/site] terraform: Terraform used the selected providers to generate the following execution
+11:40:41.951 STDOUT [web/site] terraform: plan. Resource actions are indicated with the following symbols:
+11:40:41.951 STDOUT [web/site] terraform:   + create
+11:40:41.951 STDOUT [web/site] terraform:   ~ update in-place
+11:40:41.951 STDOUT [web/site] terraform:   - destroy
+11:40:41.951 STDOUT [web/site] terraform: -/+ destroy and then create replacement
+11:40:41.951 STDOUT [web/site] terraform:  <= read (data resources)
+11:40:41.951 STDOUT [web/site] terraform: Terraform will perform the following actions:
+11:40:41.951 STDOUT [web/site] terraform:   # data.terraform_remote_state.peer will be read during apply
+11:40:41.951 STDOUT [web/site] terraform:   # (config refers to values not yet known)
+11:40:41.951 STDOUT [web/site] terraform:  <= data "terraform_remote_state" "peer" {
+11:40:41.951 STDOUT [web/site] terraform:       + backend = "local"
+11:40:41.951 STDOUT [web/site] terraform:       + config  = {
+11:40:41.951 STDOUT [web/site] terraform:           + path = (known after apply)
+11:40:41.951 STDOUT [web/site] terraform:         }
+11:40:41.951 STDOUT [web/site] terraform:       + outputs = (known after apply)
+11:40:41.951 STDOUT [web/site] terraform:     }
+11:40:41.951 STDOUT [web/site] terraform:   # terraform_data.cdn will be created
+11:40:41.951 STDOUT [web/site] terraform:   + resource "terraform_data" "cdn" {
+11:40:41.951 STDOUT [web/site] terraform:       + id     = (known after apply)
+11:40:41.951 STDOUT [web/site] terraform:       + input  = {
+11:40:41.951 STDOUT [web/site] terraform:           + hosts  = [
+11:40:41.951 STDOUT [web/site] terraform:               + "a.example.cz",
+11:40:41.951 STDOUT [web/site] terraform:               + "b.example.cz",
+11:40:41.951 STDOUT [web/site] terraform:             ]
+11:40:41.951 STDOUT [web/site] terraform:           + origin = "web"
+11:40:41.951 STDOUT [web/site] terraform:         }
+11:40:41.951 STDOUT [web/site] terraform:       + output = (known after apply)
+11:40:41.951 STDOUT [web/site] terraform:     }
+11:40:41.951 STDOUT [web/site] terraform:   # terraform_data.cert must be replaced
+11:40:41.951 STDOUT [web/site] terraform: -/+ resource "terraform_data" "cert" {
+11:40:41.951 STDOUT [web/site] terraform:       ~ id               = "53dc95bd-6dc8-dcfd-4913-83b3dcd64190" -> (known after apply)
+11:40:41.951 STDOUT [web/site] terraform:       ~ triggers_replace = [
+11:40:41.951 STDOUT [web/site] terraform:           ~ "v1" -> "v2",
+11:40:41.951 STDOUT [web/site] terraform:         ]
+11:40:41.951 STDOUT [web/site] terraform:     }
+11:40:41.951 STDOUT [web/site] terraform:   # terraform_data.old will be destroyed
+11:40:41.951 STDOUT [web/site] terraform:   # (because terraform_data.old is not in configuration)
+11:40:41.951 STDOUT [web/site] terraform:   - resource "terraform_data" "old" {
+11:40:41.951 STDOUT [web/site] terraform:       - id     = "b423fbac-ba62-ac07-6301-436cc175cc8a" -> null
+11:40:41.951 STDOUT [web/site] terraform:       - input  = "to be removed" -> null
+11:40:41.951 STDOUT [web/site] terraform:       - output = "to be removed" -> null
+11:40:41.952 STDOUT [web/site] terraform:     }
+11:40:41.952 STDOUT [web/site] terraform:   # terraform_data.site will be updated in-place
+11:40:41.952 STDOUT [web/site] terraform:   ~ resource "terraform_data" "site" {
+11:40:41.952 STDOUT [web/site] terraform:         id     = "277d20bd-1b4f-7de1-9947-57360ff6de39"
+11:40:41.952 STDOUT [web/site] terraform:       ~ input  = {
+11:40:41.952 STDOUT [web/site] terraform:             name  = "web"
+11:40:41.952 STDOUT [web/site] terraform:           ~ tier  = "basic" -> "standard"
+11:40:41.952 STDOUT [web/site] terraform:           + token = (sensitive value)
+11:40:41.952 STDOUT [web/site] terraform:         }
+11:40:41.952 STDOUT [web/site] terraform:       ~ output = {
+11:40:41.952 STDOUT [web/site] terraform:           - name = "web"
+11:40:41.952 STDOUT [web/site] terraform:           - tier = "basic"
+11:40:41.952 STDOUT [web/site] terraform:         } -> (known after apply)
+11:40:41.952 STDOUT [web/site] terraform:     }
+11:40:41.952 STDOUT [web/site] terraform: Plan: 2 to add, 1 to change, 2 to destroy.
+11:40:41.952 STDOUT [web/site] terraform: Changes to Outputs:
+11:40:41.952 STDOUT [web/site] terraform:   + hosts = [
+11:40:41.952 STDOUT [web/site] terraform:       + "a.example.cz",
+11:40:41.952 STDOUT [web/site] terraform:       + "b.example.cz",
+11:40:41.952 STDOUT [web/site] terraform:     ]
+11:40:41.955 ERROR  Run failed: error occurred:
+
+* Failed to execute "terraform plan -no-color -input=false" in ./shared/vault/.terragrunt-cache/dB66pUZUawDrbWcFOYQ8FS9Rkg8/kI8DQh6RNUFlVZe3qN6JuBoNf-o
+  
+  Error: Invalid function argument
+  
+    on main.tf line 1, in resource "terraform_data" "vault":
+     1: resource "terraform_data" "vault" { input = jsondecode(file("${path.module}/policy.json")) }
+      ├────────────────
+      │ while calling file(path)
+      │ path.module is "."
+  
+  Invalid value for "path" parameter: no file exists at "./policy.json"; this
+  function works only with files that are distributed as part of the
+  configuration source code, so if this file will be created by a resource in
+  this configuration you must instead obtain this result from an attribute of
+  that resource.
+  
+  exit status 1
+
+
+❯❯ Run Summary  5 units  172ms
+   ────────────────────────────
+   Succeeded    4
+   Failed       1
+
+11:40:41.955 INFO   TIP (debugging-docs): For help troubleshooting errors, visit https://docs.terragrunt.com/troubleshooting/debugging
+11:40:41.955 ERROR  error occurred:
+
+* Failed to execute "terraform plan -no-color -input=false" in ./shared/vault/.terragrunt-cache/dB66pUZUawDrbWcFOYQ8FS9Rkg8/kI8DQh6RNUFlVZe3qN6JuBoNf-o
+  
+  Error: Invalid function argument
+  
+    on main.tf line 1, in resource "terraform_data" "vault":
+     1: resource "terraform_data" "vault" { input = jsondecode(file("${path.module}/policy.json")) }
+      ├────────────────
+      │ while calling file(path)
+      │ path.module is "."
+  
+  Invalid value for "path" parameter: no file exists at "./policy.json"; this
+  function works only with files that are distributed as part of the
+  configuration source code, so if this file will be created by a resource in
+  this configuration you must instead obtain this result from an attribute of
+  that resource.
+  
+  exit status 1
+

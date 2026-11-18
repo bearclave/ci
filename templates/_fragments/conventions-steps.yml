@@ -1,0 +1,18 @@
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  with:
+    persist-credentials: false
+
+- name: Conventions
+  env:
+    CONFIG: ${{ inputs.conventions-config }}
+  run: |
+    script="$RUNNER_TEMP/conventions.py"
+    cat >"$script" <<'__CI_EOF__'
+    @@include src/conventions.py@@
+    __CI_EOF__
+    if [ ! -f "$CONFIG" ]; then
+      echo "::error::$CONFIG not found"
+      exit 1
+    fi
+    yq -o=json '.' "$CONFIG" >"$RUNNER_TEMP/conventions.json"
+    python3 "$script" "$RUNNER_TEMP/conventions.json" .

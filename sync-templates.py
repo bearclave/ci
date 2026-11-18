@@ -13,6 +13,12 @@ scripts and their tests, the runner, the modules - and keeps what is the
 tenant: account.hcl, the units, the configuration of the tenant, its README.
 Without this the templates fell behind within weeks.
 
+Since bearclave/ci v2 the pipelines of the live repositories are shared
+workflows of this repository, called by a few lines each; they are no longer
+copied from the live repositories. The templates keep the pipeline copies
+they have until they are rebuilt on the v2 workflows (exported by
+export-for-templates.py).
+
 For each template below: `copy` lists what is taken over (directories whole,
 removing what live no longer has), `keep` what stays the template's even
 inside a copied directory, `replace` the organisation's values and their
@@ -46,97 +52,23 @@ TERRAGRUNT_GUARD = """  # Everything from here on signs in to Azure. Until AZURE
 
 TEMPLATES = {
     "template-iac-terragrunt": {
-        "live": "iac-terragrunt",
-        "copy": [".github/scripts", ".github/workflows/terragrunt.yml", ".github/workflows/drift.yml",
-                 ".github/workflows/scripts.yml", ".github/tool-versions.env"],
+        "live": "iac-azure",
+        "copy": [".github/tool-versions.env"],
         "keep": [],
         "replace": [("bearclave/iac-modules", "contoso/iac-modules"), SHARED_CALL],
-        "edits": {
-            ".github/workflows/terragrunt.yml": [
-                ("\n  plan:\n    needs: changes\n", "\n" + TERRAGRUNT_GUARD + "\n    needs: changes\n"),
-                ("    if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}",
-                 "    if: ${{ !cancelled() && vars.AZURE_CLIENT_ID_PLATFORM != '' && needs.changes.outputs.relevant != 'false' }}"),
-                ("""  # In Azure DevOps a skipped apply stage left the run green, so eight applies
-  # in a row never happened and nothing said so. An apply that was due and did
-  # not succeed has to be red.
-  gate:
-    needs: [plan, apply]
-    if: always() && github.event_name != 'pull_request'""",
-                 """  # A skipped apply must not leave the run green - otherwise applies can fail
-  # to happen for weeks and nothing says so. An apply that was due and did not
-  # succeed has to be red.
-  gate:
-    needs: [plan, apply]
-    if: always() && github.event_name != 'pull_request' && vars.AZURE_CLIENT_ID_PLATFORM != ''"""),
-            ],
-            ".github/workflows/drift.yml": [
-                ("jobs:\n  drift:\n    runs-on: ubuntu-latest\n",
-                 "jobs:\n  # Skipped until AZURE_CLIENT_ID_PLATFORM is filled in - see terragrunt.yml.\n"
-                 "  drift:\n    if: vars.AZURE_CLIENT_ID_PLATFORM != ''\n    runs-on: ubuntu-latest\n"),
-            ],
-        },
+        "edits": {},
     },
     "template-iac-m365": {
         "live": "iac-m365",
-        "copy": [".github/scripts", ".github/workflows/m365.yml", ".github/workflows/drift.yml",
-                 "src/Runner", "src/Gaps", "src/Resolve.psm1", "src/Schema.psm1", "src/Order.psd1", "src/Routing.psd1",
+        "copy": ["src/Runner", "src/Gaps", "src/Resolve.psm1", "src/Schema.psm1", "src/Order.psd1", "src/Routing.psd1",
                  "tests", "tools/Test-Configuration.ps1", "tools/Update-SelfServicePurchaseProducts.ps1"],
         "keep": [],
         "replace": [SHARED_CALL, ("noreply@bearclave.cz", "noreply@contoso.com")],
-        "edits": {
-            ".github/workflows/m365.yml": [
-                ("""# Everything runs on ubuntu-latest. Azure DevOps used a Windows agent because
-# nobody had checked PnP.PowerShell and the SharePoint resources anywhere else;
-# after the scope was narrowed to the tenant settings, the whole plan was
-# verified on Unix and Windows would cost twice the quota for nothing.""",
-                 """# Everything runs on ubuntu-latest. The whole plan was verified on Unix and a
-# Windows runner would cost twice the quota for nothing."""),
-                ("""      - name: Configuration against the schemas
-        shell: pwsh
-        run: |
-          ./tools/Test-Configuration.ps1""",
-                 """      # In the template there is only the example file; a customer repository
-      # has the real tenant.psd1 next to it and this does nothing.
-      - name: Configuration against the schemas
-        shell: pwsh
-        run: |
-          if (-not (Test-Path ./tenant.psd1)) { Copy-Item ./tenant.example.psd1 ./tenant.psd1 }
-          ./tools/Test-Configuration.ps1"""),
-                ("\n  plan:\n    needs: [changes, validate]\n",
-                 """
-  # Everything from here on signs in to the tenant. Until AZURE_CLIENT_ID is
-  # filled in the jobs are skipped, so a freshly created repository is green
-  # and only the checks that need no tenant run.
-  plan:
-    needs: [changes, validate]
-"""),
-                ("""      ${{ !cancelled()
-          && needs.changes.outputs.relevant != 'false'""",
-                 """      ${{ vars.AZURE_CLIENT_ID != ''
-          && !cancelled()
-          && needs.changes.outputs.relevant != 'false'"""),
-                ("""  # In Azure DevOps a skipped apply stage left the run green. An apply that was
-  # due and did not succeed has to be red.
-  gate:
-    needs: [plan, apply]
-    if: always() && github.event_name != 'pull_request'""",
-                 """  # A skipped apply must not leave the run green. An apply that was due and did
-  # not succeed has to be red.
-  gate:
-    needs: [plan, apply]
-    if: always() && github.event_name != 'pull_request' && vars.AZURE_CLIENT_ID != ''"""),
-            ],
-            ".github/workflows/drift.yml": [
-                ("jobs:\n  drift:\n    runs-on: ubuntu-latest\n",
-                 "jobs:\n  # Skipped until AZURE_CLIENT_ID is filled in - see m365.yml.\n"
-                 "  drift:\n    if: vars.AZURE_CLIENT_ID != ''\n    runs-on: ubuntu-latest\n"),
-            ],
-        },
+        "edits": {},
     },
     "template-iac-modules": {
         "live": "iac-modules",
-        "copy": [".github/workflows/validate.yml", ".github/scripts", ".github/tool-versions.env",
-                 ".tflint.hcl", ".trivyignore.yaml", "conventions.yaml",
+        "copy": [".github/tool-versions.env", ".tflint.hcl", ".trivyignore.yaml", "conventions.yaml",
                  "_shared", "data", "identity", "monitoring", "platform", "security", "sentinel", "web"],
         # The live description names the tenant's own domains.
         "keep": ["identity/entra-users/variables.tf"],
@@ -150,6 +82,12 @@ TEMPLATES = {
         "edits": {},
     },
 }
+
+
+def locate(base: pathlib.Path, name: str) -> pathlib.Path:
+    """<base>/<name>, or <base>/<group>/<name> in the grouped layout (iac/, template/, ...)."""
+    found = [p for p in [base / name, *base.glob(f"*/{name}")] if (p / ".git").exists()]
+    return found[0] if found else base / name
 
 
 def tracked(repo: pathlib.Path) -> list:
@@ -169,7 +107,7 @@ def apply_rules(text: str, rules: dict, path: str) -> str:
 
 def plan(base: pathlib.Path, name: str, rules: dict, template: pathlib.Path):
     """(path, new content or None for removal) for every file out of date."""
-    live = base / rules["live"]
+    live = locate(base, rules["live"])
     live_files, template_files = set(tracked(live)), set(tracked(template))
     selected = lambda p: any(p == c or p.startswith(c.rstrip("/") + "/") for c in rules["copy"])
     out = []
@@ -196,13 +134,13 @@ def main(args) -> int:
     check = "--check" in args
     rest = [a for a in args if not a.startswith("--")]
     base = pathlib.Path(rest[0]) if rest and pathlib.Path(rest[0]).is_dir() and not rest[0].startswith("template-") \
-        else ROOT.parent
+        else (ROOT.parent.parent if ROOT.parent.name in ("iac", "app", "template", "platform") else ROOT.parent)
     targets = {}
     for a in rest:
         if a.startswith("template-"):
             name, _, where = a.partition("=")
-            targets[name] = pathlib.Path(where) if where else base / name
-    targets = targets or {n: base / n for n in TEMPLATES}
+            targets[name] = pathlib.Path(where) if where else locate(base, name)
+    targets = targets or {n: locate(base, n) for n in TEMPLATES}
     names = list(targets)
     stale = 0
     for name in names:

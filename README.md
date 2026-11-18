@@ -6,24 +6,48 @@ each repository that drifts on its own.
 
 ## Workflows
 
-| Workflow | What it checks | Check name in the caller |
-|---|---|---|
-| `security.yml` | gitleaks over the whole history, actionlint, zizmor, shellcheck | `security / scan` |
-| `conventions.yml` | the code conventions the repository lists in `conventions.yaml` | `conventions / check` |
-| `sentinel-lint.yml` | Microsoft Sentinel analytic rules, as `sentinel-lint.yaml` says where they are | `sentinel / lint` |
+Every pipeline of the organisation lives here once; a repository holds only
+short callers (templates in `bearclave/governance` `standards/templates/workflows/`).
 
-The `main-checks` ruleset of the organisation requires `security / scan` on
-every repository that has workflows.
+| Workflow | Caller job | Used by | What it does |
+|---|---|---|---|
+| `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck |
+| `pr.yml` | `pr` | every repository | Conventional Commit title, `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`) |
+| `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `.github` | an optional command of the repository, then the gate |
+| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, plan of the affected units with trivy and a PR comment, apply from `main`, destroys held back, gate |
+| `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, analytic rules outside the code |
+| `terragrunt-home.yml` | `pipeline` | `iac-home` | conventions, plan and apply of the router through WireGuard, certificate renewal and drift on schedule |
+| `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
+| `m365-dsc.yml` | `pipeline` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of the affected types, apply |
+| `m365-drift.yml` | `drift` | `iac-m365` | weekly plan of the whole tenant, tombstones into a pull request |
+| `static-web-app.yml` | `pipeline` | `app-web-*` | the site's checks, deploy to the Static Web App when the content changed |
+| `container.yml` | `pipeline` | `app-home` | lint and tests in the image, push to GHCR from `main` |
+| `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
+| `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows; v2 pipelines carry them as jobs |
+
+The organisation rulesets (in `bearclave/iac-github`) require three checks on
+`main`: **`security / scan`**, **`pr / check`** and **`pipeline / gate`**.
+Every pipeline ends with a `gate` job that always runs and fails when anything
+it needs failed, or - on `main` - when an apply that was due did not happen:
+a skipped job passes a required check, so only the gate may be required.
 
 ## Calling a workflow
 
 ```yaml
 jobs:
   security:
-    uses: bearclave/ci/.github/workflows/security.yml@v1
+    uses: bearclave/ci/.github/workflows/security.yml@v2
+    permissions:
+      contents: read
+  pipeline:
+    uses: bearclave/ci/.github/workflows/terraform-modules.yml@v2
     permissions:
       contents: read
 ```
+
+The caller owns the triggers, the `concurrency` group and what it passes
+(`with:` for variables, `secrets:` by name - never `secrets: inherit`). The
+header of each workflow shows its caller.
 
 The repository is private; its Actions access is set to "Accessible from
 repositories in the 'bearclave' organization", which is what lets the others
@@ -40,21 +64,22 @@ to this organisation (the header, zizmor's allowance for `bearclave/*`):
 ./export-for-templates.py --check ../template-iac-*     # are the copies current?
 ```
 
-Run it after every release, in a pull request per template.
+The templates still carry the v1 pipelines; they move to the v2 workflows when
+they are rebuilt.
 
-`sync-templates.py` does the same for everything else a template shares with
-its live repository - the pipeline, the scripts and their tests, the runner of
-`iac-m365`, the modules - and keeps what is the tenant (account.hcl, the units,
-the configuration, the README). Each template has its rules in the script:
-what is copied, what is replaced (`bearclave/iac-modules` -> `contoso/...`),
-and the edits a template needs on top (the jobs that sign in to a tenant wait
-for the customer's variables). It stops when a file would bring the
-organisation or its tenant into a template, and when an edit no longer finds
-its text because the live file changed shape:
+`sync-templates.py` keeps what else a template shares with its live repository
+- the runner of `iac-m365`, the modules, the tool versions - and keeps what is
+the tenant (account.hcl, the units, the configuration, the README). Each
+template has its rules in the script: what is copied, what is replaced
+(`bearclave/iac-modules` -> `contoso/...`), and the edits a template needs on
+top. It stops when a file would bring the organisation or its tenant into a
+template, and when an edit no longer finds its text because the live file
+changed shape. It finds the repositories next to this one or in the group
+folders (`iac/`, `template/`):
 
 ```bash
-./sync-templates.py --check ..                       # what is out of date
-./sync-templates.py .. template-iac-terragrunt       # write one template
+./sync-templates.py --check ~/Repositories/Bearclave.GitHub   # what is out of date
+./sync-templates.py ~/Repositories/Bearclave.GitHub template-iac-terragrunt
 ```
 
 ## Conventions
@@ -145,30 +170,48 @@ A reusable workflow runs in the calling repository, and the caller's token
 cannot read this private repository: a script here cannot be checked out next
 to the workflow. So it travels inside it. `templates/<name>.yml` has a line
 `@@include src/<script>@@` inside a heredoc, and `./build.py` writes
-`.github/workflows/<name>.yml` with the script in its place. Edit the template
-or `src/`, never the generated file, and run `./build.py`; the `python` job
-fails when the two do not match.
+`.github/workflows/<name>.yml` with the script in its place.
+`@@include templates/_fragments/<name>.yml@@` puts a shared piece of workflow
+(the steps that unpack the scripts into `$RUNNER_TEMP/ci` and put them on
+`PATH`, the conventions and Sentinel jobs, the gate) in the same way.
+
+Edit the template, the fragment or `src/`, never the generated file, and run
+`./build.py`; the `pipeline` job fails when the two do not match.
+
+| Directory | Content | Tests |
+|---|---|---|
+| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `install-tools.sh`, `pr-comment.sh` | `tests/test_*.py`, `pr_check.py --self-test` |
+| `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
+| `src/m365/` | module install, type selection, plan outputs | in `iac-m365` (Pester) |
+
+A script reads the repository it runs for from the working directory (the
+root of the caller's checkout), never from its own location.
 
 ## Versions
 
-Callers use the moving tag `v1`, not a commit:
+[Semantic versioning](https://github.com/bearclave/governance/blob/main/standards/versioning.md):
+every release is a signed tag `v2.Y.Z` and a GitHub release with notes
+generated from the pull request labels; the major tag `v2` moves to the newest
+one.
 
-- A change here reaches every repository at once, when the tag moves. With a
-  commit pin, every change would mean a pull request in each of a dozen
-  repositories, and in the IaC repositories each of those plans the whole
-  tree.
-- The `tagy-verzi` ruleset lets only an organisation owner move or delete a
-  `v*` tag.
+- Callers use `@v2`, so a fix reaches every repository when the tag moves.
+- Repositories that touch production may pin the exact `@v2.Y.Z`; Dependabot
+  then proposes the bump as a pull request with its plan.
+- `v1` stays where it is for anything that still calls it; it gets no changes.
+- The `release-tags` ruleset refuses to update or delete a `v*.*.*` tag; only
+  an organisation owner may move `v2`.
 - Everything the workflows themselves use is pinned to a commit; the
   organisation enforces that (`sha_pinning_required`).
 
 A change that would break callers (a new required input, a renamed job and
-with it the check name) goes to `v2`, and the callers move over one by one.
+with it the check name) is a major version.
 
 The tools (gitleaks, actionlint, zizmor, shellcheck) are release binaries
-checked against a sha256, pinned in the `env` of the workflow. Dependabot does
-not see them; a version and its checksum are bumped together by hand. The
-checksum is the `digest` GitHub publishes with the release asset:
+checked against a sha256, pinned in the `env` of `security.yml`; the tools of
+the pipelines (terraform, terragrunt, tflint, trivy, Microsoft365DSC) in the
+caller's `.github/tool-versions.env`. Dependabot does not see them; a version
+and its checksum are bumped together by hand. The checksum is the `digest`
+GitHub publishes with the release asset:
 
 ```bash
 gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
@@ -177,16 +220,24 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
 
 ## Releasing
 
-1. Change the workflow in a pull request. The pull request runs the changed
-   workflow from its own branch (`.github/workflows/ci.yml`), so it is tried
-   on this repository before anything else sees it, along with the unit tests
-   in `tests/`.
+1. Change the workflow in a pull request. The pull request runs `ci.yml` and
+   `pr-check.yml` from its own branch, so the changed workflows are tried on
+   this repository first, along with the unit tests.
 2. Merge.
-3. Move `v1` to the merge commit:
+3. Tag the release and move the major tag:
 
    ```bash
-   sha=$(gh api repos/bearclave/ci/commits/main --jq .sha)
-   gh api -X PATCH repos/bearclave/ci/git/refs/tags/v1 -f sha="$sha" -F force=true
+   git switch main && git pull --ff-only
+   git tag -s v2.1.0 -m v2.1.0 && git push origin v2.1.0
+   gh release create v2.1.0 --verify-tag --generate-notes
+   git tag -fs v2 -m "v2 -> v2.1.0" v2.1.0 && git push -f origin v2
    ```
 
-4. Rerun the check in one caller to see it there too.
+4. Rerun the pipeline in one caller to see it there too.
+
+## Repository settings
+
+Branch protection, required checks, merge settings and labels are defined in
+[`bearclave/iac-github`](https://github.com/bearclave/iac-github)
+(`repositories/ci`). Engineering standards:
+[`bearclave/governance`](https://github.com/bearclave/governance/tree/main/standards).

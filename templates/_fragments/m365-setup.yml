@@ -1,0 +1,14 @@
+@@include templates/_fragments/scripts-m365.yml@@
+
+- name: Restore PowerShell modules
+  uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+  with:
+    path: ${{ env.PS_MODULES }}
+    key: psmodules-v2-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env', 'src/Runner/Install-M365Dependencies.ps1') }}
+
+# The script installs what is missing and always checks the result, so a
+# cache restored short of a few resources fails here rather than in the
+# middle of a plan.
+- name: PowerShell modules
+  shell: pwsh
+  run: '& "$env:RUNNER_TEMP/ci/install-modules.ps1"'

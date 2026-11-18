@@ -1,0 +1,97 @@
+# The pipeline of a containerised application (app-home):
+#
+#   pull request -> lint and tests in the image's test stage, the image build
+#                   (not published)
+#   push to main -> the same, then the image goes to GHCR as :main and :<sha>
+#
+# Only the docker CLI is used: the organisation allows no third-party actions.
+#
+#   jobs:
+#     pipeline:
+#       needs: security          # nothing is published past a failed scan
+#       uses: bearclave/ci/.github/workflows/container.yml@v2
+#       permissions:
+#         contents: read
+#         packages: write
+#       with:
+#         image: ghcr.io/bearclave/home-app
+#
+# The required check is "pipeline / gate".
+name: container
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Image name without tag, ghcr.io/<owner>/<name>
+        type: string
+        required: true
+      test-target:
+        description: Dockerfile stage that runs lint and tests
+        type: string
+        default: test
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Lint and tests run inside the image's test stage, on the same Python and
+  # packages as the app.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint and tests
+        env:
+          TARGET: ${{ inputs.test-target }}
+        run: docker build --target "$TARGET" .
+
+      - name: Image
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: docker build --build-arg "APP_VERSION=${GITHUB_SHA::7}" -t "$IMAGE:ci" .
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          short=${GITHUB_SHA::7}
+          docker build --build-arg "APP_VERSION=$short" -t "$IMAGE:main" -t "$IMAGE:$short" .
+
+      - name: Push
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ inputs.image }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push --all-tags "$IMAGE"
+          docker logout ghcr.io
+
+  gate:
+    needs: [build, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      @@include templates/_fragments/gate-step.yml@@
