@@ -182,7 +182,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 |---|---|---|
 | `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `install-tools.sh`, `pr-comment.sh` | `tests/test_*.py`, `pr_check.py --self-test` |
 | `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
-| `src/m365/` | module install, type selection, plan outputs | in `iac-m365` (Pester) |
+| `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 
 A script reads the repository it runs for from the working directory (the
 root of the caller's checkout), never from its own location.
