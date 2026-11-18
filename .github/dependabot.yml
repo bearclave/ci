@@ -12,4 +12,6 @@ updates:
       actions:
         patterns: ["*"]
     commit-message:
-      prefix: actions
+      prefix: deps
+    labels: ["type:deps"]
+    assignees: ["matej-hrabalek"]
