@@ -230,7 +230,7 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
    git switch main && git pull --ff-only
    git tag -s v2.1.0 -m v2.1.0 && git push origin v2.1.0
    gh release create v2.1.0 --verify-tag --generate-notes
-   git tag -fs v2 -m "v2 -> v2.1.0" v2.1.0 && git push -f origin v2
+   git tag -fs v2 -m "v2 -> v2.1.0" "v2.1.0^{}" && git push -f origin v2
    ```
 
 4. Rerun the pipeline in one caller to see it there too.
