@@ -1,0 +1,365 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_resource_group.this",
+   "mode": "managed",
+   "type": "azurerm_resource_group",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "name": "rg-web-app-weu-001",
+     "location": "westeurope",
+     "tags": {
+      "criticality": "medium",
+      "owner": "x"
+     }
+    },
+    "after": {
+     "name": "rg-web-app-weu-001",
+     "location": "westeurope",
+     "tags": {
+      "criticality": "high",
+      "owner": "x"
+     }
+    },
+    "after_unknown": {},
+    "before_sensitive": {},
+    "after_sensitive": {}
+   }
+  },
+  {
+   "address": "module.role_assignments.azurerm_role_assignment.active[\"Key Vault Secrets User/sp:sp-invoices\"]",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "delete"
+    ],
+    "before": {
+     "scope": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-fin/providers/Microsoft.KeyVault/vaults/kv-app-fin",
+     "role_definition_name": "Key Vault Secrets User",
+     "principal_id": "11111111-2222-3333-4444-555555555555"
+    },
+    "after": null,
+    "after_unknown": {},
+    "before_sensitive": {},
+    "after_sensitive": {}
+   },
+   "index": "Key Vault Secrets User/sp:sp-invoices",
+   "action_reason": "delete_because_each_key"
+  },
+  {
+   "address": "azurerm_key_vault_certificate.this",
+   "mode": "managed",
+   "type": "azurerm_key_vault_certificate",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "delete",
+     "create"
+    ],
+    "before": {
+     "name": "cert-web",
+     "certificate_policy": [
+      {
+       "x509_certificate_properties": [
+        {
+         "subject": "CN=old.example.cz",
+         "validity_in_months": 12
+        }
+       ]
+      }
+     ]
+    },
+    "after": {
+     "name": "cert-web",
+     "certificate_policy": [
+      {
+       "x509_certificate_properties": [
+        {
+         "subject": "CN=new.example.cz",
+         "validity_in_months": 12
+        }
+       ]
+      }
+     ]
+    },
+    "after_unknown": {
+     "id": true,
+     "version": true
+    },
+    "before_sensitive": {},
+    "after_sensitive": {},
+    "replace_paths": [
+     [
+      "certificate_policy",
+      0,
+      "x509_certificate_properties",
+      0,
+      "subject"
+     ]
+    ]
+   }
+  },
+  {
+   "address": "azurerm_key_vault.this",
+   "mode": "managed",
+   "type": "azurerm_key_vault",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "name": "kv-sec",
+     "public_network_access_enabled": true,
+     "purge_protection_enabled": true
+    },
+    "after": {
+     "name": "kv-sec",
+     "public_network_access_enabled": false,
+     "purge_protection_enabled": true
+    },
+    "after_unknown": {},
+    "before_sensitive": {},
+    "after_sensitive": {}
+   }
+  },
+  {
+   "address": "azurerm_key_vault_secret.api",
+   "mode": "managed",
+   "type": "azurerm_key_vault_secret",
+   "name": "api",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "name": "api-key",
+     "value": "s3cr3t-old"
+    },
+    "after": {
+     "name": "api-key",
+     "value": "s3cr3t-new"
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "value": true
+    },
+    "after_sensitive": {
+     "value": true
+    }
+   }
+  },
+  {
+   "address": "azuread_application.this",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "display_name": "sp-invoices",
+     "sign_in_audience": "AzureADMyOrg"
+    },
+    "after_unknown": {
+     "client_id": true
+    },
+    "before_sensitive": {},
+    "after_sensitive": {}
+   }
+  },
+  {
+   "address": "azurerm_monitor_diagnostic_setting.this[0]",
+   "mode": "managed",
+   "type": "azurerm_monitor_diagnostic_setting",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ],
+    "before": {
+     "name": "diag-law"
+    },
+    "after": {
+     "name": "diag-law"
+    },
+    "after_unknown": {},
+    "before_sensitive": {},
+    "after_sensitive": {}
+   },
+   "previous_address": "azurerm_monitor_diagnostic_setting.this",
+   "index": 0
+  },
+  {
+   "address": "azurerm_static_web_app.this",
+   "mode": "managed",
+   "type": "azurerm_static_web_app",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "name": "stapp-web",
+     "sku_tier": "Free",
+     "etag": "abc"
+    },
+    "after": {
+     "name": "stapp-web",
+     "sku_tier": "Standard"
+    },
+    "after_unknown": {
+     "etag": true
+    },
+    "before_sensitive": {},
+    "after_sensitive": {}
+   }
+  },
+  {
+   "address": "azurerm_sentinel_alert_rule_scheduled.this[\"0mega\"]",
+   "mode": "managed",
+   "type": "azurerm_sentinel_alert_rule_scheduled",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "display_name": "0mega Sharepoint Online Ransomware",
+     "tactics": [
+      "InitialAccess"
+     ]
+    },
+    "after": {
+     "display_name": "0mega Sharepoint Online Ransomware",
+     "tactics": [
+      "InitialAccess",
+      "Persistence"
+     ]
+    },
+    "after_unknown": {},
+    "before_sensitive": {},
+    "after_sensitive": {}
+   },
+   "index": "0mega"
+  },
+  {
+   "address": "azuread_group.imported",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "imported",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ],
+    "before": {
+     "display_name": "sg-import"
+    },
+    "after": {
+     "display_name": "sg-import"
+    },
+    "after_unknown": {},
+    "before_sensitive": {},
+    "after_sensitive": {},
+    "importing": {
+     "id": "/groups/1"
+    }
+   }
+  },
+  {
+   "address": "data.azurerm_client_config.current",
+   "mode": "data",
+   "type": "azurerm_client_config",
+   "name": "current",
+   "change": {
+    "actions": [
+     "read"
+    ],
+    "before": null,
+    "after": {},
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"0mega\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "0mega",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "type": "Microsoft.SecurityInsights/alertRules@2025-10-01-preview",
+     "name": "9f4e46e3",
+     "body": {
+      "properties": {
+       "displayName": "Ransomware group created",
+       "alertDetailsOverride": {
+        "alertDescriptionFormat": "A suspicious activity related to the 0mega ransomware has been detected. {{{ResultMessage}} by user"
+       }
+      }
+     },
+     "output": {
+      "id": "x"
+     }
+    },
+    "after": {
+     "type": "Microsoft.SecurityInsights/alertRules@2025-10-01-preview",
+     "name": "9f4e46e3",
+     "body": {
+      "properties": {
+       "displayName": "Ransomware group created",
+       "alertDetailsOverride": {
+        "alertDescriptionFormat": "A suspicious activity related to the 0mega ransomware has been detected. {{ResultMessage}} by user"
+       }
+      }
+     }
+    },
+    "after_unknown": {
+     "output": true
+    },
+    "before_sensitive": {},
+    "after_sensitive": {}
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "update"
+   ],
+   "before": "a",
+   "after": "b"
+  },
+  "same": {
+   "actions": [
+    "no-op"
+   ],
+   "before": "x",
+   "after": "x"
+  }
+ }
+}

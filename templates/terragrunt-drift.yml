@@ -1,0 +1,198 @@
+# A plan over the whole tree, once a week, for a repository that uses
+# terragrunt.yml. Anything it proposes means either something was changed
+# outside the code, or the code does not converge. Either way the run has to
+# be red.
+#
+# The main pipeline only plans the units a change touches, and that selection
+# does not pull in units that DEPEND on a changed one. This is what catches
+# those.
+#
+# The caller owns the schedule and shares its concurrency group with the push
+# runs of ci.yml: the plan here locks the state too, and a drift plan in the
+# middle of an apply would read a half-applied state.
+#
+#   jobs:
+#     drift:
+#       uses: bearclave/ci/.github/workflows/terragrunt-drift.yml@v2
+#       permissions:
+#         contents: read
+#         id-token: write
+#       with:
+#         client-id: ${{ vars.AZURE_CLIENT_ID_PLATFORM }}
+#         tenant-id: ${{ vars.AZURE_TENANT_ID }}
+#         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+#       secrets:
+#         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
+name: terragrunt-drift
+
+on:
+  workflow_call:
+    inputs:
+      client-id:
+        description: The full identity, so that drift sees everything; federated on main
+        type: string
+        required: true
+      tenant-id:
+        type: string
+        required: true
+      subscription-id:
+        type: string
+        default: ""
+      analytic-rules-path:
+        description: Unit of the Sentinel analytic rules; rules in the workspace but not in code are reported
+        type: string
+        default: ""
+      github-app-vault:
+        description: Key Vault with the GitHub App (iac-github)
+        type: string
+        default: ""
+    secrets:
+      modules-deploy-key:
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TOOLS_DIR: ${{ github.workspace }}/.tools/bin
+  ARM_USE_OIDC: "true"
+  ARM_USE_AZUREAD: "true"
+  ARM_TENANT_ID: ${{ inputs.tenant-id }}
+  ARM_SUBSCRIPTION_ID: ${{ inputs.subscription-id }}
+  # A run queued from any other branch than main gets no token: the identity
+  # is federated on main.
+  ARM_CLIENT_ID: ${{ inputs.client-id }}
+  GITHUB_APP_VAULT: ${{ inputs.github-app-vault }}
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bearclave/iac-modules
+          path: iac-modules
+          ssh-key: ${{ secrets.modules-deploy-key }}
+          persist-credentials: false
+
+      @@include templates/_fragments/scripts-terragrunt.yml@@
+
+      - name: Tool versions
+        id: versions
+        run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.versions.outputs.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Restore tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOLS_DIR }}
+          key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
+
+      - name: Restore provider cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.tgproviders
+          key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+          restore-keys: providers-${{ runner.os }}-
+
+      - name: Install terragrunt and trivy
+        run: install-tools.sh terragrunt trivy
+
+      # The same as in terragrunt.yml: locks a killed job left behind.
+      - name: Release stale state locks
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          value() { sed -n "s/^ *$1 *= *\"\(.*\)\"/\1/p" account.hcl; }
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$ARM_CLIENT_ID" --tenant "$ARM_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
+          release-stale-locks.py \
+            "$(value storage_account_name)" "$(value container_name)" 70
+
+      @@include templates/_fragments/github-app.yml@@
+
+      - name: Plan over the whole tree
+        env:
+          TG_PROVIDER_CACHE: "1"
+          TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
+          TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ github.workspace }}/iac-modules
+        run: |
+          set -euo pipefail
+          mkdir -p "$TG_PROVIDER_CACHE_DIR"
+          set +e
+          terragrunt run --all plan --json-out-dir "$RUNNER_TEMP/plan-json" \
+            --non-interactive --no-color 2>&1 | tee plan.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          # A unit that fails is reported by the summary below together with
+          # everything else, so the raw exit code only matters when nothing at
+          # all came out.
+          [ -s plan.txt ] || exit "$rc"
+
+      - name: Upload the plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-${{ github.run_id }}
+          path: plan.txt
+          retention-days: 30
+
+      # A plan only sees what the code manages; a rule clicked together in
+      # the portal stays invisible to it. Reported, not failed: such a rule
+      # may be a deliberate experiment.
+      - name: Analytic rules outside the code
+        if: always() && inputs.analytic-rules-path != ''
+        continue-on-error: true
+        env:
+          RULES: ${{ inputs.analytic-rules-path }}
+        run: portal-rules.py "$RUNNER_TEMP/plan-json" "$RULES"
+
+      # The whole tree once a week, so a check that a new trivy version brings
+      # or a setting changed outside the code shows up here even when no pull
+      # request touches the unit. The JSON stays in the runner's temp.
+      - name: Security findings in the plan
+        id: trivy
+        if: always()
+        run: |
+          rc=0
+          trivy-plans.sh "$RUNNER_TEMP/plan-json" trivy || rc=$?
+          case "$rc" in
+            0) echo "found=false" >>"$GITHUB_OUTPUT" ;;
+            3) echo "found=true" >>"$GITHUB_OUTPUT" ;;
+            *) exit "$rc" ;;
+          esac
+
+      # Terragrunt returns zero even when the plan proposes changes, so the
+      # verdict comes from the summary.
+      - name: Verdict
+        if: always()
+        run: |
+          set -euo pipefail
+          [ -s plan.txt ] || { echo "::error::no plan produced"; exit 1; }
+          plan-summary.py plan.txt --fail-on-change \
+            --json-dir="$RUNNER_TEMP/plan-json" --trivy=trivy \
+            --artifact="drift-$GITHUB_RUN_ID" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: No unaccepted security finding
+        if: always() && steps.trivy.outputs.found == 'true'
+        run: |
+          echo "::error::trivy found a HIGH or CRITICAL setting (Security findings in the summary). Fix it, or accept it in .trivyignore.yaml with the reason."
+          exit 1

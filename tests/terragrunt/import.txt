@@ -1,0 +1,52 @@
+12:02:51.005 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+├── shared/dns
+├── tenant/groups
+╰── tenant/users
+12:02:51.013 INFO   [tenant/users] Downloading Terraform configurations from ./tenant/users into ./tenant/users/.terragrunt-cache/A9Ox2XeHF0EATW7GUMWHuD4E0ME/Gq42my4iU6d6GAMtscJBXOcj4Gw
+12:02:51.014 INFO   [tenant/groups] Downloading Terraform configurations from ./tenant/groups into ./tenant/groups/.terragrunt-cache/Zaq8DfnIbWSsl9KE8oF0XPID44E/4qAHGCTFAWCbwRH5q-T-jNwSOcg
+12:02:51.052 INFO   [tenant/users] terraform: Initializing the backend...
+12:02:51.057 INFO   [tenant/users] terraform: Initializing provider plugins...
+12:02:51.057 INFO   [tenant/users] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:02:51.057 INFO   [tenant/users] terraform: Terraform has been successfully initialized!
+12:02:51.058 INFO   [tenant/groups] terraform: Initializing the backend...
+12:02:51.060 INFO   [tenant/groups] terraform: Initializing provider plugins...
+12:02:51.060 INFO   [tenant/groups] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:02:51.060 INFO   [tenant/groups] terraform: Terraform has been successfully initialized!
+12:02:51.066 INFO   [shared/dns] terraform: Initializing the backend...
+12:02:51.070 INFO   [shared/dns] terraform: Initializing provider plugins...
+12:02:51.071 INFO   [shared/dns] terraform: - terraform.io/builtin/terraform is built in to Terraform
+12:02:51.071 INFO   [shared/dns] terraform: Terraform has been successfully initialized!
+12:02:51.118 STDOUT [tenant/users] terraform: terraform_data.src: Refreshing state... [id=b7c323d1-d3a6-25a1-523d-80e1ee9107fc]
+12:02:51.118 STDOUT [tenant/users] terraform: terraform_data.guest: Preparing import... [id=b7c323d1-d3a6-25a1-523d-80e1ee9107fc]
+12:02:51.118 STDOUT [tenant/users] terraform: terraform_data.guest: Refreshing state... [id=b7c323d1-d3a6-25a1-523d-80e1ee9107fc]
+12:02:51.120 STDOUT [tenant/users] terraform: Terraform will perform the following actions:
+12:02:51.120 STDOUT [tenant/users] terraform:   # terraform_data.guest will be imported
+12:02:51.120 STDOUT [tenant/users] terraform:     resource "terraform_data" "guest" {
+12:02:51.120 STDOUT [tenant/users] terraform:         id = "b7c323d1-d3a6-25a1-523d-80e1ee9107fc"
+12:02:51.120 STDOUT [tenant/users] terraform:     }
+12:02:51.120 STDOUT [tenant/users] terraform: Plan: 1 to import, 0 to add, 0 to change, 0 to destroy.
+12:02:51.118 STDOUT [tenant/groups] terraform: terraform_data.src: Refreshing state... [id=1fb00ba4-090e-892c-c1df-04e9a7caeb0b]
+12:02:51.121 STDOUT [tenant/groups] terraform: terraform_data.team: Preparing import... [id=1fb00ba4-090e-892c-c1df-04e9a7caeb0b]
+12:02:51.122 STDOUT [tenant/groups] terraform: terraform_data.team: Refreshing state... [id=1fb00ba4-090e-892c-c1df-04e9a7caeb0b]
+12:02:51.122 STDOUT [tenant/groups] terraform: Terraform used the selected providers to generate the following execution
+12:02:51.122 STDOUT [tenant/groups] terraform: plan. Resource actions are indicated with the following symbols:
+12:02:51.122 STDOUT [tenant/groups] terraform:   ~ update in-place
+12:02:51.122 STDOUT [tenant/groups] terraform: Terraform will perform the following actions:
+12:02:51.122 STDOUT [tenant/groups] terraform:   # terraform_data.team will be updated in-place
+12:02:51.122 STDOUT [tenant/groups] terraform:   # (imported from "1fb00ba4-090e-892c-c1df-04e9a7caeb0b")
+12:02:51.122 STDOUT [tenant/groups] terraform:   ~ resource "terraform_data" "team" {
+12:02:51.122 STDOUT [tenant/groups] terraform:         id     = "1fb00ba4-090e-892c-c1df-04e9a7caeb0b"
+12:02:51.122 STDOUT [tenant/groups] terraform:       + input  = "team-renamed"
+12:02:51.122 STDOUT [tenant/groups] terraform:       + output = (known after apply)
+12:02:51.122 STDOUT [tenant/groups] terraform:     }
+12:02:51.122 STDOUT [tenant/groups] terraform: Plan: 1 to import, 0 to add, 1 to change, 0 to destroy.
+12:02:51.134 STDOUT [shared/dns] terraform: terraform_data.zone: Refreshing state... [id=bd1b8b9f-3b22-a7b1-4a73-d726bbfa84e4]
+12:02:51.135 STDOUT [shared/dns] terraform: No changes. Your infrastructure matches the configuration.
+12:02:51.135 STDOUT [shared/dns] terraform: Terraform has compared your real infrastructure against your configuration
+12:02:51.135 STDOUT [shared/dns] terraform: and found no differences, so no changes are needed.
+
+❯❯ Run Summary  3 units  125ms
+   ────────────────────────────
+   Succeeded    3
+

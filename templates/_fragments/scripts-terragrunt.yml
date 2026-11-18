@@ -1,0 +1,30 @@
+@@include templates/_fragments/scripts-common.yml@@
+
+- name: Terragrunt scripts
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/select-units.py" <<'__CI_EOF__'
+    @@include src/terragrunt/select-units.py@@
+    __CI_EOF__
+    cat >"$d/expand-dependencies.py" <<'__CI_EOF__'
+    @@include src/terragrunt/expand-dependencies.py@@
+    __CI_EOF__
+    cat >"$d/check-principal-refs.py" <<'__CI_EOF__'
+    @@include src/terragrunt/check-principal-refs.py@@
+    __CI_EOF__
+    cat >"$d/release-stale-locks.py" <<'__CI_EOF__'
+    @@include src/terragrunt/release-stale-locks.py@@
+    __CI_EOF__
+    cat >"$d/plan-summary.py" <<'__CI_EOF__'
+    @@include src/terragrunt/plan-summary.py@@
+    __CI_EOF__
+    cat >"$d/plan_details.py" <<'__CI_EOF__'
+    @@include src/terragrunt/plan_details.py@@
+    __CI_EOF__
+    cat >"$d/portal-rules.py" <<'__CI_EOF__'
+    @@include src/terragrunt/portal-rules.py@@
+    __CI_EOF__
+    cat >"$d/trivy-plans.sh" <<'__CI_EOF__'
+    @@include src/terragrunt/trivy-plans.sh@@
+    __CI_EOF__
+    chmod +x "$d"/*

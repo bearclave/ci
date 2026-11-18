@@ -1,0 +1,34 @@
+11:41:08.466 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+├── tenant/groups
+├── tenant/users
+╰── web/site
+11:41:08.513 INFO   [tenant/groups] terraform: Initializing the backend...
+11:41:08.513 INFO   [tenant/groups] terraform: Initializing provider plugins...
+11:41:08.513 INFO   [tenant/groups] terraform: - terraform.io/builtin/terraform is built in to Terraform
+11:41:08.513 INFO   [tenant/groups] terraform: Terraform has been successfully initialized!
+11:41:08.522 INFO   [web/site] terraform: Initializing the backend...
+11:41:08.524 INFO   [tenant/users] terraform: Initializing the backend...
+11:41:08.524 INFO   [tenant/users] terraform: Initializing provider plugins...
+11:41:08.524 INFO   [tenant/users] terraform: - terraform.io/builtin/terraform is built in to Terraform
+11:41:08.524 INFO   [tenant/users] terraform: Terraform has been successfully initialized!
+11:41:08.525 INFO   [web/site] terraform: Initializing provider plugins...
+11:41:08.525 INFO   [web/site] terraform: - terraform.io/builtin/terraform is built in to Terraform
+11:41:08.525 INFO   [web/site] terraform: Terraform has been successfully initialized!
+11:41:08.569 STDOUT [tenant/groups] terraform: terraform_data.x: Refreshing state... [id=38804562-d52f-0565-62d4-008fb7be9ed5]
+11:41:08.573 STDOUT [tenant/users] terraform: terraform_data.x: Refreshing state... [id=354efbdf-9914-3fac-5552-b53433026218]
+11:41:08.573 STDOUT [tenant/users] terraform: No changes. Your infrastructure matches the configuration.
+11:41:08.573 STDOUT [tenant/users] terraform: Terraform has compared your real infrastructure against your configuration
+11:41:08.573 STDOUT [tenant/users] terraform: and found no differences, so no changes are needed.
+11:41:08.574 STDOUT [tenant/groups] terraform: No changes. Your infrastructure matches the configuration.
+11:41:08.574 STDOUT [tenant/groups] terraform: Terraform has compared your real infrastructure against your configuration
+11:41:08.574 STDOUT [tenant/groups] terraform: and found no differences, so no changes are needed.
+11:41:08.589 STDOUT [web/site] terraform: terraform_data.x: Refreshing state... [id=988dc322-6bd3-4cbe-f802-eb25fa0edfc0]
+11:41:08.590 STDOUT [web/site] terraform: No changes. Your infrastructure matches the configuration.
+11:41:08.591 STDOUT [web/site] terraform: Terraform has compared your real infrastructure against your configuration
+11:41:08.591 STDOUT [web/site] terraform: and found no differences, so no changes are needed.
+
+❯❯ Run Summary  3 units  119ms
+   ────────────────────────────
+   Succeeded    3
+

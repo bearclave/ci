@@ -1,0 +1,30 @@
+10:08:22.348 INFO   The following units will be run, starting with dependents and then their dependencies:
+.
+├── tenant/memberships
+╰── tenant/old-empty
+10:08:22.387 INFO   [tenant/memberships] terraform: Initializing the backend...
+10:08:22.387 INFO   [tenant/memberships] terraform: Terraform has been successfully initialized!
+10:08:22.388 INFO   [tenant/old-empty] terraform: Initializing the backend...
+10:08:22.388 INFO   [tenant/old-empty] terraform: Terraform has been successfully initialized!
+10:08:22.401 STDOUT [tenant/memberships] terraform: terraform_data.m["a"]: Refreshing state... [id=0d7a21f4-5f43-1c6c-5f2e-2f0b8f4cbf11]
+10:08:22.401 STDOUT [tenant/memberships] terraform: terraform_data.m["b"]: Refreshing state... [id=6c3b8e2d-2a1d-6e0f-b7a8-1d22a0f0b8c4]
+10:08:22.420 STDOUT [tenant/memberships] terraform: Terraform used the selected providers to generate the following execution
+10:08:22.420 STDOUT [tenant/memberships] terraform: plan. Resource actions are indicated with the following symbols:
+10:08:22.420 STDOUT [tenant/memberships] terraform:   - destroy
+10:08:22.420 STDOUT [tenant/memberships] terraform: Terraform will perform the following actions:
+10:08:22.420 STDOUT [tenant/memberships] terraform:   # terraform_data.m["a"] will be destroyed
+10:08:22.420 STDOUT [tenant/memberships] terraform:   - resource "terraform_data" "m" {
+10:08:22.420 STDOUT [tenant/memberships] terraform:       - id     = "0d7a21f4-5f43-1c6c-5f2e-2f0b8f4cbf11" -> null
+10:08:22.420 STDOUT [tenant/memberships] terraform:       - input  = "a" -> null
+10:08:22.420 STDOUT [tenant/memberships] terraform:       - output = "a" -> null
+10:08:22.420 STDOUT [tenant/memberships] terraform:     }
+10:08:22.420 STDOUT [tenant/memberships] terraform:   # terraform_data.m["b"] will be destroyed
+10:08:22.420 STDOUT [tenant/memberships] terraform:   - resource "terraform_data" "m" {
+10:08:22.420 STDOUT [tenant/memberships] terraform:       - id     = "6c3b8e2d-2a1d-6e0f-b7a8-1d22a0f0b8c4" -> null
+10:08:22.420 STDOUT [tenant/memberships] terraform:       - input  = "b" -> null
+10:08:22.420 STDOUT [tenant/memberships] terraform:       - output = "b" -> null
+10:08:22.420 STDOUT [tenant/memberships] terraform:     }
+10:08:22.420 STDOUT [tenant/memberships] terraform: Plan: 0 to add, 0 to change, 2 to destroy.
+10:08:22.425 STDOUT [tenant/old-empty] terraform: No changes. No objects need to be destroyed.
+10:08:22.425 STDOUT [tenant/old-empty] terraform: Either you have not created any objects yet or the existing objects were
+10:08:22.425 STDOUT [tenant/old-empty] terraform: already deleted outside of Terraform.

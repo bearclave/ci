@@ -1,6 +1,6 @@
 # The workflows of this repository checked on this repository: a pull request
-# runs them from its own branch, so a change is tried out before the v1 tag
-# moves and every other repository picks it up.
+# runs them from its own branch, so a change is tried out before a release
+# tag moves and every other repository picks it up.
 name: ci
 
 on:
@@ -25,6 +25,17 @@ jobs:
     permissions:
       contents: read
 
+  # The scripts the workflows carry, and the workflows written from them.
+  pipeline:
+    uses: ./.github/workflows/checks.yml
+    permissions:
+      contents: read
+    with:
+      command: |
+        python3 -m unittest discover -s tests -v
+        python3 src/pr_check.py --self-test
+        ./build.py --check
+
   conventions:
     uses: ./.github/workflows/conventions.yml
     permissions:
@@ -38,18 +49,3 @@ jobs:
       contents: read
     with:
       config: tests/fixtures/sentinel-selftest.yaml
-
-  # The scripts the workflows carry, and the workflows written from them.
-  python:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Unit tests
-        run: python3 -m unittest discover -s tests -v
-
-      - name: Workflows match their templates
-        run: ./build.py --check

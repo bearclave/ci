@@ -1,0 +1,233 @@
+# The pipeline of the home network (iac-home): a router reached through
+# WireGuard, a certificate renewed on schedule.
+#
+# Pull request into main -> plan of every unit, summarised in the run
+# Push to main            -> plan, then apply in the home-prod environment
+# Schedule (weekly)       -> plan of main; renews the Let's Encrypt
+#                           certificate when due, any other change is drift
+#                           and fails the run
+# Manual run on main      -> as a push
+#
+# GitHub's runners reach the router through WireGuard: the runner joins the
+# home network with the repository's own script (vpn-script up|down), which
+# reads its keys from the vault and maps the router's internal name.
+#
+# One router, one state, one WireGuard peer: the caller's concurrency group
+# never lets two runs overlap, a pull request plan included.
+#
+#   jobs:
+#     pipeline:
+#       uses: bearclave/ci/.github/workflows/terragrunt-home.yml@v2
+#       permissions:
+#         contents: read
+#         id-token: write
+#       with:
+#         client-id: ${{ vars.AZURE_CLIENT_ID }}
+#         tenant-id: ${{ vars.AZURE_TENANT_ID }}
+#       secrets:
+#         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
+#
+# Versions: TERRAFORM_VERSION and TERRAGRUNT_* in the caller's
+# .github/tool-versions.env. The required check is "pipeline / gate".
+name: terragrunt-home
+
+on:
+  workflow_call:
+    inputs:
+      client-id:
+        type: string
+        required: true
+      tenant-id:
+        type: string
+        required: true
+      environment:
+        type: string
+        default: home-prod
+      working-directory:
+        description: Directory whose units are planned and applied
+        type: string
+        default: router-hap
+      renewal-unit:
+        description: Unit under working-directory a scheduled run may apply (certificate renewal)
+        type: string
+        default: letsencrypt
+      vpn-script:
+        description: Script of the repository that joins (up) and leaves (down) the home network
+        type: string
+        default: scripts/home-vpn.sh
+      shellcheck-paths:
+        description: Shell scripts of the repository to check, space-separated globs
+        type: string
+        default: scripts/*.sh bootstrap/render.sh nas/acme/*.sh
+      conventions-config:
+        type: string
+        default: conventions.yaml
+    secrets:
+      modules-deploy-key:
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TOOLS_DIR: ${{ github.workspace }}/.tools/bin
+  ARM_USE_OIDC: "true"
+  ARM_USE_AZUREAD: "true"
+  ARM_TENANT_ID: ${{ inputs.tenant-id }}
+  ARM_CLIENT_ID: ${{ inputs.client-id }}
+  TG_NON_INTERACTIVE: "true"
+  # Plain log lines, so the plan summary can be read from them.
+  TG_NO_COLOR: "true"
+  TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ github.workspace }}/iac-modules
+
+jobs:
+  conventions:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      @@include templates/_fragments/conventions-steps.yml@@
+
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+      certificates_due: ${{ steps.plan.outputs.certificates_due }}
+      drift: ${{ steps.plan.outputs.drift }}
+    env:
+      # A preview does not lock the state: a cancelled run would leave its
+      # lock behind.
+      TF_CLI_ARGS_plan: ${{ github.event_name == 'pull_request' && '-lock=false' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      @@include templates/_fragments/home-setup.yml@@
+
+      - name: HCL formatting
+        run: terragrunt hcl fmt --check --diff
+
+      - name: Shell scripts
+        env:
+          SCRIPTS: ${{ inputs.shellcheck-paths }}
+        run: |
+          # shellcheck disable=SC2086 # the globs are meant to expand
+          shellcheck $SCRIPTS
+
+      - name: Join the home network
+        env:
+          VPN: ${{ inputs.vpn-script }}
+        run: '"./$VPN" up'
+
+      # Changes are read from the plan output (a "Plan:" line); run --all does
+      # not pass terraform's detailed exit code through reliably. The run
+      # summary gets every unit's plan line, the log the full plans.
+      - name: Plan
+        id: plan
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          RENEWAL: ${{ inputs.renewal-unit }}
+        run: |
+          set -uo pipefail
+          terragrunt run --all -- plan -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt"
+          rc=${PIPESTATUS[0]}
+          changes=false
+          grep -q "Plan: [0-9]" "$RUNNER_TEMP/plan.txt" && changes=true
+          certificates=false
+          grep -q "\[$RENEWAL\] terraform: Plan: [0-9]" "$RUNNER_TEMP/plan.txt" && certificates=true
+          drift=false
+          grep -E "\[[a-z]+\] terraform: Plan: [0-9]" "$RUNNER_TEMP/plan.txt" | grep -vq "\[$RENEWAL\]" && drift=true
+          {
+            echo "has_changes=$changes"
+            echo "certificates_due=$certificates"
+            echo "drift=$drift"
+          } >>"$GITHUB_OUTPUT"
+          {
+            echo "## Plan"
+            echo
+            echo '```'
+            grep -E "^\S+ STDOUT \[[a-z]+\] terraform: (Plan:|No changes)" "$RUNNER_TEMP/plan.txt" \
+              | sed -E 's/^\S+ STDOUT \[([a-z]+)\] terraform: /\1: /' || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          # A scheduled run renews a due certificate (apply job) even when
+          # other units drift; the gate fails the run afterwards.
+          exit "$rc"
+
+      - name: Leave the home network
+        if: always()
+        env:
+          VPN: ${{ inputs.vpn-script }}
+        run: '"./$VPN" down'
+
+  apply:
+    needs: plan
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (
+        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+          && needs.plan.outputs.has_changes == 'true')
+        || (github.event_name == 'schedule' && needs.plan.outputs.certificates_due == 'true')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      @@include templates/_fragments/home-setup.yml@@
+
+      - name: Join the home network
+        env:
+          VPN: ${{ inputs.vpn-script }}
+        run: '"./$VPN" up'
+
+      # A scheduled run applies the certificate renewal and nothing else.
+      - name: Apply
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          EVENT: ${{ github.event_name }}
+          RENEWAL: ${{ inputs.renewal-unit }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = schedule ]; then
+            cd "$RENEWAL" && terragrunt apply -auto-approve -no-color
+          else
+            terragrunt run --all -- apply -auto-approve -no-color
+          fi
+
+      - name: Leave the home network
+        if: always()
+        env:
+          VPN: ${{ inputs.vpn-script }}
+        run: '"./$VPN" down'
+
+  # The required check, and the drift verdict of a scheduled run.
+  gate:
+    needs: [conventions, plan, apply]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      @@include templates/_fragments/gate-step.yml@@
+
+      # Schedule: anything but the certificate that differs from main is drift.
+      - name: No drift
+        if: github.event_name == 'schedule' && needs.plan.outputs.drift == 'true'
+        run: |
+          echo "::error::drift: the router differs from main (plan in the run summary)"
+          exit 1

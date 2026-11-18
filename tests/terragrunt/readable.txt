@@ -1,0 +1,20 @@
+10:00:00.000 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+╰── mg/rg-web
+10:00:01.000 STDOUT [mg/rg-web] terraform: Terraform will perform the following actions:
+10:00:01.000 STDOUT [mg/rg-web] terraform:   # azurerm_resource_group.this will be updated in-place
+10:00:01.000 STDOUT [mg/rg-web] terraform:   ~ resource "azurerm_resource_group" "this" {
+10:00:01.000 STDOUT [mg/rg-web] terraform:       ~ tags = {
+10:00:01.000 STDOUT [mg/rg-web] terraform:           ~ "criticality" = "medium" -> "high"
+10:00:01.000 STDOUT [mg/rg-web] terraform:         }
+10:00:01.000 STDOUT [mg/rg-web] terraform:     }
+10:00:01.000 STDOUT [mg/rg-web] terraform:   # module.role_assignments.azurerm_role_assignment.active["Key Vault Secrets User/sp:sp-invoices"] will be destroyed
+10:00:01.000 STDOUT [mg/rg-web] terraform:   - resource "azurerm_role_assignment" "active" {
+10:00:01.000 STDOUT [mg/rg-web] terraform:     }
+10:00:01.000 STDOUT [mg/rg-web] terraform:   # azurerm_key_vault_certificate.this must be replaced
+10:00:01.000 STDOUT [mg/rg-web] terraform: -/+ resource "azurerm_key_vault_certificate" "this" {
+10:00:01.000 STDOUT [mg/rg-web] terraform:     }
+10:00:01.000 STDOUT [mg/rg-web] terraform:   # azuread_application.this will be created
+10:00:01.000 STDOUT [mg/rg-web] terraform:   + resource "azuread_application" "this" {
+10:00:01.000 STDOUT [mg/rg-web] terraform:     }
+10:00:01.000 STDOUT [mg/rg-web] terraform: Plan: 1 to import, 2 to add, 5 to change, 2 to destroy.

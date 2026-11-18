@@ -1,0 +1,15 @@
+# The pipeline scripts travel inside the workflow (see build.py): the
+# caller's token cannot read bearclave/ci. They land in $RUNNER_TEMP/ci,
+# which goes on PATH.
+- name: Pipeline scripts
+  run: |
+    d="$RUNNER_TEMP/ci"
+    mkdir -p "$d"
+    cat >"$d/install-tools.sh" <<'__CI_EOF__'
+    @@include src/install-tools.sh@@
+    __CI_EOF__
+    cat >"$d/pr-comment.sh" <<'__CI_EOF__'
+    @@include src/pr-comment.sh@@
+    __CI_EOF__
+    chmod +x "$d"/*
+    echo "$d" >>"$GITHUB_PATH"

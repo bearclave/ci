@@ -1,0 +1,629 @@
+# The pipeline of a Terragrunt repository with Azure state (iac-azure,
+# iac-github):
+#
+# Pull request into main -> plan over the affected units, under the read-only
+#                           identity, summarised into the pull request; one
+#                           that touches none of the relevant paths skips the
+#                           plan; conventions and Sentinel lint
+# Push to main            -> plan again under the full identity, then apply,
+#                           but only if the plan proposes something and
+#                           destroys or replaces nothing
+# Manual run on main      -> the same; with allow-destroy it also applies what
+#                           destroys or replaces, which a push leaves waiting
+#
+# Which units run is worked out from the diff against the last commit a run on
+# main went through with, so the units of a failed or held-back apply stay
+# selected until they are applied. A deleted unit only exists in that commit
+# and is planned and applied as a destroy from there. The selection does not
+# pull in units that DEPEND on a changed one - that is what the weekly drift
+# (terragrunt-drift.yml) over the whole tree is for.
+#
+# The caller owns the triggers and the concurrency group (a pull request in a
+# group of its own; push, manual run and drift share one group per state):
+#
+#   jobs:
+#     pipeline:
+#       uses: bearclave/ci/.github/workflows/terragrunt.yml@v2
+#       permissions:
+#         contents: read
+#         id-token: write
+#         pull-requests: write
+#         actions: read
+#       with:
+#         client-id-plan: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+#         client-id-apply: ${{ vars.AZURE_CLIENT_ID_PLATFORM }}
+#         tenant-id: ${{ vars.AZURE_TENANT_ID }}
+#         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+#         scope: ${{ inputs.scope || 'changed' }}
+#         allow-destroy: ${{ inputs.allow_destroy == true }}
+#       secrets:
+#         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
+#
+# Versions: TERRAFORM_VERSION, TERRAGRUNT_*, TRIVY_* in the caller's
+# .github/tool-versions.env. The required check is "pipeline / gate".
+name: terragrunt
+
+on:
+  workflow_call:
+    inputs:
+      relevant-paths:
+        description: Regular expression of the paths whose change needs a plan (grep -E over the changed files)
+        type: string
+        default: '^(mg-corp/|tenant/|_common/|\.github/)|^(root|account)\.hcl$'
+      environment:
+        description: Environment of the apply job; its branch policy allows main only
+        type: string
+        default: azure-prod
+      client-id-plan:
+        description: Client ID of the read-only identity a pull request plans as
+        type: string
+        required: true
+      client-id-apply:
+        description: Client ID of the identity that plans and applies on main
+        type: string
+        required: true
+      tenant-id:
+        type: string
+        required: true
+      subscription-id:
+        description: Default subscription of the azurerm provider; empty where the repository has none
+        type: string
+        default: ""
+      conventions:
+        description: Run the conventions check (conventions.yaml) on pull requests
+        type: boolean
+        default: true
+      conventions-config:
+        type: string
+        default: conventions.yaml
+      sentinel-lint:
+        description: Run the Sentinel lint (sentinel-lint.yaml) on pull requests
+        type: boolean
+        default: false
+      sentinel-config:
+        type: string
+        default: sentinel-lint.yaml
+      principal-refs:
+        description: Check that a principal a change creates is not referenced by display name (Entra)
+        type: boolean
+        default: false
+      github-app-vault-plan:
+        description: Key Vault with the read-only GitHub App a pull request signs in to GitHub with (iac-github)
+        type: string
+        default: ""
+      github-app-vault-apply:
+        description: Key Vault with the GitHub App main signs in with (iac-github)
+        type: string
+        default: ""
+      scope:
+        description: "changed = affected units only, all = the whole tree (manual runs)"
+        type: string
+        default: changed
+      allow-destroy:
+        description: Apply also what destroys or replaces resources (manual runs)
+        type: boolean
+        default: false
+    secrets:
+      modules-deploy-key:
+        description: Read-only deploy key of bearclave/iac-modules
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TOOLS_DIR: ${{ github.workspace }}/.tools/bin
+  MODULES_DIR: ${{ github.workspace }}/iac-modules
+  ARM_USE_OIDC: "true"
+  ARM_USE_AZUREAD: "true"
+  ARM_TENANT_ID: ${{ inputs.tenant-id }}
+  ARM_SUBSCRIPTION_ID: ${{ inputs.subscription-id }}
+
+jobs:
+  # The rules in conventions.yaml; on a pull request only, main holds nothing
+  # a pull request has not checked.
+  conventions:
+    if: github.event_name == 'pull_request' && inputs.conventions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      @@include templates/_fragments/conventions-steps.yml@@
+
+  # The analytic rules, against what Sentinel takes (sentinel-lint.yaml).
+  sentinel:
+    if: github.event_name == 'pull_request' && inputs.sentinel-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      @@include templates/_fragments/sentinel-steps.yml@@
+
+  # A skipped job reports as passed, so a pull request outside the relevant
+  # paths is green without a plan. Outside a pull request the caller's push
+  # paths have already decided.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      relevant: ${{ steps.diff.outputs.relevant }}
+    steps:
+      - name: Paths the change touches
+        id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          RELEVANT: ${{ inputs.relevant-paths }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "relevant=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A file list that cannot be read plans rather than skips.
+          if ! files=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only); then
+            echo "relevant=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if grep -qE "$RELEVANT" <<<"$files"; then
+            echo "relevant=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >>"$GITHUB_OUTPUT"
+            echo "Nothing to plan: the change touches no unit, context file or workflow." >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+  plan:
+    needs: changes
+    # !cancelled() so that a failed changes job still plans instead of skipping.
+    if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+      # The base commit is the head of the last successful run on main.
+      actions: read
+    outputs:
+      has_changes: ${{ steps.summary.outputs.has_changes }}
+      has_destroys: ${{ steps.summary.outputs.has_destroys }}
+      selection: ${{ steps.units.outputs.selection }}
+    env:
+      # A plan on a pull request may be queued from any branch, so it runs as
+      # the identity that can only read. A plan on main is the one the apply is
+      # decided from and runs as the identity the apply will use, so that the
+      # two cannot see different things.
+      ARM_CLIENT_ID: >-
+        ${{ github.event_name == 'pull_request'
+            && inputs.client-id-plan
+            || inputs.client-id-apply }}
+      GITHUB_APP_VAULT: >-
+        ${{ github.event_name == 'pull_request'
+            && inputs.github-app-vault-plan
+            || inputs.github-app-vault-apply }}
+      TG_READONLY_PLAN: ${{ github.event_name == 'pull_request' }}
+      # A plan on a pull request is only a preview, so it does not lock the
+      # state. Every new push cancels the run before it, and a cancelled
+      # terraform leaves its lock behind: the lease on the state blob never
+      # expires and blocks the unit until someone runs force-unlock. The plan
+      # on main, the one the apply is decided from, still locks.
+      TF_CLI_ARGS_plan: ${{ github.event_name == 'pull_request' && '-lock=false' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Terragrunt cannot authenticate its own git against a private
+      # repository, so the modules are put on disk and the source is redirected
+      # there with TG_SOURCE_MAP. The deploy key is read-only and valid for
+      # iac-modules alone.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bearclave/iac-modules
+          path: iac-modules
+          ssh-key: ${{ secrets.modules-deploy-key }}
+          persist-credentials: false
+
+      @@include templates/_fragments/scripts-terragrunt.yml@@
+
+      - name: Tool versions
+        id: versions
+        run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.versions.outputs.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Restore tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOLS_DIR }}
+          key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
+
+      # Without a shared cache each of the fifty units downloads its own copies
+      # of the providers and the runner runs out of both disk and time.
+      - name: Restore provider cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.tgproviders
+          key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+          restore-keys: providers-${{ runner.os }}-
+
+      - name: Install terragrunt and trivy
+        run: install-tools.sh terragrunt trivy
+
+      # HCL formatting and validation take about ten seconds, so they share the
+      # job with the plan rather than paying for a checkout of their own.
+      - name: HCL formatting
+        run: terragrunt hcl fmt --check --diff
+
+      - name: HCL validation
+        run: terragrunt hcl validate
+
+      # A pull request is compared with its base branch. On main the base is
+      # the head of the last successful run - its apply went through or had
+      # nothing to do - so a change a failed or held-back apply left out is
+      # still selected now. Runs on main never overlap (see concurrency).
+      - name: Base commit
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            base="$PR_BASE"
+          else
+            # The caller's workflow file, e.g. ci.yml.
+            wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
+            base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&status=success&per_page=50" \
+              --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")][0].head_sha // empty') || base=""
+            # Without it the units of an earlier failed apply could be left
+            # out, so the whole tree runs instead.
+            if [ -z "$base" ]; then
+              echo "::warning::No successful run on main found; the whole tree runs."
+            fi
+          fi
+          echo "sha=$base" >>"$GITHUB_OUTPUT"
+          echo "Compared with \`$base\`." >>"$GITHUB_STEP_SUMMARY"
+
+      # A principal the same change creates cannot be referenced by display
+      # name: `dependencies` orders the run but a plan creates nothing, so the
+      # lookup goes to Entra and finds nothing. Caught here rather than by a
+      # failed plan half an hour into the queue.
+      - name: Principal references
+        if: inputs.principal-refs
+        env:
+          BASE: ${{ steps.base.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="HEAD~1"; fi
+          check-principal-refs.py "$BASE"
+
+      - name: Select the units
+        id: units
+        env:
+          SCOPE: ${{ inputs.scope }}
+          BASE: ${{ steps.base.outputs.sha }}
+        run: |
+          set -euo pipefail
+          selection=$(select-units.py "$BASE")
+          if [ "$SCOPE" = "all" ]; then
+            selection=$(jq -c '.all = true | .units = []' <<<"$selection")
+          fi
+          echo "selection=$selection" >>"$GITHUB_OUTPUT"
+          jq -r '
+            (if .all then "Selected: the whole tree."
+             elif (.units | length) > 0 then "Selected: " + (.units | join(", ")) + "."
+             else "Selected: no unit to plan." end),
+            (if (.deleted | length) > 0
+             then "Deleted, planned as a destroy: " + (.deleted | join(", ")) + "."
+             else empty end)
+          ' <<<"$selection" >>"$GITHUB_STEP_SUMMARY"
+          # The state key is the unit's path: a moved directory would be a new
+          # unit that creates everything again, next to the old resources.
+          if [ "$(jq '.renamed | length' <<<"$selection")" -gt 0 ]; then
+            jq -r '.renamed[] | "::error::\(.[0]) moved to \(.[1]). Moving a unit changes its state key. Delete the unit in one pull request (it gets destroyed) and add it under the new path in the next, or move its state by hand first."' <<<"$selection"
+            exit 1
+          fi
+
+      # A job killed while terraform holds a state lock leaves the lock behind
+      # for good. Locks a runner took more than 70 minutes ago are released
+      # here: no job runs that long (apply has the longest timeout, 60), so
+      # the job that took them is gone. Workstation locks stay.
+      - name: Release stale state locks
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          value() { sed -n "s/^ *$1 *= *\"\(.*\)\"/\1/p" account.hcl; }
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$ARM_CLIENT_ID" --tenant "$ARM_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
+          release-stale-locks.py \
+            "$(value storage_account_name)" "$(value container_name)" 70
+
+      @@include templates/_fragments/github-app.yml@@
+
+      # The units that exist are planned from HEAD. A deleted unit exists only
+      # in the base commit, so it is planned as a destroy from a worktree of
+      # that commit. Both land in the same plan.txt, under their unit paths,
+      # and as JSON in $PLAN_JSON for the comment and for trivy. The JSON holds
+      # sensitive values in clear text: it stays in the runner's temp and is
+      # never uploaded.
+      - name: Plan
+        env:
+          TG_PROVIDER_CACHE: "1"
+          TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
+          TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+          SELECTION: ${{ steps.units.outputs.selection }}
+          PLAN_JSON: ${{ runner.temp }}/plan-json
+        run: |
+          set -euo pipefail
+          mkdir -p "$TG_PROVIDER_CACHE_DIR"
+          : >plan.txt
+          mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
+          mapfile -t deleted < <(jq -r '.deleted[]' <<<"$SELECTION")
+          rc=0
+          if [ "$(jq -r .all <<<"$SELECTION")" != "true" ] && [ "${#units[@]}" -eq 0 ] \
+            && [ "${#deleted[@]}" -eq 0 ]; then
+            echo "Nothing to plan." >nothing-selected
+          fi
+          if [ "$(jq -r .all <<<"$SELECTION")" = "true" ] || [ "${#units[@]}" -gt 0 ]; then
+            args=()
+            for u in "${units[@]}"; do args+=(--queue-include-dir "$u"); done
+            set +e
+            terragrunt run --all plan "${args[@]}" --json-out-dir "$PLAN_JSON" \
+              --non-interactive --no-color 2>&1 | tee -a plan.txt
+            rc=${PIPESTATUS[0]}
+            set -e
+          fi
+          if [ "${#deleted[@]}" -gt 0 ]; then
+            git worktree add --detach "$RUNNER_TEMP/base" "$(jq -r .base <<<"$SELECTION")"
+            args=()
+            for u in "${deleted[@]}"; do args+=(--queue-include-dir "$u"); done
+            set +e
+            (cd "$RUNNER_TEMP/base" &&
+              terragrunt run --all "${args[@]}" --json-out-dir "$PLAN_JSON" \
+                --non-interactive --no-color -- plan -destroy) 2>&1 |
+              tee -a plan.txt
+            destroy_rc=${PIPESTATUS[0]}
+            set -e
+            [ "$destroy_rc" -eq 0 ] || rc=$destroy_rc
+          fi
+          exit "$rc"
+
+      # trivy over the plans, which carry the value of every setting; over the
+      # bare modules it cannot tell what a variable will be. The verdict waits
+      # until the findings are in the comment.
+      - name: Security findings in the plan
+        id: trivy
+        if: always()
+        env:
+          PLAN_JSON: ${{ runner.temp }}/plan-json
+        run: |
+          rc=0
+          trivy-plans.sh "$PLAN_JSON" trivy || rc=$?
+          case "$rc" in
+            0) echo "found=false" >>"$GITHUB_OUTPUT" ;;
+            3) echo "found=true" >>"$GITHUB_OUTPUT" ;;
+            *) exit "$rc" ;;
+          esac
+
+      - name: Summary
+        id: summary
+        if: always()
+        env:
+          PLAN_JSON: ${{ runner.temp }}/plan-json
+        run: |
+          set -euo pipefail
+          # Without a plan the comment still has to be rewritten, or the pull
+          # request keeps showing the plan of an earlier commit.
+          if [ -e nothing-selected ]; then
+            printf '## Terragrunt plan\n\nNothing to plan: the change selects no unit.\n' \
+              | tee plan.md >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ ! -s plan.txt ]; then
+            printf '## Terragrunt plan\n\nNo plan was produced, see the run log.\n' \
+              | tee plan.md >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          plan-summary.py plan.txt --github-output \
+            --json-dir="$PLAN_JSON" --trivy=trivy | tee plan.md
+          cat plan.md >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plan-${{ github.run_id }}
+          path: |
+            plan.txt
+            plan.md
+          retention-days: 30
+
+      - name: Comment into the pull request
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [ -s plan.md ] || exit 0
+          pr-comment.sh "$PR_NUMBER" plan.md terragrunt-plan
+
+      - name: No unaccepted security finding
+        if: always() && steps.trivy.outputs.found == 'true'
+        run: |
+          echo "::error::trivy found a HIGH or CRITICAL setting in the plan (Security findings in the summary). Fix it, or accept it in .trivyignore.yaml with the reason."
+          exit 1
+
+  # Apply runs from main only. The environment allows deployments from main
+  # and nothing else, and it is also what makes the OIDC token carry the
+  # environment subject the apply identity is federated on.
+  #
+  # A plan that destroys or replaces anything is not applied by a push: GitHub
+  # Team has no approval on an environment of a private repository, so the
+  # manual run with allow-destroy is that approval. The selection it plans
+  # still holds those units, since this run does not end as a success.
+  apply:
+    needs: plan
+    if: >-
+      github.event_name != 'pull_request'
+      && needs.plan.outputs.has_changes == 'true'
+      && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ARM_CLIENT_ID: ${{ inputs.client-id-apply }}
+      GITHUB_APP_VAULT: ${{ inputs.github-app-vault-apply }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bearclave/iac-modules
+          path: iac-modules
+          ssh-key: ${{ secrets.modules-deploy-key }}
+          persist-credentials: false
+
+      @@include templates/_fragments/scripts-common.yml@@
+
+      - name: Tool versions
+        id: versions
+        run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.versions.outputs.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Restore tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOLS_DIR }}
+          key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
+
+      - name: Restore provider cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.tgproviders
+          key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+          restore-keys: providers-${{ runner.os }}-
+
+      - name: Install terragrunt
+        run: install-tools.sh terragrunt
+
+      @@include templates/_fragments/github-app.yml@@
+
+      # The selection is the one the plan job made, not worked out again.
+      # Deleted units go first: what replaces them under a new path may need
+      # their names.
+      - name: Destroy deleted units
+        env:
+          TG_PROVIDER_CACHE: "1"
+          TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
+          TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+          SELECTION: ${{ needs.plan.outputs.selection }}
+        run: |
+          set -euo pipefail
+          mapfile -t deleted < <(jq -r '.deleted[]' <<<"$SELECTION")
+          if [ "${#deleted[@]}" -eq 0 ]; then
+            echo "No deleted unit."
+            exit 0
+          fi
+          mkdir -p "$TG_PROVIDER_CACHE_DIR"
+          git worktree add --detach "$RUNNER_TEMP/base" "$(jq -r .base <<<"$SELECTION")"
+          args=()
+          for u in "${deleted[@]}"; do args+=(--queue-include-dir "$u"); done
+          cd "$RUNNER_TEMP/base"
+          terragrunt run --all destroy "${args[@]}" --non-interactive --no-color
+
+      - name: Apply
+        env:
+          TG_PROVIDER_CACHE: "1"
+          TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
+          TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+          SELECTION: ${{ needs.plan.outputs.selection }}
+        run: |
+          set -euo pipefail
+          mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
+          if [ "$(jq -r .all <<<"$SELECTION")" != "true" ] && [ "${#units[@]}" -eq 0 ]; then
+            echo "No unit to apply."
+            exit 0
+          fi
+          mkdir -p "$TG_PROVIDER_CACHE_DIR"
+          args=()
+          for u in "${units[@]}"; do args+=(--queue-include-dir "$u"); done
+          terragrunt run --all apply "${args[@]}" --non-interactive --no-color
+
+  # The required check. On a pull request: every check passed (or was
+  # skipped). On main: in Azure DevOps a skipped apply stage left the run
+  # green, so eight applies in a row never happened and nothing said so. An
+  # apply that was due and did not succeed has to be red.
+  gate:
+    needs: [conventions, sentinel, changes, plan, apply]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checks passed
+        if: github.event_name == 'pull_request'
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          failed=$(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' <<<"$RESULTS")
+          if [ -n "$failed" ]; then
+            echo "::error::not passed: $(tr '\n' ' ' <<<"$failed")"
+            exit 1
+          fi
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$RESULTS"
+
+      - name: The apply had to run
+        if: github.event_name != 'pull_request'
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          PLAN_HAS_CHANGES: ${{ needs.plan.outputs.has_changes }}
+          PLAN_HAS_DESTROYS: ${{ needs.plan.outputs.has_destroys }}
+          ALLOW_DESTROY: ${{ inputs.allow-destroy }}
+          APPLY_RESULT: ${{ needs.apply.result }}
+        run: |
+          if [ "$PLAN_RESULT" != "success" ]; then
+            echo "::error::plan ended as '$PLAN_RESULT'"
+            exit 1
+          fi
+          if [ "$PLAN_HAS_CHANGES" != "true" ]; then
+            echo "Plan proposed nothing, apply was skipped." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Red on purpose: the change is merged but not applied, and the next
+          # run on main keeps it selected until someone applies it.
+          if [ "$PLAN_HAS_DESTROYS" = "true" ] && [ "$ALLOW_DESTROY" != "true" ]; then
+            msg="The plan destroys or replaces resources, so the apply did not run by itself."
+            msg="$msg Check the plan of this run, then run the workflow on main by hand with allow_destroy."
+            echo "::error::$msg"
+            echo "$msg" >>"$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$APPLY_RESULT" != "success" ]; then
+            echo "::error::the plan proposed a change but apply ended as '$APPLY_RESULT'"
+            exit 1
+          fi
+          echo "Apply went through." >>"$GITHUB_STEP_SUMMARY"

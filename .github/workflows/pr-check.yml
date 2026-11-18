@@ -1,0 +1,22 @@
+# The pr check of this repository, run from the pull request's own branch so
+# that a change to pr.yml is tried out before it is released.
+name: pr
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr:
+    uses: ./.github/workflows/pr.yml
+    permissions:
+      contents: read
+      pull-requests: write
