@@ -27,6 +27,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, plan of the affected units with trivy and a PR comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, gate |
 | `destroy-review.yml` | `review` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` check of the last pull request run |
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, analytic rules outside the code |
+| `dependabot-auto-merge.yml` | `auto-merge` | repositories with `touches-production=false` that opt in | a Dependabot pull request with only patch and minor updates merges itself once the required checks pass (`src/dependabot_update.py`); anything else waits for the owner |
 | `terragrunt-home.yml` | `pipeline` | `iac-home` | conventions, plan and apply of the router through WireGuard, certificate renewal and drift on schedule |
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
 | `m365-dsc.yml` | `pipeline` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of the affected types, apply |
@@ -34,7 +35,6 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `static-web-app.yml` | `pipeline` | `app-web-*` | the site's checks, deploy to the Static Web App when the content changed |
 | `container.yml` | `pipeline` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
-| `dependabot-auto-merge.yml` | `auto-merge` | repositories with `touches-production=false` that opt in | a Dependabot pull request with only patch and minor updates merges itself once the required checks pass (`src/dependabot_update.py`); anything else waits for the owner |
 | `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows; v2 pipelines carry them as jobs |
 
 The organisation rulesets (in `bearclave/iac-github`) require three checks on
@@ -229,7 +229,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `dependabot_update.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test`, `dependabot_update.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
 | `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 
