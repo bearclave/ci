@@ -18,9 +18,9 @@ on:
   workflow_call:
     inputs:
       conventions-config:
-        description: Path of the conventions file
+        description: Path of the conventions file (default .github/conventions.yaml, or conventions.yaml where it is still in the root)
         type: string
-        default: conventions.yaml
+        default: ""
 
 permissions:
   contents: read
@@ -105,7 +105,10 @@ jobs:
           tflint --recursive --config="$PWD/.tflint.hcl"
 
       - name: trivy config
-        run: trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml .
+        run: |
+          ignore=.github/trivyignore.yaml
+          [ -f "$ignore" ] || ignore=.trivyignore.yaml
+          trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile "$ignore" .
 
   conventions:
     runs-on: ubuntu-latest

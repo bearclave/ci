@@ -35,9 +35,10 @@ Unit skeleton: [../templates/terragrunt/](https://github.com/bearclave/governanc
 - `include "root"` with `expose = true` first; then the shared dependency
   includes; then `dependencies`; then `inputs`.
 - Every input of the module is set - the modules have no defaults.
-- Comments say why a value is what it is, especially an exception
+- A value that is an exception gets a comment saying why
   (`lock = "none"` in a high-criticality group needs one; the conventions
-  check enforces it).
+  check enforces it). Comments otherwise:
+  [documentation.md](https://github.com/bearclave/governance/blob/main/standards/documentation.md#comments-in-code).
 
 ## State
 
@@ -58,6 +59,6 @@ the settings deny them, and the pipeline is the only writer.
 ## Checks
 
 `terragrunt hcl fmt --check`, `hcl validate`, `conventions / check` (rules in
-`conventions.yaml`: module from git, dependencies in `_common/deps`, mocks,
+`.github/conventions.yaml`: module from git, dependencies in `_common/deps`, mocks,
 tags, no hard-coded IDs or regions, no `_envcommon`), Sentinel lint where
 Sentinel content lives, trivy over the plan, and the plan itself.

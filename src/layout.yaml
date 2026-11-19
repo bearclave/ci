@@ -1,0 +1,89 @@
+# Managed by bearclave/governance (tools/sync.py) - do not edit here.
+# Root layout of the repositories, read by the layout check of bearclave/ci
+# (a step of "pr / check"). The rules in prose: layout.md.
+#
+# A repository's entries are the union of `common`, its group (the name
+# prefix: iac-, app-, template-/content-, none = platform) and its pipeline
+# (the shared workflow its ci.yml calls). A top-level folder is also allowed
+# when it holds what its `content` kind names:
+#   units    a Terragrunt unit (terragrunt.hcl) somewhere below it
+#   modules  a Terraform module (*.tf) somewhere below it
+# Anything else needs an exception with a reason in .github/conventions.yaml:
+#   layout:
+#     exceptions:
+#       - path: ISSUE_TEMPLATE
+#         reason: GitHub reads the issue forms from the root of this repository.
+
+common:
+  # Root entries every repository has.
+  required:
+    - README.md
+    - .gitattributes
+    - .editorconfig
+    - .claude
+    - .github
+  # Root files that Git, GitHub, an ecosystem or a tool read from the root.
+  files:
+    - README.md
+    - .gitignore
+    - .gitattributes
+    - .editorconfig
+    - .gitleaks.toml
+    - .tflint.hcl
+    - .dockerignore
+    - Dockerfile
+    - package.json
+    - package-lock.json
+    - pyproject.toml
+    - uv.lock
+  # The folder vocabulary (layout.md#folders).
+  folders:
+    - .claude
+    - .github
+    - src
+    - tests
+    - tools
+    - docs
+    - _common
+  # What .github/ may hold: GitHub, CI, and the configs only the pipeline reads.
+  github:
+    - workflows
+    - dependabot.yml
+    - release.yml
+    - tool-versions.env
+    - conventions.yaml
+    - sentinel-lint.yaml
+    - trivyignore.yaml
+    - pssa.psd1
+  # docs/: flat, kebab-case names.
+  docs_name: '^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+)?$'
+
+groups:
+  app:
+    folders: [config, content, data, deploy, lib]
+
+pipelines:
+  terragrunt:
+    files: [root.hcl, account.hcl]
+    content: units
+  terragrunt-home:
+    files: [root.hcl, account.hcl]
+    content: units
+  terraform-modules:
+    content: modules
+  m365-dsc:
+    # tenant.psd1 is the tenant context of the configuration, as account.hcl
+    # is for Terragrunt.
+    files: [tenant.psd1]
+    folders: [config, content, data, deploy, lib]
+  static-web-app:
+    # api/ is the Functions folder the Static Web App deploys.
+    folders: [api]
+  container: {}
+  content-sentinel:
+    # The content and its generated Terragrunt view.
+    folders: [ARM, terragrunt]
+  checks: {}
+  ci:
+    # The workflow templates build.py writes .github/workflows/ from.
+    folders: [templates]

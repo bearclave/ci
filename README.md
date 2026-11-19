@@ -4,6 +4,16 @@ Shared CI for the `bearclave` organisation. The checks that are the same in
 every repository live here once, as reusable workflows, instead of a copy in
 each repository that drifts on its own.
 
+## Layout
+
+```text
+templates/            the workflows, with @@include markers; _fragments/ shared pieces
+.github/workflows/    generated from templates/ by tools/build.py (do not edit)
+src/                  the scripts the workflows carry; layout.yaml (managed copy)
+tests/                unit tests of src/, mirroring it
+tools/                build.py, export-for-templates.py, sync-templates.py
+```
+
 ## Workflows
 
 Every pipeline of the organisation lives here once; a repository holds only
@@ -12,7 +22,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | Workflow | Caller job | Used by | What it does |
 |---|---|---|---|
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck |
-| `pr.yml` | `pr` | every repository | Conventional Commit title, `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`) |
+| `pr.yml` | `pr` | every repository | Conventional Commit title, `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`); the root layout (`src/layout_check.py`, below) |
 | `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `.github` | an optional command of the repository, then the gate |
 | `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, plan of the affected units with trivy and a PR comment, apply from `main`, destroys held back, gate |
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, analytic rules outside the code |
@@ -56,18 +66,18 @@ call it.
 **Template repositories cannot.** `template-iac-*` are copied to customers,
 whose organisations cannot reach a private `bearclave` repository, so the
 templates call a local copy (`uses: ./.github/workflows/security.yml`). The
-copies are written by `export-for-templates.py`, which takes out what belongs
+copies are written by `tools/export-for-templates.py`, which takes out what belongs
 to this organisation (the header, zizmor's allowance for `bearclave/*`):
 
 ```bash
-./export-for-templates.py ../template-iac-modules ../template-iac-terragrunt ../template-iac-m365
-./export-for-templates.py --check ../template-iac-*     # are the copies current?
+tools/export-for-templates.py ../../template/template-iac-modules ../../template/template-iac-terragrunt ../../template/template-iac-m365
+tools/export-for-templates.py --check ../../template/template-iac-*     # are the copies current?
 ```
 
 The templates still carry the v1 pipelines; they move to the v2 workflows when
 they are rebuilt.
 
-`sync-templates.py` keeps what else a template shares with its live repository
+`tools/sync-templates.py` keeps what else a template shares with its live repository
 - the runner of `iac-m365`, the modules, the tool versions - and keeps what is
 the tenant (account.hcl, the units, the configuration, the README). Each
 template has its rules in the script: what is copied, what is replaced
@@ -78,14 +88,49 @@ changed shape. It finds the repositories next to this one or in the group
 folders (`iac/`, `template/`):
 
 ```bash
-./sync-templates.py --check ~/Repositories/Bearclave.GitHub   # what is out of date
-./sync-templates.py ~/Repositories/Bearclave.GitHub template-iac-terragrunt
+tools/sync-templates.py --check ~/Repositories/Bearclave.GitHub   # what is out of date
+tools/sync-templates.py ~/Repositories/Bearclave.GitHub template-iac-terragrunt
 ```
+
+## Layout check
+
+The `check` job of `pr.yml` (the required `pr / check`) also checks the root
+of the repository against
+[`standards/layout.yaml`](https://github.com/bearclave/governance/blob/main/standards/layout.yaml)
+of governance: required and allowed root files, the allowed top-level folders
+of the repository's group (name prefix) and pipeline (the shared workflow its
+`ci.yml` calls), what `.github/` holds and the names in `docs/`. The YAML
+travels in the workflow as `src/layout.yaml`, a copy that
+`governance/tools/sync.py ci` writes. Exceptions are in the repository's
+`.github/conventions.yaml`, each with a reason:
+
+```yaml
+layout:
+  exceptions:
+    - path: ISSUE_TEMPLATE
+      reason: GitHub reads the issue forms from the root of this repository.
+```
+
+## Paths the workflows read in the caller
+
+The configs moved from the root into `.github/` (governance `layout.md`); the
+workflows read the new path and fall back to the old one, so a repository
+works before and after its move:
+
+| Config | Path | Before the move |
+|---|---|---|
+| conventions | `.github/conventions.yaml` | `conventions.yaml` |
+| Sentinel lint | `.github/sentinel-lint.yaml` | `sentinel-lint.yaml` |
+| trivy exceptions | `.github/trivyignore.yaml` | `.trivyignore.yaml` |
+| PSScriptAnalyzer | `.github/pssa.psd1` | `.pssa.psd1` |
+| home VPN, shell scripts | `tools/home-vpn.sh`, `tools/*.sh`, `tools/bootstrap/render.sh` | `scripts/`, `bootstrap/` |
+| content generators | `tools/*.py` | `_tools/*.py` |
 
 ## Conventions
 
-`conventions.yml` reads `conventions.yaml` of the calling repository (another
-path with the `config` input): which rules apply, how strictly, and the
+The conventions job reads `.github/conventions.yaml` of the calling repository
+(`conventions.yaml` in the root where it has not moved yet; another path with
+the `conventions-config` input): which rules apply, how strictly, and the
 exceptions. The rules are in `src/conventions.py`.
 
 ```yaml
@@ -126,7 +171,9 @@ workflow turns the YAML into JSON with the `yq` of the runner.
 
 ## Sentinel analytic rules
 
-`sentinel-lint.yml` reads `sentinel-lint.yaml` of the calling repository:
+The Sentinel job reads `.github/sentinel-lint.yaml` of the calling repository
+(`sentinel-lint.yaml` in the root where it has not moved yet, or the
+`sentinel-config` input):
 
 ```yaml
 rules:
@@ -169,18 +216,18 @@ read it.
 A reusable workflow runs in the calling repository, and the caller's token
 cannot read this private repository: a script here cannot be checked out next
 to the workflow. So it travels inside it. `templates/<name>.yml` has a line
-`@@include src/<script>@@` inside a heredoc, and `./build.py` writes
+`@@include src/<script>@@` inside a heredoc, and `tools/build.py` writes
 `.github/workflows/<name>.yml` with the script in its place.
 `@@include templates/_fragments/<name>.yml@@` puts a shared piece of workflow
 (the steps that unpack the scripts into `$RUNNER_TEMP/ci` and put them on
 `PATH`, the conventions and Sentinel jobs, the gate) in the same way.
 
 Edit the template, the fragment or `src/`, never the generated file, and run
-`./build.py`; the `pipeline` job fails when the two do not match.
+`tools/build.py`; the `pipeline` job fails when the two do not match.
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `install-tools.sh`, `pr-comment.sh` | `tests/test_*.py`, `pr_check.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
 | `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 

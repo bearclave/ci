@@ -10,8 +10,9 @@ paths:
 - Python 3.12+. Pipeline and repository scripts use the **standard library
   only**, so they run on a bare runner; applications declare dependencies in
   `pyproject.toml` with a lock file (`uv`).
-- Module docstring saying what the script does and how to call it
-  (`Usage:`), `if __name__ == "__main__": sys.exit(main())`.
+- A one-line module docstring saying what the script does; how to call it
+  is in the README. `if __name__ == "__main__": sys.exit(main())`.
+- Comments: [documentation.md](https://github.com/bearclave/governance/blob/main/standards/documentation.md#comments-in-code).
 - Type hints on functions; `pathlib` for paths; `argparse` for arguments;
   `subprocess.run([...], check=True)` with a list, never `shell=True`.
 - `ruff check` and `ruff format` clean (applications); scripts follow the

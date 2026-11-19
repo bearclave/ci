@@ -7,8 +7,9 @@ paths:
 
 <!-- Standard of bearclave/governance (standards/code/shell.md). In other repositories this is a managed copy - change it in governance. -->
 
-- `#!/usr/bin/env bash` and `set -euo pipefail` on the second line; a header
-  comment with what the script does and its usage.
+- `#!/usr/bin/env bash` and `set -euo pipefail` on the second line; a
+  one-line header comment saying what the script does, usage in the README.
+- Comments: [documentation.md](https://github.com/bearclave/governance/blob/main/standards/documentation.md#comments-in-code).
 - Quote every expansion (`"$var"`, `"${arr[@]}"`); `[[ ]]` or `[ ]`
   consistently; `$(...)`, never backticks.
 - Functions for anything used twice; `local` variables inside them.

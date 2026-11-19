@@ -36,11 +36,12 @@
   the organisation allows only GitHub-owned, verified, `azure/*` and
   `hashicorp/*` actions.
 - Other tools are downloaded as release binaries and checked against a
-  sha256 (`.github/tool-versions.env` or the shared workflow).
+  sha256 from `tool-versions.env` of `bearclave/ci` ([toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md)).
 - Dependabot opens one grouped pull request a week, only for releases at
   least 7 days old.
-- Terraform providers and Microsoft365DSC are pinned to exact versions; a
-  bump is a `deps` pull request with its plan.
+- Terraform providers and Microsoft365DSC are pinned to exact versions and
+  providers verified by the committed `.terraform.lock.hcl`; a bump is a
+  `deps` pull request with its plan ([toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md)).
 
 ## Workflows
 

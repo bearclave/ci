@@ -12,8 +12,8 @@ paths:
 | Document | Holds | Does not hold |
 |---|---|---|
 | `README.md` | what the repository is, how it fits, how to change it, its pipeline | working rules for agents, history of changes |
-| `CLAUDE.md` | working rules specific to this repository | documentation, organisation standards (those are in `.claude/rules/`) |
-| `docs/*.md` | longer topics of the repository: setup, manual steps, decisions, out-of-scope | anything the README already says |
+| `.claude/CLAUDE.md` | working rules specific to this repository | documentation, organisation standards (those are in `.claude/rules/`) |
+| `docs/*.md` | longer topics of the repository: `setup.md`, `manual-steps.md`, `out-of-scope.md`, `decisions.md`, `catalog.md` ([layout.md](https://github.com/bearclave/governance/blob/main/standards/layout.md#docs)) | anything the README already says |
 | `README.md` of a module | its inputs, outputs and why it is built the way it is | how a unit uses it |
 | `bearclave/handbook` | know-how across repositories, `gotchas/` | documentation of one repository |
 | LLM wiki | the owner's processes and where things are | technical documentation - it links here |
@@ -61,8 +61,18 @@ section that does not apply is left out, not left empty.
 
 ## Comments in code
 
-- English. Explain why, a constraint, a trap, a link to the gotcha - never
-  restate the line below.
-- A workaround names what it works around and when it can go.
+The code stays as clean as possible; what it needs to be understood goes into
+the README or `docs/`, not into comments.
+
+- English only.
+- Only when necessary: a reason that is not obvious, a constraint, a trap, a
+  workaround - which names what it works around and links its issue or
+  gotcha, so it can go once that is fixed.
+- One or two lines each. Design, reasons, usage and how it fits belong in
+  the README (or `docs/`).
+- Never restate the code below.
+- No section banners and no decorative comments.
 - No commented-out code; git keeps the old version.
 - No `TODO` without an issue: `# TODO(#42): drop once the provider supports X`.
+
+The language rules in `code/` follow this and do not repeat it.

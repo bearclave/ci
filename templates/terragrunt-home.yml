@@ -52,16 +52,17 @@ on:
         type: string
         default: letsencrypt
       vpn-script:
-        description: Script of the repository that joins (up) and leaves (down) the home network
+        description: Script of the repository that joins (up) and leaves (down) the home network (default tools/home-vpn.sh, or scripts/home-vpn.sh before the move to tools/)
         type: string
-        default: scripts/home-vpn.sh
+        default: ""
       shellcheck-paths:
-        description: Shell scripts of the repository to check, space-separated globs
+        description: Shell scripts of the repository to check, space-separated globs (default tools/*.sh tools/bootstrap/render.sh nas/acme/*.sh, or the same under scripts/ and bootstrap/ before the move to tools/)
         type: string
-        default: scripts/*.sh bootstrap/render.sh nas/acme/*.sh
+        default: ""
       conventions-config:
+        description: Path of the conventions file (default .github/conventions.yaml, or conventions.yaml where it is still in the root)
         type: string
-        default: conventions.yaml
+        default: ""
     secrets:
       modules-deploy-key:
         required: true
@@ -118,14 +119,14 @@ jobs:
 
       - name: Shell scripts
         env:
-          SCRIPTS: ${{ inputs.shellcheck-paths }}
+          SCRIPTS: ${{ inputs.shellcheck-paths || (hashFiles('tools/home-vpn.sh') != '' && 'tools/*.sh tools/bootstrap/render.sh nas/acme/*.sh' || 'scripts/*.sh bootstrap/render.sh nas/acme/*.sh') }}
         run: |
           # shellcheck disable=SC2086 # the globs are meant to expand
           shellcheck $SCRIPTS
 
       - name: Join the home network
         env:
-          VPN: ${{ inputs.vpn-script }}
+          VPN: ${{ inputs.vpn-script || (hashFiles('tools/home-vpn.sh') != '' && 'tools/home-vpn.sh' || 'scripts/home-vpn.sh') }}
         run: '"./$VPN" up'
 
       # Changes are read from the plan output (a "Plan:" line); run --all does
@@ -166,7 +167,7 @@ jobs:
       - name: Leave the home network
         if: always()
         env:
-          VPN: ${{ inputs.vpn-script }}
+          VPN: ${{ inputs.vpn-script || (hashFiles('tools/home-vpn.sh') != '' && 'tools/home-vpn.sh' || 'scripts/home-vpn.sh') }}
         run: '"./$VPN" down'
 
   apply:
@@ -193,7 +194,7 @@ jobs:
 
       - name: Join the home network
         env:
-          VPN: ${{ inputs.vpn-script }}
+          VPN: ${{ inputs.vpn-script || (hashFiles('tools/home-vpn.sh') != '' && 'tools/home-vpn.sh' || 'scripts/home-vpn.sh') }}
         run: '"./$VPN" up'
 
       # A scheduled run applies the certificate renewal and nothing else.
@@ -213,7 +214,7 @@ jobs:
       - name: Leave the home network
         if: always()
         env:
-          VPN: ${{ inputs.vpn-script }}
+          VPN: ${{ inputs.vpn-script || (hashFiles('tools/home-vpn.sh') != '' && 'tools/home-vpn.sh' || 'scripts/home-vpn.sh') }}
         run: '"./$VPN" down'
 
   # The required check, and the drift verdict of a scheduled run.

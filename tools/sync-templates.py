@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Brings the template repositories up to their live repositories.
 
-Usage: sync-templates.py [--check] [<repositories root>] [<template>[=<checkout>] ...]
+Usage: tools/sync-templates.py [--check] [<repositories root>] [<template>[=<checkout>] ...]
 
 A template may name the checkout to write to (a worktree, say); otherwise it
 is <repositories root>/<template>.
@@ -17,16 +17,18 @@ Since bearclave/ci v2 the pipelines of the live repositories are shared
 workflows of this repository, called by a few lines each; they are no longer
 copied from the live repositories. The templates keep the pipeline copies
 they have until they are rebuilt on the v2 workflows (exported by
-export-for-templates.py).
+tools/export-for-templates.py).
 
 For each template below: `copy` lists what is taken over (directories whole,
-removing what live no longer has), `keep` what stays the template's even
+removing what live no longer has), `rename` where a copied path lands in the
+template when it differs (the template keeps the paths its exported pipeline
+reads), `keep` what stays the template's even
 inside a copied directory, `replace` the organisation's values and their
 placeholders, `edits` the exact changes a template needs on top (the jobs that
 sign in to a tenant wait until the customer fills in the variables). An edit
 whose text is no longer found fails loudly: the live file changed shape and
 the rule has to be looked at. The copies of the shared workflows of this
-repository are written by export-for-templates.py, which this runs at the end.
+repository are written by tools/export-for-templates.py, which this runs at the end.
 
 Nothing that names the organisation or its tenant may reach a template; such
 a file stops the run. --check writes nothing and lists what is out of date.
@@ -38,7 +40,7 @@ import re
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 FORBIDDEN = re.compile(
     r"bearclave|matej|hrabalek|31a3b839-94d3-44da-ab17-0dff1ac2bd1e|1827efe4-672d-413a-9317-4d9298871317|"
     r"ae91cfad-f27a-43a1-b054-d283b0c13028|doklady|sp-swa-(?:sro|osvc)|kv-sro|-sro-weu|-osvc-weu",
@@ -68,8 +70,9 @@ TEMPLATES = {
     },
     "template-iac-modules": {
         "live": "iac-modules",
-        "copy": [".github/tool-versions.env", ".tflint.hcl", ".trivyignore.yaml", "conventions.yaml",
-                 "_shared", "data", "identity", "monitoring", "platform", "security", "sentinel", "web"],
+        "copy": [".github/tool-versions.env", ".tflint.hcl", ".github/trivyignore.yaml", ".github/conventions.yaml",
+                 "_common", "data", "identity", "monitoring", "platform", "security", "sentinel", "web"],
+        "rename": {".github/trivyignore.yaml": ".trivyignore.yaml", ".github/conventions.yaml": "conventions.yaml"},
         # The live description names the tenant's own domains.
         "keep": ["identity/entra-users/variables.tf"],
         "replace": [SHARED_CALL,
@@ -106,26 +109,30 @@ def apply_rules(text: str, rules: dict, path: str) -> str:
 
 
 def plan(base: pathlib.Path, name: str, rules: dict, template: pathlib.Path):
-    """(path, new content or None for removal) for every file out of date."""
+    """(template path, new content or None for removal) for every file out of date."""
     live = locate(base, rules["live"])
     live_files, template_files = set(tracked(live)), set(tracked(template))
-    selected = lambda p: any(p == c or p.startswith(c.rstrip("/") + "/") for c in rules["copy"])
-    out = []
-    for path in sorted(f for f in live_files if selected(f) and f not in rules["keep"]):
-        source = live / path
+    rename = rules.get("rename", {})
+    to_template = lambda p: rename.get(p, p)
+    copied = [to_template(c) for c in rules["copy"]]
+    selected = lambda p, roots: any(p == c or p.startswith(c.rstrip("/") + "/") for c in roots)
+    out, landed = [], set()
+    for path in sorted(f for f in live_files if selected(f, rules["copy"]) and f not in rules["keep"]):
+        source, dest = live / path, to_template(path)
+        landed.add(dest)
         try:
             text = apply_rules(source.read_text(encoding="utf-8"), rules, path)
         except UnicodeDecodeError:
-            if not (template / path).exists() or not filecmp.cmp(source, template / path, shallow=False):
-                out.append((path, source.read_bytes()))
+            if not (template / dest).exists() or not filecmp.cmp(source, template / dest, shallow=False):
+                out.append((dest, source.read_bytes()))
             continue
         if FORBIDDEN.search(text):
             line = next(line for line in text.splitlines() if FORBIDDEN.search(line))
             sys.exit(f"{rules['live']}/{path} would bring the organisation into {name}: {line.strip()[:120]}")
-        current = (template / path).read_text(encoding="utf-8") if (template / path).exists() else None
+        current = (template / dest).read_text(encoding="utf-8") if (template / dest).exists() else None
         if current != text:
-            out.append((path, text))
-    for path in sorted(f for f in template_files if selected(f) and f not in live_files and f not in rules["keep"]):
+            out.append((dest, text))
+    for path in sorted(f for f in template_files if selected(f, copied) and f not in landed and f not in rules["keep"]):
         out.append((path, None))
     return out
 
@@ -158,7 +165,7 @@ def main(args) -> int:
                 (target.write_bytes if isinstance(content, bytes) else
                  lambda t: target.write_text(t, encoding="utf-8"))(content)
                 print(f"{name}: wrote {path}")
-    export = [sys.executable, str(ROOT / "export-for-templates.py")] + (["--check"] if check else []) + \
+    export = [sys.executable, str(ROOT / "tools" / "export-for-templates.py")] + (["--check"] if check else []) + \
         [str(targets[n]) for n in names]
     rc = subprocess.run(export).returncode
     return 1 if (check and stale) or rc else 0

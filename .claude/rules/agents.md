@@ -5,19 +5,19 @@
 How an AI coding agent (Claude Code, locally or in a cloud session) works in
 a `bearclave` repository. A cloud session has none of the owner's local
 hooks or settings: this file, the other files in `.claude/rules/`, the
-repository's `CLAUDE.md` and `.claude/settings.json` are the only guard
+repository's `.claude/CLAUDE.md` and `.claude/settings.json` are the only guard
 there, so they have to be enough on their own.
 
 ## Where the instructions are
 
 | File | Content | Edited in |
 |---|---|---|
-| `CLAUDE.md` | what is specific to this repository: what it deploys, what not to touch, its commands | the repository |
-| `.claude/rules/*.md` | the organisation standards (this file and its siblings) | `bearclave/governance`, copied by `sync.py` |
-| `.claude/settings.json` | denied commands (push to `main`, force push, apply, destroy), no attribution | `bearclave/governance`, copied by `sync.py` |
+| `.claude/CLAUDE.md` | what is specific to this repository: what it deploys, what not to touch, its commands | the repository |
+| `.claude/rules/*.md` | the organisation standards (this file and its siblings) | `bearclave/governance`, copied by `tools/sync.py` |
+| `.claude/settings.json` | denied commands (push to `main`, force push, apply, destroy), no attribution | `bearclave/governance`, copied by `tools/sync.py` |
 | `README.md` | documentation of the repository | the repository |
 
-`CLAUDE.md` holds only working rules; documentation goes to the README. The
+`.claude/CLAUDE.md` holds only working rules; documentation goes to the README. The
 rules in `.claude/rules/` win over habits and defaults of the tool.
 
 ## Working rules

@@ -10,6 +10,10 @@
     cat >"$script" <<'__CI_EOF__'
     @@include src/conventions.py@@
     __CI_EOF__
+    if [ -z "$CONFIG" ]; then
+      CONFIG=.github/conventions.yaml
+      [ -f "$CONFIG" ] || CONFIG=conventions.yaml
+    fi
     if [ ! -f "$CONFIG" ]; then
       echo "::error::$CONFIG not found"
       exit 1

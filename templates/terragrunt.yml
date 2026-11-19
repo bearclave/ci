@@ -74,15 +74,17 @@ on:
         type: boolean
         default: true
       conventions-config:
+        description: Path of the conventions file (default .github/conventions.yaml, or conventions.yaml where it is still in the root)
         type: string
-        default: conventions.yaml
+        default: ""
       sentinel-lint:
         description: Run the Sentinel lint (sentinel-lint.yaml) on pull requests
         type: boolean
         default: false
       sentinel-config:
+        description: Path of the Sentinel lint config (default .github/sentinel-lint.yaml, or sentinel-lint.yaml where it is still in the root)
         type: string
-        default: sentinel-lint.yaml
+        default: ""
       principal-refs:
         description: Check that a principal a change creates is not referenced by display name (Entra)
         type: boolean
@@ -465,7 +467,7 @@ jobs:
       - name: No unaccepted security finding
         if: always() && steps.trivy.outputs.found == 'true'
         run: |
-          echo "::error::trivy found a HIGH or CRITICAL setting in the plan (Security findings in the summary). Fix it, or accept it in .trivyignore.yaml with the reason."
+          echo "::error::trivy found a HIGH or CRITICAL setting in the plan (Security findings in the summary). Fix it, or accept it in .github/trivyignore.yaml with the reason."
           exit 1
 
   # Apply runs from main only. The environment allows deployments from main
