@@ -1,6 +1,6 @@
-# The conventions workflow run over this repository by ci.yml, so that a pull
-# request here tries the generated workflow end to end (yq, the embedded
-# script, the summary) before the v1 tag moves.
+# The conventions run over this repository by the command of ci.yml, so that
+# a pull request here tries the script on a real tree (yq, the script, the
+# summary) before a release.
 rules:
   no-envcommon:
     level: error

@@ -32,7 +32,6 @@ name, never `secrets: inherit`). The header of each workflow shows its caller.
 | `container.yml` | `pipeline` | `app-home` | ESLint, lint and tests in the image; push to GHCR from `main` (`:main`) and from a release (`:vX.Y.Z`) |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
 | `release.yml` | `release` | versioned repositories, by hand (no caller yet) | the next `vX.Y.Z` and its notes, and the commands of a signed release; publishes nothing |
-| `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows |
 
 The workflows of this repository itself:
 
@@ -47,10 +46,8 @@ pipeline ends with a `gate` job that always runs: a skipped job passes a
 required check, so only the gate may be required.
 
 This repository is private; its Actions access is "Accessible from
-repositories in the 'bearclave' organization". The `template-iac-*`
-repositories (to be archived) cannot reach it and carry a local copy written
-by `tools/export-for-templates.py`; `tools/sync-templates.py` keeps the rest
-they share with their live repository.
+repositories in the 'bearclave' organization". Another organisation cannot
+reach it.
 
 ## Layout
 
@@ -62,8 +59,7 @@ templates/            the workflows, with @@include markers; _fragments/ shared 
 src/                  the scripts the workflows carry or run; terragrunt/, m365/;
                       layout.yaml (managed copy from governance), markdownlint.yaml
 tests/                unit tests of src/, mirroring it
-tools/                build.py, export-for-templates.py, sync-templates.py,
-                      sanitise-plan.py, move-major-tag.sh, bot-gh.py
+tools/                build.py, sanitise-plan.py, move-major-tag.sh, bot-gh.py
 docs/                 identities.md, terragrunt.md, checks.md, organisation-workflows.md,
                       releasing.md
 ```
@@ -108,9 +104,9 @@ Versions, pins and how a release is made:
 ## Pipeline
 
 This repository calls its own workflows (`ci.yml`): `security.yml`,
-`checks.yml` with the tests and `build.py --check` as its command,
-`conventions.yml` and `sentinel-lint.yml` over the fixtures in
-`tests/fixtures/`, and `pr.yml` (`pr-check.yml`).
+`checks.yml` with the tests, `build.py --check` and the conventions and
+Sentinel lint over the fixtures in `tests/fixtures/` as its command, and
+`pr.yml` (`pr-check.yml`).
 
 | Trigger | What runs | Identity |
 |---|---|---|
