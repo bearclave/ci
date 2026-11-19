@@ -1,10 +1,15 @@
 """GitHub API and the sign-in as bearclave-bot, for the workflows of this
-repository that write to other repositories (deps.yml, ci-pins.yml).
+repository that write to other repositories (deps.yml, ci-pins.yml,
+housekeeping.yml, project-sync.yml).
 
-The job signs in to Azure as sp-ci-major-tag by OIDC (environment major-tag)
-and bot_token() reads the App's key, App ID and installation ID from the Key
-Vault kv-githubbot-sec-weu-001. No secret in GitHub, nothing printed. A dry
-run reads with GH_TOKEN instead (token()).
+The job signs in to Azure by OIDC as the identity of its environment
+(docs/identities.md) and Bot reads the App's key, App ID and installation
+ID from the Key Vault kv-githubbot-sec-weu-001. No secret in GitHub, nothing
+printed. A dry run reads with GH_TOKEN instead.
+
+The owner, whom the pull requests are assigned to, is the organisation
+variable OWNER (the environment variable of the same name); without it they
+are assigned to nobody.
 """
 import base64
 import json
@@ -20,7 +25,10 @@ import urllib.request
 ORG = "bearclave"
 VAULT = "kv-githubbot-sec-weu-001"
 API = "https://api.github.com"
-OWNER_LOGIN = "matej-hrabalek"
+
+def owner() -> str:
+    """The login pull requests and issues are assigned to (vars.OWNER), or ''."""
+    return os.environ.get("OWNER", "").strip()
 
 
 class NotFound(Exception):
@@ -133,7 +141,10 @@ def create_pull(repo: str, token: str, branch: str, base: str, title: str, body:
     pr = request("POST", f"/repos/{repo}/pulls", token, {"title": title, "head": branch, "base": base, "body": body})
     try:
         request("POST", f"/repos/{repo}/issues/{pr['number']}/labels", token, {"labels": list(labels)})
-        request("POST", f"/repos/{repo}/issues/{pr['number']}/assignees", token, {"assignees": [OWNER_LOGIN]})
+        if login := owner():
+            request("POST", f"/repos/{repo}/issues/{pr['number']}/assignees", token, {"assignees": [login]})
+        else:
+            print(f"::warning::{repo}#{pr['number']}: no OWNER variable, nobody assigned")
     except ApiError as e:
         print(f"::warning::{repo}#{pr['number']}: labels or assignee not set: {e}")
     return pr

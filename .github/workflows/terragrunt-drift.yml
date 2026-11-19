@@ -12,6 +12,11 @@
 # runs of ci.yml: the plan here locks the state too, and a drift plan in the
 # middle of an apply would read a half-applied state.
 #
+# It runs as the read-only plan identity, federated on main (a scheduled run
+# runs on main): a drift check only reads, and the identity that writes is
+# federated on the apply job's environment alone. In iac-github that is the
+# read-only GitHub App as well.
+#
 #   jobs:
 #     drift:
 #       uses: bearclave/ci/.github/workflows/terragrunt-drift.yml@v2
@@ -19,9 +24,10 @@
 #         contents: read
 #         id-token: write
 #       with:
-#         client-id: ${{ vars.AZURE_CLIENT_ID_PLATFORM }}
+#         client-id: ${{ vars.AZURE_CLIENT_ID_PLAN }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 #         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+#         github-app-vault: kv-githubro-sec-weu-001   # iac-github only
 #       secrets:
 #         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
 name: terragrunt-drift
@@ -30,7 +36,7 @@ on:
   workflow_call:
     inputs:
       client-id:
-        description: The full identity, so that drift sees everything; federated on main
+        description: The read-only plan identity (AZURE_CLIENT_ID_PLAN), federated on main
         type: string
         required: true
       tenant-id:
@@ -44,7 +50,7 @@ on:
         type: string
         default: ""
       github-app-vault:
-        description: Key Vault with the GitHub App (iac-github)
+        description: Key Vault with the read-only GitHub App (iac-github)
         type: string
         default: ""
     secrets:
@@ -71,7 +77,7 @@ env:
 
 jobs:
   drift:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -211,7 +217,9 @@ jobs:
           - Any other file belongs to the nearest unit above it. A file of a deleted
             unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
-            is planned, so when nothing else is touched the whole tree runs.
+            is planned, so when nothing else is touched the whole tree runs - except
+            what never reaches a plan (the same as changes.py): .claude/, Markdown,
+            and .github/ but its workflows, tool-versions.env and trivyignore.yaml.
           - No usable <base> (unknown, not an ancestor of HEAD) or no difference at all
             means the whole tree.
 
@@ -227,6 +235,15 @@ jobs:
 
           CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl"}
           UNIT = "terragrunt.hcl"
+          # What under .github/ changes a plan (changes.py has the same list).
+          PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
+
+
+          def no_plan_impact(path: str) -> bool:
+              """A file outside every unit that cannot change how the tree is planned."""
+              if path.startswith(".claude/") or path.lower().endswith(".md"):
+                  return True
+              return path.startswith(".github/") and not path.startswith(PLAN_INPUTS)
 
 
           def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -304,7 +321,7 @@ jobs:
                       unit = owner(path, head_units | gone)
                       if unit in head_units:
                           selected.add(unit)
-                      elif unit is None:
+                      elif unit is None and not no_plan_impact(path):
                           outside = True
 
               renamed_old = {old for old, _ in result["renamed"]}
@@ -312,8 +329,9 @@ jobs:
               if result["all"]:
                   return result
               if not selected:
-                  # Only the workflows, the scripts or the docs changed, or only units
-                  # were deleted. The first changes how everything is planned.
+                  # Only the workflows or the scripts changed (they change how
+                  # everything is planned), only what never reaches a plan, or only
+                  # units were deleted.
                   result["all"] = outside
                   return result
               result["units"] = expand(sorted(selected)) if do_expand else sorted(selected)
@@ -1066,9 +1084,10 @@ jobs:
             --fail-on-change   exit non-zero when the plan proposes anything at all or a
                                unit ended in an error (the gate of the weekly drift job;
                                terragrunt itself returns zero even when there are changes)
-            --github-output    write has_changes, has_errors and has_destroys to
-                               $GITHUB_OUTPUT; a plan that destroys or replaces is not
-                               applied by a push, it waits for a manual run
+            --github-output    write has_changes, has_errors, has_destroys and
+                               changed_units (a JSON list) to $GITHUB_OUTPUT; a plan that
+                               destroys or replaces is not applied by a push, it waits
+                               for an approval or a manual run
             --json-dir=<dir>   the plans in JSON, <dir>/<unit>/tfplan.json
             --export=<file>    a share of a split plan: write the rows of its JSON plans,
                                its outputs and trivy findings, for the merge
@@ -1616,6 +1635,7 @@ jobs:
                           r["what"] == "will be destroyed" or "replaced" in r["what"]
                           for p in parsed.values() for r in p["resources"])
                       fh.write(f"has_destroys={str(has_destroys).lower()}\n")
+                      fh.write(f"changed_units={json.dumps(changed_units)}\n")
 
               if "fail-on-change" in opts and (changes or errors or missing):
                   totals = ", ".join(f"{count[a]} {w}" for a, w in (

@@ -1,0 +1,58 @@
+# Adds every open issue and pull request of the organisation to the Project
+# of its repository's group (src/project_sync.py), instead of the Projects'
+# "Auto-add" workflows, which the API cannot configure. Runs as the GitHub
+# App bearclave-bot: the job signs in to Azure as sp-project-sync by OIDC on
+# the environment project-sync (main only) and reads the App's key from
+# kv-githubbot. No secret in GitHub. Moved here from bearclave/ops-tools.
+name: project-sync
+
+on:
+  schedule:
+    # Daily: every job is billed as a full minute. New items appear within a
+    # day, or at once by a manual run.
+    - cron: "15 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Only list what would be added
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: project-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: project-sync
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_PROJECT_SYNC }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Sign in to Azure
+        run: |
+          set -euo pipefail
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
+
+      - name: Sync
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          python3 src/project_sync.py "${args[@]}"

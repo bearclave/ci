@@ -57,11 +57,11 @@ class Gh:
         return subprocess.CompletedProcess(args, 0, out, "")
 
 
-def run(fake):
+def run(fake, *flags):
     with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {"GITHUB_REPOSITORY": "bearclave/x", "ASSIGNEE": "matej-hrabalek", "RUNNER_TEMP": tmp},
+            os.environ, {"OWNER": "the-owner", "RUNNER_TEMP": tmp},
             clear=True), mock.patch.object(hk, "gh", fake), contextlib.redirect_stdout(io.StringIO()):
-        code = hk.main()
+        code = hk.main(["--repo", "bearclave/x", *flags])
         body = pathlib.Path(tmp, "housekeeping.md")
         return code, body.read_text() if body.exists() else ""
 
@@ -85,7 +85,7 @@ class IssueTest(unittest.TestCase):
         post = [c for c in fake.calls if "POST" in c][0]
         self.assertEqual(code, 0)
         self.assertIn("type=Debt", post)
-        self.assertIn("assignees[]=matej-hrabalek", post)
+        self.assertIn("assignees[]=the-owner", post)
         self.assertIn("`feat/old`", body)
 
     def test_updates_the_open_issue(self):
@@ -111,6 +111,27 @@ class IssueTest(unittest.TestCase):
             self.assertNotIn("DELETE", call)
             self.assertNotIn("delete", call)
             self.assertNotEqual(call[:2], ("pr", "close"))
+
+
+class OrgTest(unittest.TestCase):
+    def test_every_listed_repository_is_checked(self):
+        fake = Gh(repository([ref("feat/old", 45)], []))
+        out = io.StringIO()
+        with mock.patch.object(hk, "org_repositories", lambda: ["bearclave/a", "bearclave/b"]), \
+                mock.patch.object(hk, "bot_token", lambda write: "t"), mock.patch.object(hk, "gh", fake), \
+                mock.patch.dict(os.environ, {"OWNER": "o"}, clear=True), contextlib.redirect_stdout(out), \
+                tempfile.TemporaryDirectory() as tmp:
+            os.environ["RUNNER_TEMP"] = tmp
+            code = hk.main(["--org"])
+        self.assertEqual(code, 0)
+        repos = [c[3] for c in fake.calls if c[:2] == ("issue", "list")]
+        self.assertEqual(repos, ["bearclave/a", "bearclave/b"])
+
+    def test_dry_run_writes_nothing(self):
+        fake = Gh(repository([ref("feat/old", 45)], []))
+        code, body = run(fake, "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertFalse([c for c in fake.calls if c[0] == "issue" and c[1] != "list" or "POST" in c])
 
 
 if __name__ == "__main__":

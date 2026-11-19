@@ -1,10 +1,24 @@
 # The pull request check of the organisation standards
 # (bearclave/governance standards/workflow.md): a Conventional Commit title,
-# a <type>/<slug> branch, the sections of the description; it sets the
-# type:*, breaking and size:* labels and assigns the author. It also checks
-# the root layout against governance standards/layout.yaml (a managed copy in
-# src/layout.yaml), with the exceptions in the repository's
-# .github/conventions.yaml (layout: exceptions:).
+# a <type>/<slug> branch, the sections of the description (Dependabot
+# excepted); it sets the type:*, breaking and size:* labels and assigns the
+# author (an App's pull request: the owner, vars.OWNER). It also checks,
+# in every repository and the same job:
+#
+# - the root layout against governance standards/layout.yaml (a managed copy
+#   in src/layout.yaml), with the exceptions in the repository's
+#   .github/conventions.yaml (layout: exceptions:);
+# - the conventions every repository has (src/conventions.py --only):
+#   todo-issue (a to-do comment names its issue) and markdown-links (a
+#   relative link in Markdown leads to a file and heading of the repository;
+#   offline, nothing is fetched), with the levels and exceptions of
+#   .github/conventions.yaml;
+# - markdownlint (markdownlint-cli2, the image pinned by its digest below)
+#   over the Markdown git tracks, with the rules of src/markdownlint.yaml;
+#   .github/markdownlint.yaml of the repository replaces them rule by rule.
+#
+# .claude/ is left out of the last two: the standards there are managed
+# copies, checked where they are written (governance).
 #
 # Every repository has the same caller, .github/workflows/pr.yml (managed by
 # governance/sync.py), and the check reports as "pr / check":
@@ -37,7 +51,7 @@ defaults:
 jobs:
   check:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -54,6 +68,7 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_ASSIGNEES: ${{ join(github.event.pull_request.assignees.*.login, ',') }}
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          OWNER: ${{ vars.OWNER }}
         run: |
           cat >"$RUNNER_TEMP/pr_check.py" <<'__CI_EOF__'
           @@include src/pr_check.py@@
@@ -86,3 +101,55 @@ jobs:
           fi
           python3 "$RUNNER_TEMP/layout_check.py" "$RUNNER_TEMP/layout.json" \
             "$RUNNER_TEMP/layout-exceptions.json" "$REPOSITORY" .
+
+      - name: To-dos and links
+        if: ${{ !cancelled() }}
+        run: |
+          cat >"$RUNNER_TEMP/conventions.py" <<'__CI_EOF__'
+          @@include src/conventions.py@@
+          __CI_EOF__
+          config=.github/conventions.yaml
+          [ -f "$config" ] || config=conventions.yaml
+          if [ -f "$config" ]; then
+            yq -o=json '.' "$config" >"$RUNNER_TEMP/conventions.json"
+          else
+            echo '{}' >"$RUNNER_TEMP/conventions.json"
+          fi
+          python3 "$RUNNER_TEMP/conventions.py" "$RUNNER_TEMP/conventions.json" . \
+            --only todo-issue,markdown-links
+
+      # The pinned image of markdownlint-cli2: the version and the digest of
+      # its multi-platform index (bumped together, like the tools of
+      # security.yml).
+      - name: Markdown
+        if: ${{ !cancelled() }}
+        env:
+          MARKDOWNLINT_CLI2_VERSION: "0.24.0"
+          MARKDOWNLINT_CLI2_SHA256: 70ead7c0352d22d04bbe612cd96b54ec591538d8f4626cafe391bb2ecf3639ca
+        run: |
+          set -euo pipefail
+          mapfile -d '' files < <(git ls-files -z -- '*.md' ':!:.claude/**')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No Markdown."
+            exit 0
+          fi
+          cfg="$RUNNER_TEMP/markdownlint"
+          mkdir -p "$cfg"
+          cat >"$cfg/default.yaml" <<'__CI_EOF__'
+          @@include src/markdownlint.yaml@@
+          __CI_EOF__
+          rules=("$cfg/default.yaml")
+          if [ -f .github/markdownlint.yaml ]; then rules+=(.github/markdownlint.yaml); fi
+          # shellcheck disable=SC2016 # $i is yq's
+          yq eval-all '. as $i ireduce ({}; . * $i) | {"config": .}' "${rules[@]}" >"$cfg/.markdownlint-cli2.yaml"
+          image="davidanson/markdownlint-cli2:v$MARKDOWNLINT_CLI2_VERSION@sha256:$MARKDOWNLINT_CLI2_SHA256"
+          rc=0
+          docker run --rm --network none -v "$PWD:/workdir:ro" -v "$cfg:/cfg:ro" "$image" \
+            --config /cfg/.markdownlint-cli2.yaml "${files[@]}" >"$cfg/out.txt" 2>&1 || rc=$?
+          cat "$cfg/out.txt"
+          # file:line[:column] error MDnnn/name description
+          sed -nE 's#^([^: ]+):([0-9]+)(:([0-9]+))? (error|warning) (MD[0-9]+/[^ ]+) (.*)$#::\5 file=\1,line=\2,title=\6::\7#p' "$cfg/out.txt"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error title=markdownlint::Markdown that breaks the rules (above). Fix it, or set the rule in .github/markdownlint.yaml."
+          fi
+          exit "$rc"

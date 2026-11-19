@@ -261,5 +261,58 @@ class Config(Base):
         self.assertIn("::error file=_envcommon/x.hcl,line=1,title=no-envcommon::", proc.stdout)
 
 
+TD = "TO" + "DO"
+
+
+class EveryRepository(Base):
+    """todo-issue and markdown-links: on without being named."""
+
+    def hits(self, *rules, config=None):
+        violations, errors = conventions.check(config or {}, str(self.root), only=list(rules))
+        self.assertEqual(errors, [])
+        return sorted((v["rule"], v["path"], v["line"]) for v in violations if not v["exception"])
+
+    def test_todo_needs_its_issue(self):
+        self.write({"a.py": f"# {TD}: later\n# {TD}(#12): drop once fixed\nx = 'todo'\n",
+                    "b.sh": f"echo {TD}S\n", "README.md": f"{TD}: words in prose\n",
+                    ".claude/rules/x.sh": f"# {TD}: managed copy\n"})
+        self.assertEqual(self.hits("todo-issue"), [("todo-issue", "a.py", 1)])
+
+    def test_todo_off_and_exceptions(self):
+        self.write({"a.py": f"# {TD}: later\n"})
+        self.assertEqual(self.hits("todo-issue", config={"rules": {"todo-issue": {"level": "off"}}}), [])
+        cfg = {"exceptions": [{"rule": "todo-issue", "path": "a.py", "reason": "vendored"}]}
+        self.assertEqual(self.hits("todo-issue", config=cfg), [])
+
+    def test_links(self):
+        self.write({
+            "README.md": "# Title\n\n## How it fits\n\n"
+                         "[ok](docs/setup.md) [dir](docs/) [anchor](#how-it-fits) [up](/docs/setup.md#first-step)\n"
+                         "[web](https://example.com) [mail](mailto:x@example.com) ![img](docs/a.png)\n"
+                         "[missing](docs/nope.md) [bad anchor](docs/setup.md#nothing) [out](../other/README.md)\n"
+                         "`[code](not/checked.md)`\n\n```\n[fenced](not/checked.md)\n```\n"
+                         "<!-- [commented](not/checked.md) -->\n[ref]: docs/gone.md\n",
+            "docs/setup.md": "# Setup\n\n## First step\n",
+            "docs/a.png": "png\n",
+            ".claude/rules/x.md": "[managed](templates/x.md)\n",
+        })
+        self.assertEqual(self.hits("markdown-links"), [
+            ("markdown-links", "README.md", 7), ("markdown-links", "README.md", 7),
+            ("markdown-links", "README.md", 7), ("markdown-links", "README.md", 14)])
+
+    def test_slug_of_a_heading(self):
+        self.assertEqual(conventions.slug("Plan and apply comments"), "plan-and-apply-comments")
+        self.assertEqual(conventions.slug("`docs/` and [links](x.md)"), "docs-and-links")
+        self.assertEqual(conventions.slug("Terragrunt: validate and verify"), "terragrunt-validate-and-verify")
+
+    def test_only_and_skip(self):
+        self.write({"a.py": f"# {TD}: later\n", "_envcommon/x.hcl": "locals {}\n"})
+        config = {"rules": {"no-envcommon": {"level": "error"}}}
+        violations, _ = conventions.check(config, str(self.root), skip=conventions.DEFAULT_ON)
+        self.assertEqual({v["rule"] for v in violations}, {"no-envcommon"})
+        violations, _ = conventions.check(config, str(self.root), only=["todo-issue"])
+        self.assertEqual({v["rule"] for v in violations}, {"todo-issue"})
+
+
 if __name__ == "__main__":
     unittest.main()

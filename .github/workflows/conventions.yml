@@ -29,7 +29,7 @@ defaults:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,12 +47,18 @@ jobs:
           #!/usr/bin/env python3
           """Checks a repository against the conventions its conventions.yaml names.
 
-          Usage: conventions.py <config.json> [<repository root>]
+          Usage: conventions.py <config.json> [<repository root>] [--only r1,r2] [--skip r1,r2]
+
+          --only runs just the named rules, --skip leaves them out: the pr check runs
+          the rules every repository has (--only todo-issue,markdown-links), the
+          conventions job of a pipeline the rest.
 
           The workflow converts conventions.yaml to JSON first (yq), so that this script
           needs nothing beyond the Python standard library. The config:
 
-            rules:       <rule>: {level: error | warn | off, ...parameters}
+            rules:       <rule>: {level: error | warn | off, ...parameters}; the
+                         rules in DEFAULT_ON run unless they are set to off, the others
+                         only when they are named
             units:       globs of the unit files (terragrunt.hcl) for the terragrunt rules
             exceptions:  [{rule, path (a glob), match (optional text on the line),
                            reason, review (YYYY-MM-DD)}] - an exception without a reason
@@ -73,6 +79,7 @@ jobs:
           import re
           import subprocess
           import sys
+          import urllib.parse
 
           # --------------------------------------------------------------------------
           # HCL tokens and structure
@@ -546,6 +553,143 @@ jobs:
                                  f'lock = "none" in a resource group of criticality {crit}, with no comment saying why')
 
 
+          # Every repository: a to-do comment names its issue, a relative link in Markdown leads
+          # somewhere. Both read every file git tracks, apart from the managed copies
+          # of the standards in .claude/ (governance checks the originals).
+          NOT_OURS = [".claude/**"]
+          # Written in two parts so that this file does not report itself.
+          TODO_WORD = "TO" + "DO"
+          RE_TODO = re.compile(r"\b" + TODO_WORD + r"\b(?!\(#\d+\))")
+          SKIP_SUFFIX = (".md", ".lock", ".lock.hcl", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".pdf",
+                         ".zip", ".gz", ".woff", ".woff2", ".ttf", ".otf", ".pfx", ".cer", ".crt", ".der")
+
+
+          def text_lines(repo, path):
+              """The lines of a text file, or None for a binary or unreadable one."""
+              full = os.path.join(repo.root, path)
+              try:
+                  if os.path.getsize(full) > 1_000_000:
+                      return None
+                  with open(full, "rb") as fh:
+                      data = fh.read()
+              except OSError:
+                  return None
+              if b"\0" in data:
+                  return None
+              return data.decode("utf-8", errors="replace").splitlines()
+
+
+          def rule_todo_issue(repo, params, units, report):
+              """A to-do comment names its issue, as in (#42) after the word, so that it is found and done."""
+              files = repo.glob(*params["files"]) if params.get("files") else repo.files
+              skip = NOT_OURS + list(params.get("exclude") or [])
+              for path in files:
+                  if matches(path, *skip) or path.lower().endswith(SKIP_SUFFIX):
+                      continue
+                  for n, line in enumerate(text_lines(repo, path) or [], 1):
+                      if RE_TODO.search(line):
+                          report.add("todo-issue", path, n,
+                                     f"{TODO_WORD} without its issue: write {TODO_WORD}(#<issue>): <what>, or open the issue")
+
+
+          RE_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+          RE_INLINE = re.compile(r"(!?)\[((?:[^\[\]]|\[[^\]]*\])*)\]\(\s*(<[^>]*>|[^\s)]+(?:\([^\s)]*\))?)(?:\s+[\"'(][^)]*)?\s*\)")
+          RE_REFDEF = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)")
+          RE_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+          RE_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+          RE_HTML_ID = re.compile(r"<a\s+(?:[^>]*\s)?(?:id|name)=[\"']([^\"']+)[\"']", re.I)
+
+
+          def markdown_code_free(lines):
+              """(line number, text) of the lines outside fenced code, inline code blanked out."""
+              fence = None
+              comment = False
+              for n, line in enumerate(lines, 1):
+                  m = RE_FENCE.match(line)
+                  if fence:
+                      if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+                          fence = None
+                      continue
+                  if m:
+                      fence = m.group(1)
+                      continue
+                  if comment or "<!--" in line:
+                      start = 0 if comment else line.index("<!--")
+                      end = line.find("-->", start)
+                      comment = end < 0
+                      line = line[:start] + ("" if comment else line[end + 3:])
+                  yield n, re.sub(r"(`+)(.+?)\1", lambda c: " " * len(c.group(0)), line)
+
+
+          def slug(text: str) -> str:
+              """GitHub's anchor of a heading."""
+              text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
+              text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+              text = re.sub(r"<[^>]+>", "", text).replace("`", "").lower().strip()
+              text = re.sub(r"[^\w\- ]", "", text)
+              return text.replace(" ", "-")
+
+
+          def anchors(lines) -> set:
+              found, seen = set(), {}
+              for _, line in markdown_code_free(lines):
+                  found.update(RE_HTML_ID.findall(line))
+                  m = RE_HEADING.match(line)
+                  if not m:
+                      continue
+                  base = slug(m.group(1))
+                  k = seen.get(base, 0)
+                  seen[base] = k + 1
+                  found.add(base if k == 0 else f"{base}-{k}")
+              return found
+
+
+          def rule_markdown_links(repo, params, units, report):
+              """A relative link in Markdown leads to a file of the repository (and a heading in it)."""
+              skip = NOT_OURS + list(params.get("exclude") or [])
+              dirs = {os.path.dirname(f) for f in repo.files}
+              for d in list(dirs):
+                  while d:
+                      d = os.path.dirname(d)
+                      dirs.add(d)
+              cache = {}
+
+              def lines_of(path):
+                  if path not in cache:
+                      cache[path] = text_lines(repo, path) or []
+                  return cache[path]
+
+              for path in repo.files:
+                  if not path.lower().endswith(".md") or matches(path, *skip):
+                      continue
+                  for n, line in markdown_code_free(lines_of(path)):
+                      targets = [m.group(3) for m in RE_INLINE.finditer(line)]
+                      if (m := RE_REFDEF.match(line)):
+                          targets.append(m.group(1))
+                      for raw in targets:
+                          target = raw[1:-1] if raw.startswith("<") else raw
+                          if not target or RE_SCHEME.match(target) or target.startswith("//"):
+                              continue
+                          file_part, _, anchor = target.partition("#")
+                          file_part = urllib.parse.unquote(file_part.split("?")[0])
+                          if not file_part:
+                              dest = path
+                          elif file_part.startswith("/"):
+                              dest = os.path.normpath(file_part.lstrip("/"))
+                          else:
+                              dest = os.path.normpath(os.path.join(os.path.dirname(path), file_part))
+                          if dest.startswith(".."):
+                              report.add("markdown-links", path, n, f"{target} leads out of the repository")
+                              continue
+                          dest = "" if dest == "." else dest
+                          if dest not in repo.files and dest.rstrip("/") not in dirs:
+                              report.add("markdown-links", path, n, f"{target}: {dest or '/'} does not exist")
+                              continue
+                          if anchor and dest.lower().endswith(".md") and dest in repo.files \
+                                  and urllib.parse.unquote(anchor).lower() not in {a.lower() for a in anchors(lines_of(dest))}:
+                              report.add("markdown-links", path, n, f"{target}: no heading #{anchor} in {dest}")
+
+
           def nearest(repo, directory, name):
               while True:
                   candidate = os.path.join(directory, name) if directory else name
@@ -567,16 +711,22 @@ jobs:
               "no-hardcoded-location": rule_no_hardcoded_location,
               "no-envcommon": rule_no_envcommon,
               "lock-none-needs-reason": rule_lock_none_needs_reason,
+              "todo-issue": rule_todo_issue,
+              "markdown-links": rule_markdown_links,
           }
+          # Rules every repository has without naming them; level off turns one off.
+          DEFAULT_ON = ("todo-issue", "markdown-links")
           LEVELS = ("error", "warn", "off")
 
 
           # --------------------------------------------------------------------------
 
-          def check(config: dict, root: str):
+          def check(config: dict, root: str, only=None, skip=()):
               """(violations with their level and exception, config errors)."""
               errors = []
-              rules = config.get("rules") or {}
+              rules = dict(config.get("rules") or {})
+              for name in DEFAULT_ON:
+                  rules.setdefault(name, {"level": "error"})
               for name, params in rules.items():
                   if name not in RULES:
                       errors.append(f"unknown rule {name!r}; known: {', '.join(sorted(RULES))}")
@@ -596,7 +746,7 @@ jobs:
               report = Report()
               for name, params in rules.items():
                   params = params or {}
-                  if params.get("level", "error") == "off":
+                  if params.get("level", "error") == "off" or name in skip or (only and name not in only):
                       continue
                   try:
                       RULES[name](repo, params, units, report)
@@ -625,10 +775,10 @@ jobs:
               return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
-          def main(config_path: str, root: str = ".") -> int:
+          def main(config_path: str, root: str = ".", only=None, skip=()) -> int:
               with open(config_path, encoding="utf-8") as fh:
                   config = json.load(fh) or {}
-              violations, errors = check(config, root)
+              violations, errors = check(config, root, only, skip)
               for e in errors:
                   print(f"::error title=conventions::{escape(e)}")
               failing = 0
@@ -662,8 +812,21 @@ jobs:
               return 1 if failing or errors else 0
 
 
+          def cli(argv: list) -> int:
+              opts, args = {}, []
+              it = iter(argv)
+              for a in it:
+                  if a in ("--only", "--skip"):
+                      opts[a[2:]] = [x for x in next(it, "").split(",") if x]
+                  else:
+                      args.append(a)
+              if not args:
+                  sys.exit(__doc__)
+              return main(*args[:2], only=opts.get("only"), skip=tuple(opts.get("skip") or ()))
+
+
           if __name__ == "__main__":
-              sys.exit(main(*sys.argv[1:3]))
+              sys.exit(cli(sys.argv[1:]))
           PY
           if [ ! -f "$CONFIG" ]; then
             echo "::error::$CONFIG not found"

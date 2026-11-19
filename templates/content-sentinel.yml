@@ -28,7 +28,7 @@ defaults:
 
 jobs:
   sentinel:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       @@include templates/_fragments/sentinel-steps.yml@@
@@ -39,7 +39,7 @@ jobs:
   # before the move) are generated from ARM/. A change to ARM/ without
   # running the generators leaves the views behind.
   generated:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,7 +67,7 @@ jobs:
   gate:
     needs: [sentinel, generated]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       @@include templates/_fragments/gate-step.yml@@

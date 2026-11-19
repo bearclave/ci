@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Weekly report of stale branches and pull requests (bearclave/governance
-standards/workflow.md#housekeeping), kept in one issue of the repository.
+standards/workflow.md#housekeeping), kept in one issue per repository.
 
 - a branch without an open pull request whose last commit is older than
   BRANCH_DAYS (default 30);
@@ -10,10 +10,16 @@ standards/workflow.md#housekeeping), kept in one issue of the repository.
 Nothing is deleted or closed except the report issue itself: it is updated in
 place while something is stale and closed once nothing is.
 
-Reads GITHUB_REPOSITORY, ASSIGNEE, BRANCH_DAYS, PR_DAYS from the environment
-and talks to GitHub through `gh` with GH_TOKEN.
+One run covers the whole organisation (.github/workflows/housekeeping.yml of
+this repository, as the GitHub App bearclave-bot; github_bot.py signs in):
+every repository that is not archived and has issues. --repo checks one, with
+the GH_TOKEN of the environment; --dry-run writes no issue, it only reports.
 
-Usage: housekeeping.py
+Reads OWNER (assigned to the report issue), BRANCH_DAYS, PR_DAYS from the
+environment and talks to GitHub through `gh` with GH_TOKEN.
+
+Usage: housekeeping.py --org [--dry-run]       (in the workflow)
+       housekeeping.py --repo bearclave/<name> [--dry-run]
        housekeeping.py --self-test
 """
 import datetime as dt
@@ -103,7 +109,7 @@ def report(branches: list, prs: list, blocked: list, branch_days: int, pr_days: 
               "Per item: open a draft pull request for the branch or delete it; finish, block "
               "(`status:blocked` with a comment why) or close the pull request. Nothing is deleted "
               "automatically. This issue is updated every week and closed when nothing is stale.", "",
-              "## Found in", "", "The weekly housekeeping run (`housekeeping.yml` of `bearclave/ci`)."]
+              "## Found in", "", "The weekly housekeeping run of the organisation (`housekeeping.yml` of `bearclave/ci`)."]
     return "\n".join(lines) + "\n"
 
 
@@ -123,13 +129,9 @@ def find_issue(repo: str) -> str:
     return ""
 
 
-def main() -> int:
-    repo = os.environ["GITHUB_REPOSITORY"]
+def check_repo(repo: str, branch_days: int, pr_days: int, assignee: str, dry_run: bool = False) -> list:
+    """Updates the report issue of one repository; returns the summary lines."""
     owner, name = repo.split("/")
-    branch_days = int(os.environ.get("BRANCH_DAYS") or 30)
-    pr_days = int(os.environ.get("PR_DAYS") or 14)
-    assignee = os.environ.get("ASSIGNEE", "")
-
     data = json.loads(gh("api", "graphql", "-f", f"query={QUERY}", "-F", f"owner={owner}",
                          "-F", f"name={name}").stdout)["data"]["repository"]
     now = dt.datetime.now(dt.timezone.utc)
@@ -140,7 +142,10 @@ def main() -> int:
     summary = [f"- Stale branches: {len(branches)}", f"- Stale pull requests: {len(prs)}",
                f"- Blocked pull requests over {pr_days} days: {len(blocked)}"]
 
-    if not branches and not prs and not blocked:
+    if dry_run:
+        summary.append(f"- Dry run: {'would update #' + number if number else 'would open an issue'}"
+                       if branches or prs or blocked else "- Nothing is stale.")
+    elif not branches and not prs and not blocked:
         if number:
             gh("issue", "close", number, "--repo", repo, "--reason", "completed",
                "--comment", "Nothing is stale any more.")
@@ -165,13 +170,58 @@ def main() -> int:
                 print(f"::warning::Created without the type Debt: {r.stderr.strip()}")
                 r = gh(*args)
             summary.append(f"- Opened #{json.loads(r.stdout)['number']}.")
+    return summary
 
-    text = "\n".join(["## Housekeeping", ""] + summary)
+
+def org_repositories() -> list:
+    """bearclave/<name> of every repository that is not archived and has issues."""
+    out = gh("api", "--paginate", "orgs/bearclave/repos?per_page=100",
+             "--jq", ".[] | select((.archived | not) and .has_issues) | .full_name").stdout
+    return sorted(line for line in out.splitlines() if line)
+
+
+def bot_token(write: bool) -> str:
+    """An installation token of bearclave-bot, limited to what the report needs."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import github_bot  # noqa: E402 - only the workflow signs in
+    return github_bot.Bot().token({"contents": "read", "issues": "write" if write else "read",
+                                   "pull_requests": "read", "metadata": "read"})
+
+
+def say(text: str) -> None:
     print(text)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
             f.write(text + "\n")
-    return 0
+
+
+def main(argv: list) -> int:
+    branch_days = int(os.environ.get("BRANCH_DAYS") or 30)
+    pr_days = int(os.environ.get("PR_DAYS") or 14)
+    assignee = os.environ.get("OWNER", "").strip()
+    dry_run = "--dry-run" in argv
+    if "--repo" in argv:
+        repos = [argv[argv.index("--repo") + 1]]
+    elif "--org" in argv:
+        os.environ["GH_TOKEN"] = bot_token(write=not dry_run)
+        repos = org_repositories()
+    else:
+        sys.exit(__doc__)
+    failed = []
+    say(f"## Housekeeping{' (dry run)' if dry_run else ''}")
+    for repo in repos:
+        try:
+            lines = check_repo(repo, branch_days, pr_days, assignee, dry_run)
+        except (RuntimeError, KeyError, ValueError) as e:
+            failed.append(repo)
+            print(f"::warning::{repo}: {e}")
+            continue
+        say(f"\n### {repo}\n\n" + "\n".join(lines))
+    if failed:
+        say(f"\nNot checked: {', '.join(failed)}.")
+    # One repository that cannot be read does not stop the others, but the
+    # run turns red so that it is noticed.
+    return 1 if failed else 0
 
 
 def self_test() -> int:
@@ -197,4 +247,4 @@ def self_test() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(self_test() if "--self-test" in sys.argv else main())
+    sys.exit(self_test() if "--self-test" in sys.argv else main(sys.argv[1:]))

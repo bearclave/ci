@@ -1,0 +1,5 @@
+- name: Leave the network
+  if: always() && inputs.vpn-script != ''
+  env:
+    VPN: ${{ inputs.vpn-script }}
+  run: '"./$VPN" down'

@@ -35,7 +35,7 @@ env:
 
 jobs:
   terraform:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -111,7 +111,7 @@ jobs:
           trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile "$ignore" .
 
   conventions:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       @@include templates/_fragments/conventions-steps.yml@@
@@ -119,7 +119,7 @@ jobs:
   gate:
     needs: [terraform, conventions]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       @@include templates/_fragments/gate-step.yml@@

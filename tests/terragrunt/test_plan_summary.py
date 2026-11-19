@@ -72,11 +72,15 @@ def run(text: str, *args: str, script=SCRIPT) -> dict:
             [sys.executable, str(script), str(plan), *args],
             capture_output=True, text=True, env=env, check=False,
         )
+        outputs = github_output.read_text(encoding="utf-8").splitlines(keepends=True)
         return {
             "comment": proc.stdout.rstrip("\n"),
             "code": proc.returncode,
             "stderr": proc.stderr,
-            "github_output": github_output.read_text(encoding="utf-8"),
+            # The verdict; changed_units is checked on its own.
+            "github_output": "".join(x for x in outputs if not x.startswith("changed_units=")),
+            "changed_units": next((json.loads(x.split("=", 1)[1]) for x in outputs
+                                   if x.startswith("changed_units=")), None),
             "changes": json.loads(changes.read_text()) if changes.exists() else None,
         }
 
@@ -406,6 +410,7 @@ class Destroy(unittest.TestCase):
     def test_verdict(self):
         self.assertEqual(self.result["github_output"],
                          "has_changes=true\nhas_errors=false\nhas_destroys=true\n")
+        self.assertEqual(self.result["changed_units"], ["tenant/memberships"])
 
 
 class Readable(unittest.TestCase):

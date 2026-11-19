@@ -7,16 +7,19 @@ bearclave/governance standards/workflow.md is the rule this enforces:
   title over 72 characters only warns, since the bot writes it itself
   (Dependabot: "... in the actions group");
 - the branch is <type>/<slug> (bot branches excepted);
-- the description keeps the sections of the template (people only);
+- the description keeps the sections of the template - people and Apps
+  (bearclave-bot opens the agents' pull requests, so Review is enforced for
+  them too); only Dependabot, which writes its own description, is exempt;
 
 and it keeps the pull request tidy:
 
 - type:*, breaking and size:* labels follow the title and the diff;
-- a pull request nobody is assigned to is assigned to its author.
+- a pull request nobody is assigned to is assigned to its author, or to the
+  owner (OWNER, the organisation variable) when the author is an App.
 
 Reads the event from the environment (PR_NUMBER, PR_TITLE, PR_BODY,
-PR_BRANCH, PR_AUTHOR, PR_ASSIGNEES, PR_LABELS, PR_HEAD_SHA, GITHUB_REPOSITORY)
-and talks to GitHub through `gh` with GH_TOKEN. Exit code 1 when a rule is
+PR_BRANCH, PR_AUTHOR, PR_ASSIGNEES, PR_LABELS, PR_HEAD_SHA, GITHUB_REPOSITORY,
+OWNER) and talks to GitHub through `gh` with GH_TOKEN. Exit code 1 when a rule is
 broken; the labels and the assignee are set either way.
 
 Usage: pr_check.py            (in a workflow)
@@ -37,6 +40,8 @@ TITLE = re.compile(
 )
 BRANCH = re.compile(r"^(?:" + "|".join(TYPES) + r")/[a-z0-9][a-z0-9-]*$")
 BOT_BRANCH = re.compile(r"^(?:dependabot/.+|chore/tombstones)$")
+# Writes its own description and gets a read-only token in pull request runs.
+DEPENDABOT = "dependabot[bot]"
 SECTIONS = ("Why", "What changes", "Impact", "Verification", "Review", "Links")
 SIZES = (("size:xs", 10), ("size:s", 50), ("size:m", 200), ("size:l", 500), ("size:xl", None))
 # Never counted: lock files and what .gitattributes marks linguist-generated.
@@ -131,6 +136,7 @@ def main() -> int:
     title = os.environ.get("PR_TITLE", "")
     author = os.environ.get("PR_AUTHOR", "")
     bot = author.endswith("[bot]")
+    dependabot = author == DEPENDABOT
 
     problems = title_problems(title) + branch_problems(os.environ.get("PR_BRANCH", ""))
     warnings = []
@@ -138,7 +144,9 @@ def main() -> int:
         # Shorten the title before the merge; the squash commit takes it.
         warnings += title_too_long(title)
     else:
-        problems += title_too_long(title) + body_problems(os.environ.get("PR_BODY", ""))
+        problems += title_too_long(title)
+    if not dependabot:
+        problems += body_problems(os.environ.get("PR_BODY", ""))
 
     patterns = []
     try:
@@ -154,7 +162,8 @@ def main() -> int:
     want = wanted_labels(title, lines)
     add = sorted(want - have)
     remove = sorted(x for x in have - want if managed(x))
-    assign = not os.environ.get("PR_ASSIGNEES") and not bot
+    assignee = (os.environ.get("OWNER", "").strip() if bot else author)
+    assign = not os.environ.get("PR_ASSIGNEES") and bool(assignee)
 
     summary = [f"## Pull request #{number}", "",
                f"- Changed lines counted for the size: **{lines}** ({size_label(lines)})",
@@ -162,7 +171,7 @@ def main() -> int:
 
     # Dependabot's token is read-only; its pull requests get their labels and
     # assignee from dependabot.yml.
-    if bot:
+    if dependabot:
         summary.append("- Labels and assignee left to the bot's own configuration.")
     else:
         edit = []
@@ -171,7 +180,7 @@ def main() -> int:
         for label in remove:
             edit += ["--remove-label", label]
         if assign:
-            edit += ["--add-assignee", author]
+            edit += ["--add-assignee", assignee]
         if edit:
             try:
                 gh("pr", "edit", number, "--repo", repo, *edit)

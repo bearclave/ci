@@ -33,9 +33,10 @@ Options:
   --fail-on-change   exit non-zero when the plan proposes anything at all or a
                      unit ended in an error (the gate of the weekly drift job;
                      terragrunt itself returns zero even when there are changes)
-  --github-output    write has_changes, has_errors and has_destroys to
-                     $GITHUB_OUTPUT; a plan that destroys or replaces is not
-                     applied by a push, it waits for a manual run
+  --github-output    write has_changes, has_errors, has_destroys and
+                     changed_units (a JSON list) to $GITHUB_OUTPUT; a plan that
+                     destroys or replaces is not applied by a push, it waits
+                     for an approval or a manual run
   --json-dir=<dir>   the plans in JSON, <dir>/<unit>/tfplan.json
   --export=<file>    a share of a split plan: write the rows of its JSON plans,
                      its outputs and trivy findings, for the merge
@@ -583,6 +584,7 @@ def main(path: str, opts: dict) -> int:
                 r["what"] == "will be destroyed" or "replaced" in r["what"]
                 for p in parsed.values() for r in p["resources"])
             fh.write(f"has_destroys={str(has_destroys).lower()}\n")
+            fh.write(f"changed_units={json.dumps(changed_units)}\n")
 
     if "fail-on-change" in opts and (changes or errors or missing):
         totals = ", ".join(f"{count[a]} {w}" for a, w in (

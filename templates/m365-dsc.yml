@@ -14,7 +14,7 @@
 # selected again. The apply then writes only the instances the plan found
 # different. The weekly drift (m365-drift.yml) reads the whole tenant.
 #
-# Everything runs on ubuntu-latest: after the scope was narrowed to the tenant
+# Everything runs on ubuntu-24.04: after the scope was narrowed to the tenant
 # settings, the whole plan was verified on Unix and Windows would cost twice
 # the quota for nothing.
 #
@@ -75,7 +75,7 @@ jobs:
   # plan reads (docs, tests) is green without one. Outside a pull request the
   # caller's push paths have already decided.
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -115,7 +115,7 @@ jobs:
   # the pull request checked.
   validate:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       # The whole history, to tell which files the pull request changed.
@@ -177,7 +177,7 @@ jobs:
       ${{ !cancelled()
           && needs.changes.outputs.relevant != 'false'
           && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -291,7 +291,7 @@ jobs:
           && github.event_name != 'pull_request'
           && needs.plan.result == 'success'
           && needs.plan.outputs.has_changes == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     environment: ${{ inputs.environment }}
     permissions:
@@ -327,7 +327,7 @@ jobs:
   gate:
     needs: [changes, validate, plan, apply]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checks passed

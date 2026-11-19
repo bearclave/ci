@@ -1,10 +1,10 @@
 # Opens a pull request in every repository that pins bearclave/ci to an older
 # release of the same major (src/ci_pins.py), as soon as a release is
 # published, as the GitHub App bearclave-bot. The owner approves and merges
-# each one after its plan. The job signs in to Azure as sp-ci-major-tag by
-# OIDC on the environment major-tag (release tags and main), like
-# major-tag.yml, and reads the App's key from kv-githubbot. No secret in
-# GitHub. A manual run is a dry run unless dry-run is unticked.
+# each one after its plan. The job signs in to Azure as sp-ci-deps by OIDC
+# on the environment deps (release tags and main), the identity of deps.yml,
+# and reads the App's key from kv-githubbot. No secret in GitHub. A manual
+# run is a dry run unless dry-run is unticked.
 name: ci-pins
 
 on:
@@ -32,12 +32,13 @@ jobs:
     if: github.event_name == 'release' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: major-tag
+    environment: deps
     permissions:
       contents: read
       id-token: write
     env:
-      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_MAJOR_TAG }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_DEPS }}
+      OWNER: ${{ vars.OWNER }}
       AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       RELEASE: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}

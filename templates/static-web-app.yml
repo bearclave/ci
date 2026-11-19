@@ -22,13 +22,15 @@
 #         swa-resource-group: rg-web-sro-weu-001
 #         site-checks: |                   # optional: what only this site checks
 #           node tools/test-contact.cjs
+#         environment: prod
 #         client-id: ${{ vars.AZURE_CLIENT_ID }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 #         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 #
-# The identity is Contributor on the site's resource group and nowhere else,
-# and federated on main alone, so a run from a branch gets no token.
-# The required check is "pipeline / gate".
+# The identity may deploy the site's Static Web App and nothing else. With an
+# environment it is federated on that environment (whose branch policy allows
+# main only); without one on main. Either way a run from a branch gets no
+# token. The required check is "pipeline / gate".
 name: static-web-app
 
 on:
@@ -62,6 +64,10 @@ on:
         description: Version of @azure/static-web-apps-cli
         type: string
         default: 2.0.10
+      environment:
+        description: Environment of the deploy job (prod); empty deploys without one
+        type: string
+        default: ""
       client-id:
         description: Client ID of the deploying identity
         type: string
@@ -82,7 +88,7 @@ defaults:
 
 jobs:
   site:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,24 +120,19 @@ jobs:
             echo "::endgroup::"
           done <<<"$CHECKS"
 
-  eslint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
+      # In the same job: a job of its own costs a minute even where there is
+      # no JavaScript to lint.
       @@include templates/_fragments/eslint-steps.yml@@
 
   # The site is deployed only when the content actually changed. The check is
   # a step rather than a path filter on the trigger, so that the checks run
   # on every push and every pull request.
   deploy:
-    needs: [site, eslint]
+    needs: site
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
       id-token: write
@@ -204,9 +205,9 @@ jobs:
             --no-use-keychain
 
   gate:
-    needs: [site, eslint, deploy]
+    needs: [site, deploy]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       @@include templates/_fragments/gate-step.yml@@

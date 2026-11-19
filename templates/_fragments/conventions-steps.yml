@@ -19,6 +19,7 @@
       exit 1
     fi
     yq -o=json '.' "$CONFIG" >"$RUNNER_TEMP/conventions.json"
-    python3 "$script" "$RUNNER_TEMP/conventions.json" .
+    # The rules every repository has run in pr / check (pr.yml).
+    python3 "$script" "$RUNNER_TEMP/conventions.json" . --skip todo-issue,markdown-links
 
 @@include templates/_fragments/exception-review-step.yml@@

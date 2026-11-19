@@ -29,15 +29,28 @@ def fake_gh(*args, check=True):
     return ""
 
 
-def run(author: str, title: str, branch: str, body: str = BODY) -> tuple:
+CALLS = []
+
+
+def recording_gh(*args, check=True):
+    CALLS.append(args)
+    return fake_gh(*args, check=check)
+
+
+def run(author: str, title: str, branch: str, body: str = BODY, owner: str = "the-owner") -> tuple:
     env = {"GITHUB_REPOSITORY": "bearclave/ci", "PR_NUMBER": "1", "PR_TITLE": title,
            "PR_BODY": body, "PR_BRANCH": branch, "PR_AUTHOR": author, "PR_ASSIGNEES": "",
-           "PR_LABELS": "", "PR_HEAD_SHA": "abc"}
+           "PR_LABELS": "", "PR_HEAD_SHA": "abc", "OWNER": owner}
     out = io.StringIO()
-    with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(pr_check, "gh", fake_gh), \
+    CALLS.clear()
+    with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(pr_check, "gh", recording_gh), \
             contextlib.redirect_stdout(out):
         code = pr_check.main()
     return code, out.getvalue()
+
+
+def edits() -> list:
+    return [c for c in CALLS if c[:2] == ("pr", "edit")]
 
 
 class TitleTest(unittest.TestCase):
@@ -67,6 +80,25 @@ class BotTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("::error::The title", out)
 
+    def test_app_needs_the_sections(self):
+        code, out = run("bearclave-bot[bot]", "feat(x): add y", "feat/x", body="## Why\n\nbecause\n")
+        self.assertEqual(code, 1)
+        self.assertIn("'## Review'", out)
+
+    def test_dependabot_needs_no_sections(self):
+        code, _ = run("dependabot[bot]", "deps: bump x", "dependabot/npm/x", body="Bumps x.")
+        self.assertEqual(code, 0)
+        self.assertEqual(edits(), [])
+
+    def test_app_pull_request_is_assigned_to_the_owner(self):
+        run("bearclave-bot[bot]", "feat(x): add y", "feat/x")
+        self.assertEqual(len(edits()), 1)
+        self.assertIn("the-owner", edits()[0])
+
+    def test_without_owner_an_app_pull_request_is_assigned_to_nobody(self):
+        run("bearclave-bot[bot]", "feat(x): add y", "feat/x", owner="")
+        self.assertNotIn("--add-assignee", sum((list(c) for c in edits()), []))
+
 
 class PersonTest(unittest.TestCase):
     def test_long_title_of_a_person_fails(self):
@@ -77,6 +109,10 @@ class PersonTest(unittest.TestCase):
     def test_short_title_passes(self):
         code, _ = run("matej-hrabalek", "fix(pr): warn only on long bot titles", "fix/bot-title-length")
         self.assertEqual(code, 0)
+
+    def test_person_is_assigned_their_own_pull_request(self):
+        run("someone", "fix(pr): x", "fix/x")
+        self.assertIn("someone", edits()[0])
 
 
 if __name__ == "__main__":

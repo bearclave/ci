@@ -24,7 +24,9 @@ What decides the selection:
 - Any other file belongs to the nearest unit above it. A file of a deleted
   unit belongs to nobody - that unit runs as a destroy.
 - A file outside every unit (the workflows, the scripts) changes how the tree
-  is planned, so when nothing else is touched the whole tree runs.
+  is planned, so when nothing else is touched the whole tree runs - except
+  what never reaches a plan (the same as changes.py): .claude/, Markdown,
+  and .github/ but its workflows, tool-versions.env and trivyignore.yaml.
 - No usable <base> (unknown, not an ancestor of HEAD) or no difference at all
   means the whole tree.
 
@@ -40,6 +42,15 @@ import sys
 
 CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl"}
 UNIT = "terragrunt.hcl"
+# What under .github/ changes a plan (changes.py has the same list).
+PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
+
+
+def no_plan_impact(path: str) -> bool:
+    """A file outside every unit that cannot change how the tree is planned."""
+    if path.startswith(".claude/") or path.lower().endswith(".md"):
+        return True
+    return path.startswith(".github/") and not path.startswith(PLAN_INPUTS)
 
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -117,7 +128,7 @@ def select(base: str, do_expand: bool = True) -> dict:
             unit = owner(path, head_units | gone)
             if unit in head_units:
                 selected.add(unit)
-            elif unit is None:
+            elif unit is None and not no_plan_impact(path):
                 outside = True
 
     renamed_old = {old for old, _ in result["renamed"]}
@@ -125,8 +136,9 @@ def select(base: str, do_expand: bool = True) -> dict:
     if result["all"]:
         return result
     if not selected:
-        # Only the workflows, the scripts or the docs changed, or only units
-        # were deleted. The first changes how everything is planned.
+        # Only the workflows or the scripts changed (they change how
+        # everything is planned), only what never reaches a plan, or only
+        # units were deleted.
         result["all"] = outside
         return result
     result["units"] = expand(sorted(selected)) if do_expand else sorted(selected)
