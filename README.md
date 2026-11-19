@@ -31,10 +31,10 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
 | `m365-dsc.yml` | `pipeline` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of the affected types, apply |
 | `m365-drift.yml` | `drift` | `iac-m365` | weekly plan of the whole tenant, tombstones into a pull request |
+| `release.yml` | `release` | versioned repositories (governance `versioning.md`) | manual: the next `vX.Y.Z` from the pull request titles since the last tag and a preview of the notes (`src/release_version.py`); dry run by default, publishing needs a `release-token` |
 | `static-web-app.yml` | `pipeline` | `app-web-*` | the site's checks, deploy to the Static Web App when the content changed |
 | `container.yml` | `pipeline` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
-| `release.yml` | `release` | versioned repositories (governance `versioning.md`) | manual: the next `vX.Y.Z` from the pull request titles since the last tag and a preview of the notes (`src/release_version.py`); dry run by default, publishing needs a `release-token` |
 | `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows; v2 pipelines carry them as jobs |
 
 The organisation rulesets (in `bearclave/iac-github`) require three checks on
@@ -229,7 +229,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `release_version.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test`, `release_version.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
 | `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 
