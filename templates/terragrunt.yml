@@ -642,7 +642,22 @@ jobs:
       planned_at: ${{ steps.planned.outputs.at }}
       selection: ${{ needs.validate.outputs.selection }}
     steps:
-      @@include templates/_fragments/scripts-terragrunt.yml@@
+      # Only the scripts this job runs; the rest stay with the plan jobs.
+      - name: Summary scripts
+        run: |
+          d="$RUNNER_TEMP/ci"
+          mkdir -p "$d"
+          cat >"$d/plan-summary.py" <<'__CI_EOF__'
+          @@include src/terragrunt/plan-summary.py@@
+          __CI_EOF__
+          cat >"$d/plan_details.py" <<'__CI_EOF__'
+          @@include src/terragrunt/plan_details.py@@
+          __CI_EOF__
+          cat >"$d/pr-comment.sh" <<'__CI_EOF__'
+          @@include src/pr-comment.sh@@
+          __CI_EOF__
+          chmod +x "$d"/*
+          echo "$d" >>"$GITHUB_PATH"
 
       # A share that failed before its upload is missing here: the summary
       # covers the rest and the last step fails the job.
