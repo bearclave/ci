@@ -40,6 +40,13 @@ to what - instead of the bare resource addresses.
 
 --trivy=<dir> adds the findings of trivy over those plans (a directory of its
 JSON reports, one per unit) as a section of their own.
+
+A plan split across jobs (one shard each) is summarised once over all of them.
+The JSON plans hold sensitive values in clear text and never leave the job
+that made them, so each shard passes on only what the comment shows of them:
+--export=<file> writes the tables and the trivy findings of its own plans as
+JSON, and the merge reads every such file of a directory with --import=<dir>,
+next to the concatenated plan.txt of all shards.
 """
 import json
 import os
@@ -203,8 +210,20 @@ def trivy_findings(reports: str) -> list:
     return sorted(found)
 
 
+def imported(directory: str) -> tuple:
+    """The tables and trivy findings the shards exported (--export), merged."""
+    tables, findings = {}, set()
+    if directory and os.path.isdir(directory):
+        for part in sorted(pathlib.Path(directory).glob("*.json")):
+            data = json.loads(part.read_text(encoding="utf-8") or "{}")
+            tables.update(data.get("tables") or {})
+            findings.update(tuple(f) for f in data.get("findings") or [])
+    return tables, sorted(findings)
+
+
 def main(path: str, fail_on_change: bool = False, github_output: bool = False,
-         artifact: str = None, json_dir: str = None, trivy: str = None) -> int:
+         artifact: str = None, json_dir: str = None, trivy: str = None,
+         export: str = None, import_dir: str = None) -> int:
     units, errors = {}, []
     streams, loose, queued = {}, [], {}
     unit, in_queue = "?", False
@@ -282,7 +301,7 @@ def main(path: str, fail_on_change: bool = False, github_output: bool = False,
                    for u in changed for r in parsed[u]["resources"]
                    if r["what"] == "will be destroyed" or "replaced" in r["what"]]
 
-    tables = {}
+    tables, findings = imported(import_dir)
     for u in changed:
         plan_json = pathlib.Path(json_dir or "", u, "tfplan.json")
         if json_dir and plan_json.is_file():
@@ -290,7 +309,10 @@ def main(path: str, fail_on_change: bool = False, github_output: bool = False,
                 tables[u] = plan_details.table(plan_details.load(plan_json))
             except (ValueError, KeyError, TypeError, AttributeError) as e:
                 print(f"::warning::{u}: the JSON plan could not be read ({e})", file=sys.stderr)
-    findings = trivy_findings(trivy)
+    findings = sorted(set(findings) | set(trivy_findings(trivy)))
+    if export:
+        pathlib.Path(export).write_text(
+            json.dumps({"tables": tables, "findings": findings}), encoding="utf-8")
 
     if artifact is None and os.environ.get("GITHUB_RUN_ID"):
         artifact = f"plan-{os.environ['GITHUB_RUN_ID']}"
@@ -437,4 +459,5 @@ if __name__ == "__main__":
     paths = [a for a in args if not a.startswith("--")]
     named = dict(a[2:].split("=", 1) for a in args if a.startswith("--") and "=" in a)
     sys.exit(main(paths[0], "--fail-on-change" in args, "--github-output" in args,
-                  named.get("artifact"), named.get("json-dir"), named.get("trivy")))
+                  named.get("artifact"), named.get("json-dir"), named.get("trivy"),
+                  named.get("export"), named.get("import")))

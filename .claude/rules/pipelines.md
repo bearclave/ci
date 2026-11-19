@@ -14,7 +14,7 @@ as reusable workflows. A repository holds only short callers.
 
 | File | Trigger | Jobs and check names |
 |---|---|---|
-| `.github/workflows/ci.yml` | pull request, push to `main`, manual | `security` → **`security / scan`**; `pipeline` → its jobs and **`pipeline / gate`** |
+| `.github/workflows/ci.yml` | pull request, push to `main`, manual; in Terragrunt repositories also a submitted review | `security` → **`security / scan`**; `pipeline` → its jobs and **`pipeline / gate`**; `review` (on a review only) re-runs `pipeline / destroy / approved` |
 | `.github/workflows/pr.yml` | pull request opened, edited, synchronised, reopened, ready | `pr` → **`pr / check`** (managed file) |
 | `.github/workflows/drift.yml` | weekly schedule, manual | `drift` → the drift run of the pipeline (only where something is applied) |
 
@@ -35,7 +35,8 @@ else. Templates for each pipeline: [templates/workflows/](https://github.com/bea
 | `security.yml` | every repository | gitleaks over the history, actionlint, zizmor, shellcheck |
 | `pr.yml` | every repository | title and branch format, labels, assignee, description sections |
 | `checks.yml` | `checks` | ESLint where there is JavaScript, optional extra command, then `gate` |
-| `terragrunt.yml` / `terragrunt-drift.yml` | `iac-azure`, `iac-github` | fmt, validate, conventions, Sentinel lint, plan of affected units with trivy, PR comment, apply from `main`, destroy held back, gate |
+| `terragrunt.yml` / `terragrunt-drift.yml` | `iac-azure`, `iac-github` | validate (fmt, HCL, `terraform validate`, lock files), conventions, Sentinel lint, plan of affected units with trivy, PR comment, `destroy / approved`, apply from `main`, verification of the apply, gate; drift fails on check blocks too |
+| `destroy-review.yml` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` of the last pull request run |
 | `terragrunt-home.yml` | `iac-home` | plan and apply of the router through WireGuard, certificate renewal, drift |
 | `terraform-modules.yml` | `iac-modules` | fmt, validate, tflint, trivy config, conventions |
 | `m365-dsc.yml` / `m365-drift.yml` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of affected types, apply, tombstones |
@@ -71,7 +72,7 @@ table; a new check comes with its row.
 | conventions | `terragrunt`, `terragrunt-home`, `terraform-modules` (`conventions`) | `.github/conventions.yaml` `rules` | `exceptions` in `.github/conventions.yaml` |
 | Sentinel lint | `terragrunt`, `content-sentinel` (`sentinel`) | `.github/sentinel-lint.yaml` | `exceptions` in `.github/sentinel-lint.yaml` |
 | exception reviews | the conventions and Sentinel jobs, `security` for gitleaks | the files of this column | - |
-| `terragrunt hcl fmt` / `hcl validate` | `terragrunt`, `terragrunt-home` | - | none |
+| `terragrunt hcl fmt`, `hcl validate`, `terraform validate`, lock files | `terragrunt` (`validate`); `hcl fmt` in `terragrunt-home` | - | none |
 | trivy over the plans | `terragrunt`, `terragrunt-drift` (`plan`) | HIGH, CRITICAL | `.github/trivyignore.yaml`, `paths` = `<unit>/tfplan.json` |
 | `terraform fmt` / `validate` | `terraform-modules` (`terraform`) | - | none |
 | tflint | `terraform-modules` (`terraform`) | `.tflint.hcl` (managed, below) | a rule switched off in the repository section of `.tflint.hcl`, or `# tflint-ignore: <rule> # reason, review YYYY-MM-DD` above the block |
@@ -144,8 +145,15 @@ everything else is configured in the repository section, not rewritten.
   environment (`azure-prod`, `m365-prod`, `home-prod`, `github-prod`) whose
   deployment branch policy allows `main` only.
 - **Apply only what the plan proposed**, and only when it proposed
-  something; a plan that destroys or replaces waits for a manual run with
-  `allow_destroy` where the pipeline supports it.
+  something.
+- **Destroys and replaces need an approval given after the plan.** On a pull
+  request whose plan destroys or replaces anything, `destroy / approved`
+  (part of the gate) passes only with an approving review submitted after
+  the plan job ended; a submitted review re-runs it (`review` job of
+  `ci.yml`, `pull_request_review: submitted`). On `main` the push applies the
+  destroys when the merged pull request passed that check on an approval;
+  otherwise the run is red and waits for the manual run with `allow_destroy`,
+  the fallback. A plan without destroys passes the check at once.
 - **A due apply that did not happen is red.** Every pipeline ends with a
   `gate` job (`if: always()`) that checks the results of what it needs.
   A skipped job passes a required check, so the gate - never a skippable
@@ -153,14 +161,30 @@ everything else is configured in the repository section, not rewritten.
 - **No `paths` filter on `pull_request`** of a workflow with a required
   check: a pull request it never runs for waits forever. Skip inside
   instead (a `changes` job).
-- `concurrency`: a pull request cancels its previous run; runs on `main`,
-  manual runs and drift share one group per state and never overlap.
+- `concurrency`: a pull request cancels its previous run; a review run has
+  a group of its own, so that approving never cancels a plan; runs on
+  `main`, manual runs and drift share one group per state and never overlap.
 - `timeout-minutes` on every job; `permissions` minimal, at job level.
 - Tools as pinned release binaries checked against sha256; actions pinned
   to a commit SHA ([security.md](https://github.com/bearclave/governance/blob/main/standards/security.md)).
 - The plan goes into one pull request comment that is rewritten on every
   push, and into the job summary; raw plan files stay on the runner.
 - Drift runs weekly, plans the whole scope and fails on any difference.
+- **Validate before the plan.** Formatting, syntax and `terraform validate`
+  run in a job of their own, without any sign-in, and the plan needs it: a
+  mistake fails within a minute with an annotation saying what to do. A
+  committed `.terraform.lock.hcl` must not change in `init`.
+- **Verify after the apply, never roll back by itself.** Right after the
+  apply: a second plan of the applied units must propose nothing, the apply
+  identity must have no failed operation in the Azure Activity Log of the
+  affected subscriptions (where there are any), and no `check {}` block may
+  fail. A failure makes the run red and the pipeline opens a `Bug` issue
+  (`prio:high`, `source:drift`) and a draft revert pull request
+  (`revert/<short-sha>`, `revert: <original title>`); the owner decides.
+  The results go to the job summary and `verification.json`, for the
+  `### Verification` section of the apply comment. Only the job that does
+  this has `contents`, `pull-requests` and `issues: write`, so the caller
+  grants them to `pipeline`.
 
 ## Changing a shared workflow
 
