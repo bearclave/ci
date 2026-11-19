@@ -1,0 +1,44 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azapi_resource.rule[\"assign-new-incidents\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "assign-new-incidents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"escalate-break-glass-usage\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "escalate-break-glass-usage",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "ids": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "orders": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

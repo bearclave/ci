@@ -1,0 +1,83 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azapi_resource.anomalies[0]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "anomalies",
+   "index": 0,
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.entity_analytics[0]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "entity_analytics",
+   "index": 0,
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.ueba[0]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "ueba",
+   "index": 0,
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_sentinel_log_analytics_workspace_onboarding.this",
+   "mode": "managed",
+   "type": "azurerm_sentinel_log_analytics_workspace_onboarding",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.diagnostics.azurerm_monitor_diagnostic_setting.this[0]",
+   "module_address": "module.diagnostics",
+   "mode": "managed",
+   "type": "azurerm_monitor_diagnostic_setting",
+   "name": "this",
+   "index": 0,
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "sentinel_parent_id": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "workspace_id": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

@@ -60,12 +60,15 @@ def security(text: str) -> str:
         run: zizmor --persona=regular --min-severity=medium .github/workflows
 
 """ + body[end:]
-    body = body.replace("""      # Stands in for secret scanning, which a private repository gets only
+    old = """      # Stands in for secret scanning, which a private repository gets only
       # with the paid Secret Protection add-on. A false positive is allowed in
-      # the repository's .gitleaks.toml, with the reason written next to it.""",
-                        """      # Stands in for secret scanning where the repository does not have it.
+      # the repository's .gitleaks.toml, with the reason and a review date in its
+      # description."""
+    if old not in body:
+        sys.exit("security.yml: the gitleaks comment changed shape - update export-for-templates.py")
+    body = body.replace(old, """      # Stands in for secret scanning where the repository does not have it.
       # A false positive is allowed in the repository's .gitleaks.toml, with
-      # the reason written next to it.""")
+      # the reason and a review date in its description.""")
     return head + body
 
 

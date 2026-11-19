@@ -1,0 +1,49 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_log_analytics_workspace.this",
+   "mode": "managed",
+   "type": "azurerm_log_analytics_workspace",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.lock.azurerm_management_lock.this[0]",
+   "module_address": "module.lock",
+   "mode": "managed",
+   "type": "azurerm_management_lock",
+   "name": "this",
+   "index": 0,
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "name": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "workspace_id": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

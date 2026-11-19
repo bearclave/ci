@@ -1,0 +1,54 @@
+# Moves the major tag (v2) to a release as soon as it is published
+# (src/major_tag.py), as the GitHub App bearclave-bot: the major-tags ruleset
+# lets only an owner and this App move it. The job signs in to Azure as
+# sp-ci-major-tag by OIDC, federated on the environment major-tag (a release
+# event runs on its tag, so the environment is the one stable subject; it
+# accepts only release tags and main), and reads the App's key from
+# kv-githubbot. No secret in GitHub. tools/move-major-tag.sh stays the manual
+# fallback.
+name: major-tag
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Release (vX.Y.Z) to move the major tag to
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: major-tag
+  cancel-in-progress: false
+
+jobs:
+  move:
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: major-tag
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_MAJOR_TAG }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      RELEASE: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Sign in to Azure
+        run: |
+          set -euo pipefail
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
+
+      - name: Move the major tag
+        run: python3 src/major_tag.py "$RELEASE"

@@ -1,0 +1,16 @@
+06:10:00.000 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+╰── mg/rg-web
+06:10:05.000 STDOUT [mg/rg-web] terraform: module.role_assignments.azurerm_role_assignment.active["Key Vault Secrets User/sp:sp-invoices"]: Destroying... [id=/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000009]
+06:10:05.100 STDOUT [mg/rg-web] terraform: azurerm_resource_group.this: Modifying... [id=/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-web-app-weu-001]
+06:10:05.200 STDOUT [mg/rg-web] terraform: azurerm_key_vault.this: Modifying... [id=/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-web-app-weu-001/providers/Microsoft.KeyVault/vaults/kv-sec]
+06:10:07.000 STDOUT [mg/rg-web] terraform: module.role_assignments.azurerm_role_assignment.active["Key Vault Secrets User/sp:sp-invoices"]: Destruction complete after 2s
+06:10:08.000 STDOUT [mg/rg-web] terraform: azurerm_resource_group.this: Modifications complete after 3s [id=/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-web-app-weu-001]
+06:10:09.000 STDERR [mg/rg-web] terraform: Error: updating Key Vault (Subscription: "00000000-0000-0000-0000-000000000001"
+06:10:09.000 STDERR [mg/rg-web] terraform: Resource Group Name: "rg-web-app-weu-001"
+06:10:09.000 STDERR [mg/rg-web] terraform: Key Vault Name: "kv-sec"): performing Update: unexpected status 403 (403 Forbidden) with error: AuthorizationFailed
+06:10:09.000 STDERR [mg/rg-web] terraform:   with azurerm_key_vault.this,
+06:10:09.000 STDERR [mg/rg-web] terraform:   on main.tf line 12, in resource "azurerm_key_vault" "this":
+06:10:09.000 STDERR [mg/rg-web] terraform:   12: resource "azurerm_key_vault" "this" {
+06:10:09.100 ERROR  [mg/rg-web] Failed to execute "terraform apply -input=false -auto-approve" in ./.terragrunt-cache/x/y
+06:10:09.100 ERROR  [mg/rg-web] exit status 1

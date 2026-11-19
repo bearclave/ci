@@ -180,6 +180,12 @@ jobs:
             *) exit "$rc" ;;
           esac
 
+      # A check block is an assertion about the real state (standards
+      # terraform.md); one that fails on the whole tree is drift as well.
+      - name: Check blocks
+        if: always()
+        run: verify-apply.py checks "$RUNNER_TEMP/plan-json" --log plan.txt
+
       # Terragrunt returns zero even when the plan proposes changes, so the
       # verdict comes from the summary.
       - name: Verdict
@@ -187,7 +193,7 @@ jobs:
         run: |
           set -euo pipefail
           [ -s plan.txt ] || { echo "::error::no plan produced"; exit 1; }
-          plan-summary.py plan.txt --fail-on-change \
+          plan-summary.py plan.txt --fail-on-change --drift \
             --json-dir="$RUNNER_TEMP/plan-json" --trivy=trivy \
             --artifact="drift-$GITHUB_RUN_ID" >>"$GITHUB_STEP_SUMMARY"
 
