@@ -8,8 +8,9 @@
 #                           identity, summarised into the pull request; one
 #                           that touches none of the relevant paths skips
 #                           all of it; conventions and Sentinel lint
-# Push to main            -> select, validate and plan again, the plan under
-#                           the full identity, then apply, but only if
+# Push to main            -> select, validate and plan again (read-only
+#                           identity), then apply under the identity that
+#                           writes, in the environment, but only if
 #                           validate passed and the plan proposes
 #                           something and destroys or replaces nothing, or the
 #                           destroys were approved in the merged pull request;
@@ -20,6 +21,18 @@
 #                           request (README, Plan and apply comments)
 # Manual run on main      -> the same; with allow-destroy it also applies what
 #                           destroys or replaces (the fallback)
+# Schedule                -> the whole tree; applies only the renewal-unit
+#                           when it is due, anything else is drift and fails
+#                           (iac-home; terragrunt-drift.yml is the weekly
+#                           drift of the others)
+#
+# Identities: every plan - pull request, main, schedule - runs as the
+# read-only client-id-plan (federated on pull_request and on main); only the
+# apply job runs as client-id-apply, federated on its environment alone.
+#
+# The apply plans the units again instead of applying the saved plan of the
+# plan job (the apply job's comment says why); the verification after it is
+# what catches a result that differs from the code.
 #
 # Destroys and replaces need the owner's approval given after the plan that
 # shows them: on a pull request whose plan has any, the check "destroy /
@@ -50,11 +63,13 @@
 #         actions: read
 #       with:
 #         client-id-plan: ${{ vars.AZURE_CLIENT_ID_PLAN }}
-#         client-id-apply: ${{ vars.AZURE_CLIENT_ID_PLATFORM }}
+#         client-id-apply: ${{ vars.AZURE_CLIENT_ID_APPLY }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 #         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 #         scope: ${{ inputs.scope || 'changed' }}
 #         allow-destroy: ${{ inputs.allow_destroy == true }}
+#         github-app-vault-plan: kv-githubro-sec-weu-001   # iac-github only
+#         github-app-vault-apply: kv-github-sec-weu-001
 #       secrets:
 #         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
 #
@@ -66,7 +81,11 @@
 # single summary and comment. The apply stays one job in dependency order.
 #
 # Versions: TERRAFORM_VERSION, TERRAGRUNT_*, TRIVY_* in the caller's
-# .github/tool-versions.env. The required check is "pipeline / gate".
+# .github/tool-versions.env; every unit commits its .terraform.lock.hcl.
+# The required check is "pipeline / gate".
+#
+# terragrunt-home.yml runs the same jobs (templates/_fragments/
+# terragrunt-jobs.yml) with the defaults of the home network.
 name: terragrunt
 
 on:
@@ -81,11 +100,11 @@ on:
         type: string
         default: azure-prod
       client-id-plan:
-        description: Client ID of the read-only identity a pull request plans as
+        description: Client ID of the read-only identity every plan runs as (pull request, main, schedule)
         type: string
         required: true
       client-id-apply:
-        description: Client ID of the identity that plans and applies on main
+        description: Client ID of the identity the apply job runs as; federated on the environment only
         type: string
         required: true
       tenant-id:
@@ -116,11 +135,11 @@ on:
         type: boolean
         default: false
       github-app-vault-plan:
-        description: Key Vault with the read-only GitHub App a pull request signs in to GitHub with (iac-github)
+        description: Key Vault with the read-only GitHub App every plan signs in to GitHub with (iac-github)
         type: string
         default: ""
       github-app-vault-apply:
-        description: Key Vault with the GitHub App main signs in with (iac-github)
+        description: Key Vault with the GitHub App the apply signs in with (iac-github)
         type: string
         default: ""
       scope:
@@ -135,6 +154,22 @@ on:
         description: At most this many jobs plan side by side, each a share of the selected units (one job up to 20 units)
         type: number
         default: 3
+      require-lock-files:
+        description: A unit without a committed .terraform.lock.hcl fails validate (false only warns)
+        type: boolean
+        default: true
+      validate-sign-in:
+        description: Sign in to Azure as the plan identity in validate, for a configuration that reads a secret while it is parsed
+        type: boolean
+        default: false
+      vpn-script:
+        description: Script of the repository that joins (up) and leaves (down) the network the resources are in; empty for none
+        type: string
+        default: ""
+      renewal-unit:
+        description: Unit a scheduled run applies when its plan proposes something (a certificate renewal); empty for none
+        type: string
+        default: ""
     secrets:
       modules-deploy-key:
         description: Read-only deploy key of bearclave/iac-modules
@@ -154,13 +189,16 @@ env:
   ARM_USE_AZUREAD: "true"
   ARM_TENANT_ID: ${{ inputs.tenant-id }}
   ARM_SUBSCRIPTION_ID: ${{ inputs.subscription-id }}
+  # The plan identity everywhere; the apply job sets its own.
+  ARM_CLIENT_ID: ${{ inputs.client-id-plan }}
+  GITHUB_APP_VAULT: ${{ inputs.github-app-vault-plan }}
 
 jobs:
   # The rules in conventions.yaml; on a pull request only, main holds nothing
   # a pull request has not checked.
   conventions:
     if: github.event_name == 'pull_request' && inputs.conventions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -176,12 +214,18 @@ jobs:
           #!/usr/bin/env python3
           """Checks a repository against the conventions its conventions.yaml names.
 
-          Usage: conventions.py <config.json> [<repository root>]
+          Usage: conventions.py <config.json> [<repository root>] [--only r1,r2] [--skip r1,r2]
+
+          --only runs just the named rules, --skip leaves them out: the pr check runs
+          the rules every repository has (--only todo-issue,markdown-links), the
+          conventions job of a pipeline the rest.
 
           The workflow converts conventions.yaml to JSON first (yq), so that this script
           needs nothing beyond the Python standard library. The config:
 
-            rules:       <rule>: {level: error | warn | off, ...parameters}
+            rules:       <rule>: {level: error | warn | off, ...parameters}; the
+                         rules in DEFAULT_ON run unless they are set to off, the others
+                         only when they are named
             units:       globs of the unit files (terragrunt.hcl) for the terragrunt rules
             exceptions:  [{rule, path (a glob), match (optional text on the line),
                            reason, review (YYYY-MM-DD)}] - an exception without a reason
@@ -202,6 +246,7 @@ jobs:
           import re
           import subprocess
           import sys
+          import urllib.parse
 
           # --------------------------------------------------------------------------
           # HCL tokens and structure
@@ -675,6 +720,143 @@ jobs:
                                  f'lock = "none" in a resource group of criticality {crit}, with no comment saying why')
 
 
+          # Every repository: a to-do comment names its issue, a relative link in Markdown leads
+          # somewhere. Both read every file git tracks, apart from the managed copies
+          # of the standards in .claude/ (governance checks the originals).
+          NOT_OURS = [".claude/**"]
+          # Written in two parts so that this file does not report itself.
+          TODO_WORD = "TO" + "DO"
+          RE_TODO = re.compile(r"\b" + TODO_WORD + r"\b(?!\(#\d+\))")
+          SKIP_SUFFIX = (".md", ".lock", ".lock.hcl", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".pdf",
+                         ".zip", ".gz", ".woff", ".woff2", ".ttf", ".otf", ".pfx", ".cer", ".crt", ".der")
+
+
+          def text_lines(repo, path):
+              """The lines of a text file, or None for a binary or unreadable one."""
+              full = os.path.join(repo.root, path)
+              try:
+                  if os.path.getsize(full) > 1_000_000:
+                      return None
+                  with open(full, "rb") as fh:
+                      data = fh.read()
+              except OSError:
+                  return None
+              if b"\0" in data:
+                  return None
+              return data.decode("utf-8", errors="replace").splitlines()
+
+
+          def rule_todo_issue(repo, params, units, report):
+              """A to-do comment names its issue, as in (#42) after the word, so that it is found and done."""
+              files = repo.glob(*params["files"]) if params.get("files") else repo.files
+              skip = NOT_OURS + list(params.get("exclude") or [])
+              for path in files:
+                  if matches(path, *skip) or path.lower().endswith(SKIP_SUFFIX):
+                      continue
+                  for n, line in enumerate(text_lines(repo, path) or [], 1):
+                      if RE_TODO.search(line):
+                          report.add("todo-issue", path, n,
+                                     f"{TODO_WORD} without its issue: write {TODO_WORD}(#<issue>): <what>, or open the issue")
+
+
+          RE_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+          RE_INLINE = re.compile(r"(!?)\[((?:[^\[\]]|\[[^\]]*\])*)\]\(\s*(<[^>]*>|[^\s)]+(?:\([^\s)]*\))?)(?:\s+[\"'(][^)]*)?\s*\)")
+          RE_REFDEF = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)")
+          RE_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+          RE_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+          RE_HTML_ID = re.compile(r"<a\s+(?:[^>]*\s)?(?:id|name)=[\"']([^\"']+)[\"']", re.I)
+
+
+          def markdown_code_free(lines):
+              """(line number, text) of the lines outside fenced code, inline code blanked out."""
+              fence = None
+              comment = False
+              for n, line in enumerate(lines, 1):
+                  m = RE_FENCE.match(line)
+                  if fence:
+                      if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+                          fence = None
+                      continue
+                  if m:
+                      fence = m.group(1)
+                      continue
+                  if comment or "<!--" in line:
+                      start = 0 if comment else line.index("<!--")
+                      end = line.find("-->", start)
+                      comment = end < 0
+                      line = line[:start] + ("" if comment else line[end + 3:])
+                  yield n, re.sub(r"(`+)(.+?)\1", lambda c: " " * len(c.group(0)), line)
+
+
+          def slug(text: str) -> str:
+              """GitHub's anchor of a heading."""
+              text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
+              text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+              text = re.sub(r"<[^>]+>", "", text).replace("`", "").lower().strip()
+              text = re.sub(r"[^\w\- ]", "", text)
+              return text.replace(" ", "-")
+
+
+          def anchors(lines) -> set:
+              found, seen = set(), {}
+              for _, line in markdown_code_free(lines):
+                  found.update(RE_HTML_ID.findall(line))
+                  m = RE_HEADING.match(line)
+                  if not m:
+                      continue
+                  base = slug(m.group(1))
+                  k = seen.get(base, 0)
+                  seen[base] = k + 1
+                  found.add(base if k == 0 else f"{base}-{k}")
+              return found
+
+
+          def rule_markdown_links(repo, params, units, report):
+              """A relative link in Markdown leads to a file of the repository (and a heading in it)."""
+              skip = NOT_OURS + list(params.get("exclude") or [])
+              dirs = {os.path.dirname(f) for f in repo.files}
+              for d in list(dirs):
+                  while d:
+                      d = os.path.dirname(d)
+                      dirs.add(d)
+              cache = {}
+
+              def lines_of(path):
+                  if path not in cache:
+                      cache[path] = text_lines(repo, path) or []
+                  return cache[path]
+
+              for path in repo.files:
+                  if not path.lower().endswith(".md") or matches(path, *skip):
+                      continue
+                  for n, line in markdown_code_free(lines_of(path)):
+                      targets = [m.group(3) for m in RE_INLINE.finditer(line)]
+                      if (m := RE_REFDEF.match(line)):
+                          targets.append(m.group(1))
+                      for raw in targets:
+                          target = raw[1:-1] if raw.startswith("<") else raw
+                          if not target or RE_SCHEME.match(target) or target.startswith("//"):
+                              continue
+                          file_part, _, anchor = target.partition("#")
+                          file_part = urllib.parse.unquote(file_part.split("?")[0])
+                          if not file_part:
+                              dest = path
+                          elif file_part.startswith("/"):
+                              dest = os.path.normpath(file_part.lstrip("/"))
+                          else:
+                              dest = os.path.normpath(os.path.join(os.path.dirname(path), file_part))
+                          if dest.startswith(".."):
+                              report.add("markdown-links", path, n, f"{target} leads out of the repository")
+                              continue
+                          dest = "" if dest == "." else dest
+                          if dest not in repo.files and dest.rstrip("/") not in dirs:
+                              report.add("markdown-links", path, n, f"{target}: {dest or '/'} does not exist")
+                              continue
+                          if anchor and dest.lower().endswith(".md") and dest in repo.files \
+                                  and urllib.parse.unquote(anchor).lower() not in {a.lower() for a in anchors(lines_of(dest))}:
+                              report.add("markdown-links", path, n, f"{target}: no heading #{anchor} in {dest}")
+
+
           def nearest(repo, directory, name):
               while True:
                   candidate = os.path.join(directory, name) if directory else name
@@ -696,16 +878,22 @@ jobs:
               "no-hardcoded-location": rule_no_hardcoded_location,
               "no-envcommon": rule_no_envcommon,
               "lock-none-needs-reason": rule_lock_none_needs_reason,
+              "todo-issue": rule_todo_issue,
+              "markdown-links": rule_markdown_links,
           }
+          # Rules every repository has without naming them; level off turns one off.
+          DEFAULT_ON = ("todo-issue", "markdown-links")
           LEVELS = ("error", "warn", "off")
 
 
           # --------------------------------------------------------------------------
 
-          def check(config: dict, root: str):
+          def check(config: dict, root: str, only=None, skip=()):
               """(violations with their level and exception, config errors)."""
               errors = []
-              rules = config.get("rules") or {}
+              rules = dict(config.get("rules") or {})
+              for name in DEFAULT_ON:
+                  rules.setdefault(name, {"level": "error"})
               for name, params in rules.items():
                   if name not in RULES:
                       errors.append(f"unknown rule {name!r}; known: {', '.join(sorted(RULES))}")
@@ -725,7 +913,7 @@ jobs:
               report = Report()
               for name, params in rules.items():
                   params = params or {}
-                  if params.get("level", "error") == "off":
+                  if params.get("level", "error") == "off" or name in skip or (only and name not in only):
                       continue
                   try:
                       RULES[name](repo, params, units, report)
@@ -754,10 +942,10 @@ jobs:
               return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
-          def main(config_path: str, root: str = ".") -> int:
+          def main(config_path: str, root: str = ".", only=None, skip=()) -> int:
               with open(config_path, encoding="utf-8") as fh:
                   config = json.load(fh) or {}
-              violations, errors = check(config, root)
+              violations, errors = check(config, root, only, skip)
               for e in errors:
                   print(f"::error title=conventions::{escape(e)}")
               failing = 0
@@ -791,8 +979,21 @@ jobs:
               return 1 if failing or errors else 0
 
 
+          def cli(argv: list) -> int:
+              opts, args = {}, []
+              it = iter(argv)
+              for a in it:
+                  if a in ("--only", "--skip"):
+                      opts[a[2:]] = [x for x in next(it, "").split(",") if x]
+                  else:
+                      args.append(a)
+              if not args:
+                  sys.exit(__doc__)
+              return main(*args[:2], only=opts.get("only"), skip=tuple(opts.get("skip") or ()))
+
+
           if __name__ == "__main__":
-              sys.exit(main(*sys.argv[1:3]))
+              sys.exit(cli(sys.argv[1:]))
           __CI_EOF__
           if [ -z "$CONFIG" ]; then
             CONFIG=.github/conventions.yaml
@@ -803,7 +1004,8 @@ jobs:
             exit 1
           fi
           yq -o=json '.' "$CONFIG" >"$RUNNER_TEMP/conventions.json"
-          python3 "$script" "$RUNNER_TEMP/conventions.json" .
+          # The rules every repository has run in pr / check (pr.yml).
+          python3 "$script" "$RUNNER_TEMP/conventions.json" . --skip todo-issue,markdown-links
 
       # Every exception of the repository (conventions, Sentinel lint, trivy) has a
       # reason and a review date; a date that has passed is a warning.
@@ -976,7 +1178,7 @@ jobs:
   # The analytic rules, against what Sentinel takes (sentinel-lint.yaml).
   sentinel:
     if: github.event_name == 'pull_request' && inputs.sentinel-lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1397,7 +1599,7 @@ jobs:
   # paths is green without a plan. Outside a pull request the caller's push
   # paths have already decided.
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -1436,8 +1638,10 @@ jobs:
           '^(tenant/|_common/|\\.github/)|^(root|account)\\.hcl$') and is not one of
           the paths that never reach a plan:
 
-          - .github/dependabot.yml and .github/release.yml: read by GitHub, not by
-            the pipeline;
+          - anything under .github/ but the workflows, tool-versions.env and
+            trivyignore.yaml (what decides how a plan runs and passes): dependabot,
+            release notes, the conventions and Sentinel configs, issue and pull request
+            templates, CODEOWNERS are read by GitHub or by other jobs, not by a plan;
           - anything under .claude/: the agents' rules;
           - a Markdown file outside every unit (no terragrunt.hcl in its directory or
             above): a unit may read a file of its own, nothing reads a README of
@@ -1447,7 +1651,9 @@ jobs:
           import re
           import sys
 
-          NEVER = {".github/dependabot.yml", ".github/release.yml"}
+          # What under .github/ changes a plan: the workflows run it, the tool
+          # versions and the trivy exceptions decide its result.
+          PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
           UNIT = "terragrunt.hcl"
 
 
@@ -1466,7 +1672,9 @@ jobs:
 
           def ignored(path: str, units) -> bool:
               """True for a path that cannot change a plan. units None: not known."""
-              if path in NEVER or path.startswith(".claude/"):
+              if path.startswith(".claude/"):
+                  return True
+              if path.startswith(".github/") and not path.startswith(PLAN_INPUTS):
                   return True
               if path.lower().endswith(".md"):
                   return units is not None and not in_unit(path, units)
@@ -1520,7 +1728,7 @@ jobs:
     needs: changes
     # !cancelled() so that a failed changes job still validates and plans.
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1658,7 +1866,9 @@ jobs:
           - Any other file belongs to the nearest unit above it. A file of a deleted
             unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
-            is planned, so when nothing else is touched the whole tree runs.
+            is planned, so when nothing else is touched the whole tree runs - except
+            what never reaches a plan (the same as changes.py): .claude/, Markdown,
+            and .github/ but its workflows, tool-versions.env and trivyignore.yaml.
           - No usable <base> (unknown, not an ancestor of HEAD) or no difference at all
             means the whole tree.
 
@@ -1674,6 +1884,15 @@ jobs:
 
           CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl"}
           UNIT = "terragrunt.hcl"
+          # What under .github/ changes a plan (changes.py has the same list).
+          PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
+
+
+          def no_plan_impact(path: str) -> bool:
+              """A file outside every unit that cannot change how the tree is planned."""
+              if path.startswith(".claude/") or path.lower().endswith(".md"):
+                  return True
+              return path.startswith(".github/") and not path.startswith(PLAN_INPUTS)
 
 
           def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -1751,7 +1970,7 @@ jobs:
                       unit = owner(path, head_units | gone)
                       if unit in head_units:
                           selected.add(unit)
-                      elif unit is None:
+                      elif unit is None and not no_plan_impact(path):
                           outside = True
 
               renamed_old = {old for old, _ in result["renamed"]}
@@ -1759,8 +1978,9 @@ jobs:
               if result["all"]:
                   return result
               if not selected:
-                  # Only the workflows, the scripts or the docs changed, or only units
-                  # were deleted. The first changes how everything is planned.
+                  # Only the workflows or the scripts changed (they change how
+                  # everything is planned), only what never reaches a plan, or only
+                  # units were deleted.
                   result["all"] = outside
                   return result
               result["units"] = expand(sorted(selected)) if do_expand else sorted(selected)
@@ -2513,9 +2733,10 @@ jobs:
             --fail-on-change   exit non-zero when the plan proposes anything at all or a
                                unit ended in an error (the gate of the weekly drift job;
                                terragrunt itself returns zero even when there are changes)
-            --github-output    write has_changes, has_errors and has_destroys to
-                               $GITHUB_OUTPUT; a plan that destroys or replaces is not
-                               applied by a push, it waits for a manual run
+            --github-output    write has_changes, has_errors, has_destroys and
+                               changed_units (a JSON list) to $GITHUB_OUTPUT; a plan that
+                               destroys or replaces is not applied by a push, it waits
+                               for an approval or a manual run
             --json-dir=<dir>   the plans in JSON, <dir>/<unit>/tfplan.json
             --export=<file>    a share of a split plan: write the rows of its JSON plans,
                                its outputs and trivy findings, for the merge
@@ -3063,6 +3284,7 @@ jobs:
                           r["what"] == "will be destroyed" or "replaced" in r["what"]
                           for p in parsed.values() for r in p["resources"])
                       fh.write(f"has_destroys={str(has_destroys).lower()}\n")
+                      fh.write(f"changed_units={json.dumps(changed_units)}\n")
 
               if "fail-on-change" in opts and (changes or errors or missing):
                   totals = ", ".join(f"{count[a]} {w}" for a, w in (
@@ -3827,10 +4049,11 @@ jobs:
           if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="HEAD~1"; fi
           check-principal-refs.py "$BASE"
 
+      # A scheduled run (certificate renewal, iac-home) looks at the whole tree.
       - name: Select the units
         id: units
         env:
-          SCOPE: ${{ inputs.scope }}
+          SCOPE: ${{ github.event_name == 'schedule' && 'all' || inputs.scope }}
           BASE: ${{ steps.base.outputs.sha }}
         run: |
           set -euo pipefail
@@ -3857,12 +4080,13 @@ jobs:
       # The selection split for the plan jobs: up to 20 units in one, at most
       # plan-shards of them, the units dealt out in turn. The whole tree is
       # listed unit by unit for that, the same directories select-units.py
-      # counts as units. The deleted units go to the first share.
+      # counts as units. The deleted units go to the first share. Behind a
+      # VPN there is one share: the network has one peer for the runners.
       - name: Shares of the plan
         id: shards
         env:
           SELECTION: ${{ steps.units.outputs.selection }}
-          MAX_SHARDS: ${{ inputs.plan-shards }}
+          MAX_SHARDS: ${{ inputs.vpn-script != '' && 1 || inputs.plan-shards }}
         run: |
           set -euo pipefail
           if [ "$(jq -r .all <<<"$SELECTION")" = "true" ]; then
@@ -3883,18 +4107,20 @@ jobs:
           echo "shards=$shards" >>"$GITHUB_OUTPUT"
           jq -r '"Plan jobs: \(length)."' <<<"$shards" >>"$GITHUB_STEP_SUMMARY"
 
-  # Everything else that needs no sign-in to Azure: formatting, the HCL,
-  # terraform validate of the selected units and the committed lock files.
-  # It runs next to the plan jobs (terraform validate takes minutes on the
-  # two cores), and the gate, the plan comment and apply all wait for it:
-  # nothing merges or applies without it.
+  # Everything else that needs no state: formatting, the HCL, terraform
+  # validate of the selected units and the committed lock files. It runs next
+  # to the plan jobs (terraform validate takes minutes on the two cores), and
+  # the gate, the plan comment and apply all wait for it: nothing merges or
+  # applies without it. It signs in to Azure (the plan identity) only where
+  # the configuration reads a secret while it is parsed (validate-sign-in).
   validate:
     needs: [changes, select]
     if: ${{ !cancelled() && needs.select.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -4030,7 +4256,9 @@ jobs:
           - Any other file belongs to the nearest unit above it. A file of a deleted
             unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
-            is planned, so when nothing else is touched the whole tree runs.
+            is planned, so when nothing else is touched the whole tree runs - except
+            what never reaches a plan (the same as changes.py): .claude/, Markdown,
+            and .github/ but its workflows, tool-versions.env and trivyignore.yaml.
           - No usable <base> (unknown, not an ancestor of HEAD) or no difference at all
             means the whole tree.
 
@@ -4046,6 +4274,15 @@ jobs:
 
           CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl"}
           UNIT = "terragrunt.hcl"
+          # What under .github/ changes a plan (changes.py has the same list).
+          PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
+
+
+          def no_plan_impact(path: str) -> bool:
+              """A file outside every unit that cannot change how the tree is planned."""
+              if path.startswith(".claude/") or path.lower().endswith(".md"):
+                  return True
+              return path.startswith(".github/") and not path.startswith(PLAN_INPUTS)
 
 
           def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -4123,7 +4360,7 @@ jobs:
                       unit = owner(path, head_units | gone)
                       if unit in head_units:
                           selected.add(unit)
-                      elif unit is None:
+                      elif unit is None and not no_plan_impact(path):
                           outside = True
 
               renamed_old = {old for old, _ in result["renamed"]}
@@ -4131,8 +4368,9 @@ jobs:
               if result["all"]:
                   return result
               if not selected:
-                  # Only the workflows, the scripts or the docs changed, or only units
-                  # were deleted. The first changes how everything is planned.
+                  # Only the workflows or the scripts changed (they change how
+                  # everything is planned), only what never reaches a plan, or only
+                  # units were deleted.
                   result["all"] = outside
                   return result
               result["units"] = expand(sorted(selected)) if do_expand else sorted(selected)
@@ -4885,9 +5123,10 @@ jobs:
             --fail-on-change   exit non-zero when the plan proposes anything at all or a
                                unit ended in an error (the gate of the weekly drift job;
                                terragrunt itself returns zero even when there are changes)
-            --github-output    write has_changes, has_errors and has_destroys to
-                               $GITHUB_OUTPUT; a plan that destroys or replaces is not
-                               applied by a push, it waits for a manual run
+            --github-output    write has_changes, has_errors, has_destroys and
+                               changed_units (a JSON list) to $GITHUB_OUTPUT; a plan that
+                               destroys or replaces is not applied by a push, it waits
+                               for an approval or a manual run
             --json-dir=<dir>   the plans in JSON, <dir>/<unit>/tfplan.json
             --export=<file>    a share of a split plan: write the rows of its JSON plans,
                                its outputs and trivy findings, for the merge
@@ -5435,6 +5674,7 @@ jobs:
                           r["what"] == "will be destroyed" or "replaced" in r["what"]
                           for p in parsed.values() for r in p["resources"])
                       fh.write(f"has_destroys={str(has_destroys).lower()}\n")
+                      fh.write(f"changed_units={json.dumps(changed_units)}\n")
 
               if "fail-on-change" in opts and (changes or errors or missing):
                   totals = ", ".join(f"{count[a]} {w}" for a, w in (
@@ -6165,6 +6405,15 @@ jobs:
       - name: Install terragrunt
         run: install-tools.sh terragrunt
 
+      - name: Sign in to Azure
+        if: inputs.validate-sign-in
+        run: |
+          set -euo pipefail
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$ARM_CLIENT_ID" --tenant "$ARM_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
+
       - name: HCL formatting
         run: |
           terragrunt hcl fmt --check --diff || {
@@ -6215,26 +6464,43 @@ jobs:
             exit "$rc"
           fi
 
-      # A lock file is optional; where one is committed, init must not have
-      # had to change it. A change means the lock lacks a provider, holds a
-      # version the constraints no longer allow, or lacks the linux checksums.
+      # Every validated unit has its .terraform.lock.hcl committed (toolchain
+      # standard), and init did not have to change it. A change means the lock
+      # lacks a provider, holds a version the constraints no longer allow, or
+      # lacks the linux checksums. A missing lock fails, or only warns with
+      # require-lock-files false (a repository that has not committed them yet).
       - name: Lock files
+        env:
+          SELECTION: ${{ needs.select.outputs.selection }}
+          REQUIRE: ${{ inputs.require-lock-files }}
         run: |
           set -euo pipefail
-          if [ -z "$(git ls-files -- '*.terraform.lock.hcl')" ]; then
-            echo "No .terraform.lock.hcl is committed; nothing to check."
-            exit 0
+          if [ "$(jq -r .all <<<"$SELECTION")" = "true" ]; then
+            mapfile -t units < <(git ls-files -- '*/terragrunt.hcl' | sed 's|/terragrunt\.hcl$||' | grep -vE '(^|/)\.')
+          else
+            mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
           fi
+          level=error
+          [ "$REQUIRE" = "true" ] || level=warning
+          rc=0
+          missing=0
+          for u in "${units[@]}"; do
+            if ! git ls-files --error-unmatch -- "$u/.terraform.lock.hcl" >/dev/null 2>&1; then
+              echo "::$level file=$u/terragrunt.hcl,title=Lock file::$u has no committed .terraform.lock.hcl. Run 'terragrunt run -- providers lock -platform=linux_amd64 -platform=darwin_arm64' in $u and commit the file."
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ] && [ "$level" = error ]; then rc=1; fi
           changed=$(git diff --name-only -- '*.terraform.lock.hcl')
-          if [ -z "$changed" ]; then
-            echo "The committed lock files match the providers."
-            exit 0
+          if [ -n "$changed" ]; then
+            git diff -- '*.terraform.lock.hcl'
+            while IFS= read -r f; do
+              echo "::error file=$f,title=Lock file::$f does not match the providers terraform init chose (diff above). Run 'terragrunt run -- providers lock -platform=linux_amd64 -platform=darwin_arm64' in $(dirname "$f") and commit the file."
+            done <<<"$changed"
+            rc=1
           fi
-          git diff -- '*.terraform.lock.hcl'
-          while IFS= read -r f; do
-            echo "::error file=$f,title=Lock file::$f does not match the providers terraform init chose (diff above). Run 'terragrunt run -- providers lock -platform=linux_amd64 -platform=darwin_arm64' in $(dirname "$f") and commit the file."
-          done <<<"$changed"
-          exit 1
+          echo "Lock files: ${#units[@]} unit(s), $missing without a committed lock, $(grep -c . <<<"$changed" || true) changed by init." >>"$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
   # One share of the selection (select's shards), as many side by side as
   # there are shares. Each leaves its plan.txt and what the comment shows of
@@ -6244,7 +6510,7 @@ jobs:
     needs: [changes, select]
     # Next to validate, not after it; skipped where nothing is relevant.
     if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.shards != '[]' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -6253,20 +6519,12 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # Every plan, on a pull request and on main, runs as the read-only plan
+    # identity (ARM_CLIENT_ID and GITHUB_APP_VAULT of the workflow): a plan may
+    # be queued from any branch, and the identity that writes is federated on
+    # the environment of the apply job alone.
     env:
-      # A plan on a pull request may be queued from any branch, so it runs as
-      # the identity that can only read. A plan on main is the one the apply is
-      # decided from and runs as the identity the apply will use, so that the
-      # two cannot see different things.
-      ARM_CLIENT_ID: >-
-        ${{ github.event_name == 'pull_request'
-            && inputs.client-id-plan
-            || inputs.client-id-apply }}
-      GITHUB_APP_VAULT: >-
-        ${{ github.event_name == 'pull_request'
-            && inputs.github-app-vault-plan
-            || inputs.github-app-vault-apply }}
-      TG_READONLY_PLAN: ${{ github.event_name == 'pull_request' }}
+      TG_READONLY_PLAN: "true"
       # A plan on a pull request is only a preview, so it does not lock the
       # state. Every new push cancels the run before it, and a cancelled
       # terraform leaves its lock behind: the lease on the state blob never
@@ -6413,7 +6671,9 @@ jobs:
           - Any other file belongs to the nearest unit above it. A file of a deleted
             unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
-            is planned, so when nothing else is touched the whole tree runs.
+            is planned, so when nothing else is touched the whole tree runs - except
+            what never reaches a plan (the same as changes.py): .claude/, Markdown,
+            and .github/ but its workflows, tool-versions.env and trivyignore.yaml.
           - No usable <base> (unknown, not an ancestor of HEAD) or no difference at all
             means the whole tree.
 
@@ -6429,6 +6689,15 @@ jobs:
 
           CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl"}
           UNIT = "terragrunt.hcl"
+          # What under .github/ changes a plan (changes.py has the same list).
+          PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
+
+
+          def no_plan_impact(path: str) -> bool:
+              """A file outside every unit that cannot change how the tree is planned."""
+              if path.startswith(".claude/") or path.lower().endswith(".md"):
+                  return True
+              return path.startswith(".github/") and not path.startswith(PLAN_INPUTS)
 
 
           def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -6506,7 +6775,7 @@ jobs:
                       unit = owner(path, head_units | gone)
                       if unit in head_units:
                           selected.add(unit)
-                      elif unit is None:
+                      elif unit is None and not no_plan_impact(path):
                           outside = True
 
               renamed_old = {old for old, _ in result["renamed"]}
@@ -6514,8 +6783,9 @@ jobs:
               if result["all"]:
                   return result
               if not selected:
-                  # Only the workflows, the scripts or the docs changed, or only units
-                  # were deleted. The first changes how everything is planned.
+                  # Only the workflows or the scripts changed (they change how
+                  # everything is planned), only what never reaches a plan, or only
+                  # units were deleted.
                   result["all"] = outside
                   return result
               result["units"] = expand(sorted(selected)) if do_expand else sorted(selected)
@@ -7268,9 +7538,10 @@ jobs:
             --fail-on-change   exit non-zero when the plan proposes anything at all or a
                                unit ended in an error (the gate of the weekly drift job;
                                terragrunt itself returns zero even when there are changes)
-            --github-output    write has_changes, has_errors and has_destroys to
-                               $GITHUB_OUTPUT; a plan that destroys or replaces is not
-                               applied by a push, it waits for a manual run
+            --github-output    write has_changes, has_errors, has_destroys and
+                               changed_units (a JSON list) to $GITHUB_OUTPUT; a plan that
+                               destroys or replaces is not applied by a push, it waits
+                               for an approval or a manual run
             --json-dir=<dir>   the plans in JSON, <dir>/<unit>/tfplan.json
             --export=<file>    a share of a split plan: write the rows of its JSON plans,
                                its outputs and trivy findings, for the merge
@@ -7818,6 +8089,7 @@ jobs:
                           r["what"] == "will be destroyed" or "replaced" in r["what"]
                           for p in parsed.values() for r in p["resources"])
                       fh.write(f"has_destroys={str(has_destroys).lower()}\n")
+                      fh.write(f"changed_units={json.dumps(changed_units)}\n")
 
               if "fail-on-change" in opts and (changes or errors or missing):
                   totals = ", ".join(f"{count[a]} {w}" for a, w in (
@@ -8594,6 +8866,22 @@ jobs:
           } >>"$GITHUB_ENV"
           echo "GitHub App $app_id, installation $installation, from $GITHUB_APP_VAULT."
 
+      # A repository whose resources sit behind a VPN (iac-home: the router,
+      # through WireGuard) joins that network with its own script (vpn-script up):
+      # the script signs in to Azure as ARM_CLIENT_ID, reads its keys from the
+      # vault and brings the tunnel up. The network has one peer for the runners,
+      # so the caller's concurrency group never lets two runs overlap.
+      - name: Join the network
+        if: inputs.vpn-script != ''
+        env:
+          VPN: ${{ inputs.vpn-script }}
+          TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wireguard-tools >/dev/null
+          "./$VPN" up
+
       # The units of this share that exist are planned from HEAD, in
       # dependency order among themselves. A deleted unit exists only in the
       # base commit, so it is planned as a destroy from a worktree of that
@@ -8639,6 +8927,12 @@ jobs:
             [ "$destroy_rc" -eq 0 ] || rc=$destroy_rc
           fi
           exit "$rc"
+
+      - name: Leave the network
+        if: always() && inputs.vpn-script != ''
+        env:
+          VPN: ${{ inputs.vpn-script }}
+        run: '"./$VPN" down'
 
       # trivy over the plans, which carry the value of every setting; over the
       # bare modules it cannot tell what a variable will be. The verdict waits
@@ -8692,7 +8986,7 @@ jobs:
   plan:
     needs: [changes, select, validate, plan-shard]
     if: ${{ !cancelled() && needs.select.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -8700,6 +8994,8 @@ jobs:
     outputs:
       has_changes: ${{ steps.summary.outputs.has_changes }}
       has_destroys: ${{ steps.summary.outputs.has_destroys }}
+      renewal_due: ${{ steps.renewal.outputs.due }}
+      drift: ${{ steps.renewal.outputs.drift }}
       planned_at: ${{ steps.planned.outputs.at }}
       selection: ${{ needs.select.outputs.selection }}
     steps:
@@ -8746,9 +9042,10 @@ jobs:
             --fail-on-change   exit non-zero when the plan proposes anything at all or a
                                unit ended in an error (the gate of the weekly drift job;
                                terragrunt itself returns zero even when there are changes)
-            --github-output    write has_changes, has_errors and has_destroys to
-                               $GITHUB_OUTPUT; a plan that destroys or replaces is not
-                               applied by a push, it waits for a manual run
+            --github-output    write has_changes, has_errors, has_destroys and
+                               changed_units (a JSON list) to $GITHUB_OUTPUT; a plan that
+                               destroys or replaces is not applied by a push, it waits
+                               for an approval or a manual run
             --json-dir=<dir>   the plans in JSON, <dir>/<unit>/tfplan.json
             --export=<file>    a share of a split plan: write the rows of its JSON plans,
                                its outputs and trivy findings, for the merge
@@ -9296,6 +9593,7 @@ jobs:
                           r["what"] == "will be destroyed" or "replaced" in r["what"]
                           for p in parsed.values() for r in p["resources"])
                       fh.write(f"has_destroys={str(has_destroys).lower()}\n")
+                      fh.write(f"changed_units={json.dumps(changed_units)}\n")
 
               if "fail-on-change" in opts and (changes or errors or missing):
                   totals = ", ".join(f"{count[a]} {w}" for a, w in (
@@ -10066,6 +10364,24 @@ jobs:
             | tee plan.md
           cat plan.md >>"$GITHUB_STEP_SUMMARY"
 
+      # A scheduled run of a repository with a renewal unit (iac-home: the
+      # certificate) applies that unit when its plan proposes something; a
+      # change in any other unit is drift and fails the run.
+      - name: Renewal and drift
+        id: renewal
+        if: always() && inputs.renewal-unit != '' && github.event_name == 'schedule'
+        env:
+          CHANGED: ${{ steps.summary.outputs.changed_units }}
+          RENEWAL: ${{ inputs.renewal-unit }}
+        run: |
+          set -euo pipefail
+          CHANGED=${CHANGED:-[]}
+          due=$(jq -r --arg u "$RENEWAL" 'any(.[]; . == $u)' <<<"$CHANGED")
+          drift=$(jq -r --arg u "$RENEWAL" 'map(select(. != $u)) | length > 0' <<<"$CHANGED")
+          echo "due=$due" >>"$GITHUB_OUTPUT"
+          echo "drift=$drift" >>"$GITHUB_OUTPUT"
+          echo "Renewal of \`$RENEWAL\` due: $due. Drift elsewhere: $drift." >>"$GITHUB_STEP_SUMMARY"
+
       - name: Upload the plan
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -10116,8 +10432,9 @@ jobs:
     if: >-
       !cancelled()
       && (github.event_name == 'pull_request'
-          || (needs.plan.outputs.has_destroys == 'true' && !inputs.allow-destroy))
-    runs-on: ubuntu-latest
+          || (needs.plan.outputs.has_destroys == 'true' && !inputs.allow-destroy
+              && github.event_name != 'schedule'))
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -10340,7 +10657,16 @@ jobs:
   # A plan that destroys or replaces anything is applied by a push only when
   # the merged pull request approved it after its plan (destroy job), or by
   # the manual run with allow-destroy. Otherwise the selection keeps those
-  # units, since this run does not end as a success.
+  # units, since this run does not end as a success. A scheduled run applies
+  # the renewal unit and nothing else, and only when it is due.
+  #
+  # The apply plans again rather than applying the plan job's saved plan: a
+  # unit reads the outputs of the units it depends on, which change in the same
+  # apply (a saved plan would carry the old ones), the plan is split across
+  # jobs, and a saved plan holds every sensitive value in clear text, which
+  # would have to travel as an artifact. The plan of the same run decides
+  # whether the apply runs, and the verification after it fails the run when
+  # the result differs from the code.
   apply:
     needs: [validate, plan, destroy]
     if: >-
@@ -10348,10 +10674,14 @@ jobs:
       && github.event_name != 'pull_request'
       && needs.validate.result == 'success'
       && needs.plan.result == 'success'
-      && needs.plan.outputs.has_changes == 'true'
-      && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy
-          || needs.destroy.outputs.approved == 'true')
-    runs-on: ubuntu-latest
+      && (
+        (github.event_name == 'schedule' && needs.plan.outputs.renewal_due == 'true')
+        || (github.event_name != 'schedule'
+            && needs.plan.outputs.has_changes == 'true'
+            && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy
+                || needs.destroy.outputs.approved == 'true'))
+      )
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: ${{ inputs.environment }}
     permissions:
@@ -10361,6 +10691,8 @@ jobs:
       verification: ${{ steps.verify.outputs.result }}
       started: ${{ steps.window.outputs.epoch }}
       ended: ${{ steps.ended.outputs.epoch }}
+    # The identity that writes, in place of the plan identity of the workflow.
+    # It is federated on this job's environment only.
     env:
       ARM_CLIENT_ID: ${{ inputs.client-id-apply }}
       GITHUB_APP_VAULT: ${{ inputs.github-app-vault-apply }}
@@ -10500,7 +10832,9 @@ jobs:
           - Any other file belongs to the nearest unit above it. A file of a deleted
             unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
-            is planned, so when nothing else is touched the whole tree runs.
+            is planned, so when nothing else is touched the whole tree runs - except
+            what never reaches a plan (the same as changes.py): .claude/, Markdown,
+            and .github/ but its workflows, tool-versions.env and trivyignore.yaml.
           - No usable <base> (unknown, not an ancestor of HEAD) or no difference at all
             means the whole tree.
 
@@ -10516,6 +10850,15 @@ jobs:
 
           CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl"}
           UNIT = "terragrunt.hcl"
+          # What under .github/ changes a plan (changes.py has the same list).
+          PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
+
+
+          def no_plan_impact(path: str) -> bool:
+              """A file outside every unit that cannot change how the tree is planned."""
+              if path.startswith(".claude/") or path.lower().endswith(".md"):
+                  return True
+              return path.startswith(".github/") and not path.startswith(PLAN_INPUTS)
 
 
           def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -10593,7 +10936,7 @@ jobs:
                       unit = owner(path, head_units | gone)
                       if unit in head_units:
                           selected.add(unit)
-                      elif unit is None:
+                      elif unit is None and not no_plan_impact(path):
                           outside = True
 
               renamed_old = {old for old, _ in result["renamed"]}
@@ -10601,8 +10944,9 @@ jobs:
               if result["all"]:
                   return result
               if not selected:
-                  # Only the workflows, the scripts or the docs changed, or only units
-                  # were deleted. The first changes how everything is planned.
+                  # Only the workflows or the scripts changed (they change how
+                  # everything is planned), only what never reaches a plan, or only
+                  # units were deleted.
                   result["all"] = outside
                   return result
               result["units"] = expand(sorted(selected)) if do_expand else sorted(selected)
@@ -11355,9 +11699,10 @@ jobs:
             --fail-on-change   exit non-zero when the plan proposes anything at all or a
                                unit ended in an error (the gate of the weekly drift job;
                                terragrunt itself returns zero even when there are changes)
-            --github-output    write has_changes, has_errors and has_destroys to
-                               $GITHUB_OUTPUT; a plan that destroys or replaces is not
-                               applied by a push, it waits for a manual run
+            --github-output    write has_changes, has_errors, has_destroys and
+                               changed_units (a JSON list) to $GITHUB_OUTPUT; a plan that
+                               destroys or replaces is not applied by a push, it waits
+                               for an approval or a manual run
             --json-dir=<dir>   the plans in JSON, <dir>/<unit>/tfplan.json
             --export=<file>    a share of a split plan: write the rows of its JSON plans,
                                its outputs and trivy findings, for the merge
@@ -11905,6 +12250,7 @@ jobs:
                           r["what"] == "will be destroyed" or "replaced" in r["what"]
                           for p in parsed.values() for r in p["resources"])
                       fh.write(f"has_destroys={str(has_destroys).lower()}\n")
+                      fh.write(f"changed_units={json.dumps(changed_units)}\n")
 
               if "fail-on-change" in opts and (changes or errors or missing):
                   totals = ", ".join(f"{count[a]} {w}" for a, w in (
@@ -12661,6 +13007,37 @@ jobs:
           } >>"$GITHUB_ENV"
           echo "GitHub App $app_id, installation $installation, from $GITHUB_APP_VAULT."
 
+      # What this run applies: the selection of the plan job, or on a
+      # schedule the renewal unit alone.
+      - name: Units to apply
+        id: target
+        env:
+          EVENT: ${{ github.event_name }}
+          SELECTION: ${{ needs.plan.outputs.selection }}
+          RENEWAL: ${{ inputs.renewal-unit }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = schedule ]; then
+            SELECTION=$(jq -c --arg u "$RENEWAL" '.all = false | .units = [$u] | .deleted = []' <<<"$SELECTION")
+          fi
+          echo "selection=$SELECTION" >>"$GITHUB_OUTPUT"
+
+      # A repository whose resources sit behind a VPN (iac-home: the router,
+      # through WireGuard) joins that network with its own script (vpn-script up):
+      # the script signs in to Azure as ARM_CLIENT_ID, reads its keys from the
+      # vault and brings the tunnel up. The network has one peer for the runners,
+      # so the caller's concurrency group never lets two runs overlap.
+      - name: Join the network
+        if: inputs.vpn-script != ''
+        env:
+          VPN: ${{ inputs.vpn-script }}
+          TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wireguard-tools >/dev/null
+          "./$VPN" up
+
       # A minute of slack: the Activity Log stamps an operation when Azure
       # received it, the runner's clock may differ.
       - name: Start of the apply
@@ -12677,7 +13054,7 @@ jobs:
           TG_PROVIDER_CACHE: "1"
           TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
-          SELECTION: ${{ needs.plan.outputs.selection }}
+          SELECTION: ${{ steps.target.outputs.selection }}
         run: |
           set -euo pipefail
           mapfile -t deleted < <(jq -r '.deleted[]' <<<"$SELECTION")
@@ -12700,7 +13077,7 @@ jobs:
           TG_PROVIDER_CACHE: "1"
           TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
-          SELECTION: ${{ needs.plan.outputs.selection }}
+          SELECTION: ${{ steps.target.outputs.selection }}
         run: |
           set -euo pipefail
           mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
@@ -12749,7 +13126,7 @@ jobs:
           TG_PROVIDER_CACHE: "1"
           TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
-          SELECTION: ${{ needs.plan.outputs.selection }}
+          SELECTION: ${{ steps.target.outputs.selection }}
           VERIFY_JSON: ${{ runner.temp }}/verify-json
         run: |
           set -euo pipefail
@@ -12844,6 +13221,12 @@ jobs:
             verification.md
           retention-days: 30
 
+      - name: Leave the network
+        if: always() && inputs.vpn-script != ''
+        env:
+          VPN: ${{ inputs.vpn-script }}
+        run: '"./$VPN" down'
+
   # The apply comment (apply-summary.py) on the pull request the applied
   # commit came from: what the plan of this run meant to change, in the past
   # tense, per resource whether it went through, and the verification. A job
@@ -12853,7 +13236,7 @@ jobs:
     if: >-
       always() && github.event_name != 'pull_request'
       && contains(fromJSON('["success", "failure", "cancelled"]'), needs.apply.result)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -13202,8 +13585,10 @@ jobs:
 
       # The pull request merged as this commit; a commit pushed to main
       # directly has none, and the summary of the run is all there is. Each
-      # run comments anew: the push and a later manual run are two applies.
+      # run comments anew: the push and a later manual run are two applies. A
+      # scheduled renewal belongs to no pull request.
       - name: Comment into the pull request
+        if: github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -13222,7 +13607,7 @@ jobs:
   verify:
     needs: apply
     if: ${{ !cancelled() && needs.apply.outputs.verification != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -13262,8 +13647,9 @@ jobs:
           #
           # Usage: verify-failed.sh <verification.json> <verification.md>
           # Env:   GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_EVENT_NAME,
-          #        GITHUB_SERVER_URL, GITHUB_RUN_ID; run in a checkout of main with
-          #        its whole history.
+          #        GITHUB_SERVER_URL, GITHUB_RUN_ID; OWNER (the organisation variable,
+          #        assigned to the issue and the revert; empty assigns nobody); run in a
+          #        checkout of main with its whole history.
           set -euo pipefail
 
           JSON=${1:?missing verification.json}
@@ -13272,7 +13658,13 @@ jobs:
           SHA=${GITHUB_SHA:?}
           RUN_URL="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
           SHORT=${SHA:0:7}
-          OWNER=matej-hrabalek
+          OWNER=${OWNER:-}
+          assign_pr=()
+          assign_issue=()
+          if [ -n "$OWNER" ]; then
+            assign_pr=(--assignee "$OWNER")
+            assign_issue=(-f "assignees[]=$OWNER")
+          fi
 
           # The pull request the commit came from, for the title and the links.
           pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)][0] // empty' 2>/dev/null || true)
@@ -13347,7 +13739,7 @@ jobs:
           - Original: $pr_ref
           EOF
                 if url=$(gh pr create --repo "$REPO" --draft --base main --head "$branch" \
-                  --title "$rtitle" --body-file "$body" --assignee "$OWNER" 2>&1); then
+                  --title "$rtitle" --body-file "$body" "${assign_pr[@]}" 2>&1); then
                   revert_note="Draft revert pull request: $url"
                 else
                   echo "::warning::gh pr create: $url"
@@ -13401,11 +13793,11 @@ jobs:
             gh issue comment "$existing" --repo "$REPO" --body-file "$issue_body"
             echo "Issue #$existing updated."
           elif ! gh api -X POST "repos/$REPO/issues" -f title="$issue_title" -F body=@"$issue_body" \
-            -f type=Bug -f "assignees[]=$OWNER" -f 'labels[]=prio:high' -f 'labels[]=source:drift' \
+            -f type=Bug "${assign_issue[@]}" -f 'labels[]=prio:high' -f 'labels[]=source:drift' \
             --jq '"Issue: " + .html_url'; then
             # The workflow token may not set the issue type everywhere.
             gh api -X POST "repos/$REPO/issues" -f title="$issue_title" -F body=@"$issue_body" \
-              -f "assignees[]=$OWNER" -f 'labels[]=prio:high' -f 'labels[]=source:drift' \
+              "${assign_issue[@]}" -f 'labels[]=prio:high' -f 'labels[]=source:drift' \
               --jq '"Issue (without type): " + .html_url'
           fi
           echo "$revert_note"
@@ -13424,6 +13816,7 @@ jobs:
         working-directory: repo
         env:
           GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ vars.OWNER }}
         run: verify-failed.sh ../verification.json ../verification.md
 
       - name: The verification has to pass
@@ -13439,7 +13832,7 @@ jobs:
   gate:
     needs: [conventions, sentinel, changes, select, validate, plan-shard, plan, destroy, apply, verify]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checks passed
@@ -13467,6 +13860,10 @@ jobs:
           VALIDATE_RESULT: ${{ needs.validate.result }}
           VERIFICATION: ${{ needs.apply.outputs.verification }}
           VERIFY_RESULT: ${{ needs.verify.result }}
+          EVENT: ${{ github.event_name }}
+          RENEWAL_UNIT: ${{ inputs.renewal-unit }}
+          RENEWAL_DUE: ${{ needs.plan.outputs.renewal_due }}
+          DRIFT: ${{ needs.plan.outputs.drift }}
         run: |
           if [ "$SELECT_RESULT" != "success" ]; then
             echo "::error::select ended as '$SELECT_RESULT', so nothing was planned"
@@ -13479,6 +13876,25 @@ jobs:
           if [ "$PLAN_RESULT" != "success" ]; then
             echo "::error::plan ended as '$PLAN_RESULT'"
             exit 1
+          fi
+          # A schedule applies the due renewal and nothing else; any other
+          # change is drift: the resources differ from main.
+          if [ "$EVENT" = "schedule" ]; then
+            if [ "$RENEWAL_DUE" = "true" ]; then
+              if [ "$APPLY_RESULT" != "success" ] || [ "$VERIFICATION" != "passed" ] || [ "$VERIFY_RESULT" != "success" ]; then
+                echo "::error::the renewal of $RENEWAL_UNIT was due but did not apply and verify (apply: $APPLY_RESULT, verification: ${VERIFICATION:-missing})"
+                exit 1
+              fi
+              echo "Renewed $RENEWAL_UNIT." >>"$GITHUB_STEP_SUMMARY"
+            fi
+            drift=$PLAN_HAS_CHANGES
+            [ -z "$RENEWAL_UNIT" ] || drift=$DRIFT
+            if [ "$drift" = "true" ]; then
+              echo "::error::drift: the resources differ from main (plan in the summary of this run)"
+              exit 1
+            fi
+            echo "No drift." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           if [ "$PLAN_HAS_CHANGES" != "true" ]; then
             echo "Plan proposed nothing, apply was skipped." >>"$GITHUB_STEP_SUMMARY"

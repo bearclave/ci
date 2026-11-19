@@ -13,10 +13,10 @@ Only what something reads from the root by itself:
 
 | What | Files |
 |---|---|
-| Git and GitHub | `README.md`, `.gitignore`, `.gitattributes`, `.editorconfig` |
+| Git and GitHub | `README.md`, `.gitignore`, `.gitattributes`, `.editorconfig`, `LICENSE` (only where the code is handed over) |
 | Ecosystem manifests | `package.json` + lock, `pyproject.toml` + `uv.lock`, `Dockerfile`, `.dockerignore` |
 | Terragrunt context | `root.hcl`, `account.hcl` (terragrunt pipelines); `tenant.psd1` (`iac-m365`) |
-| Tools that look in the root | `.gitleaks.toml`, `.tflint.hcl`, `eslint.config.mjs` |
+| Tools that look in the root | `.gitleaks.toml`, `.tflint.hcl`, `eslint.config.mjs`, `.mcp.json` (Claude Code) |
 | Folders | the vocabulary below and the content folders of the pipeline |
 
 Everything else goes into a folder. A config that only the pipeline reads
@@ -29,6 +29,8 @@ belongs in `.github/`, a script in `tools/`, a document in `docs/`.
 | `.claude/CLAUDE.md` | working rules specific to the repository ([templates/CLAUDE.md](https://github.com/bearclave/governance/blob/main/standards/templates/CLAUDE.md), at most 30 lines) |
 | `.claude/rules/`, `.claude/settings.json` | managed copies (`tools/sync.py`): the always-rules and the language rules of the languages the repository has |
 | `.github/workflows/` | callers of `bearclave/ci` |
+| `.github/CODEOWNERS`, `.github/SECURITY.md`, `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | managed copies (`tools/sync.py`) |
+| `.github/markdownlint.yaml` | markdownlint rules that differ from `ci` |
 | `.github/dependabot.yml`, `.github/release.yml`, `.github/tool-versions.env` | GitHub and CI |
 | `.github/conventions.yaml` | conventions check, and the exceptions to this layout |
 | `.github/sentinel-lint.yaml` | Sentinel lint |

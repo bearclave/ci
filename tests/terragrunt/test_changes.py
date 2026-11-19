@@ -36,6 +36,13 @@ class Relevant(unittest.TestCase):
         self.assertFalse(relevant(".github/dependabot.yml"))
         self.assertFalse(relevant(".github/release.yml"))
         self.assertFalse(relevant(".github/dependabot.yml", ".github/release.yml"))
+        self.assertFalse(relevant(".github/conventions.yaml", ".github/sentinel-lint.yaml",
+                                  ".github/CODEOWNERS", ".github/markdownlint.yaml",
+                                  ".github/PULL_REQUEST_TEMPLATE.md", ".github/ISSUE_TEMPLATE/bug.yml"))
+
+    def test_github_plan_inputs_plan(self):
+        self.assertTrue(relevant(".github/trivyignore.yaml"))
+        self.assertTrue(relevant(".github/workflows/drift.yml"))
 
     def test_claude_does_not_plan(self):
         self.assertFalse(relevant(".claude/rules/security.md", ".claude/settings.json"))
@@ -60,7 +67,6 @@ class Relevant(unittest.TestCase):
         self.assertFalse(relevant())
 
     def test_similar_names_still_plan(self):
-        self.assertTrue(relevant(".github/dependabot.yaml"))
         self.assertTrue(relevant(".github/workflows/release.yml"))
         self.assertTrue(relevant("_common/claude/x.hcl"))
 

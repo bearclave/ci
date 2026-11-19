@@ -4,11 +4,14 @@
 
 One task = one branch from a fresh `main` = one pull request = one squash
 commit on `main`. Nobody pushes to `main`; the organisation rulesets in
-`bearclave/iac-github` refuse it, for the owner too.
+`bearclave/iac-github` refuse it, for the owner too. The only exception are
+repositories with `direct-commit=true` (`handbook`, `app-office-templates`),
+which the owner writes straight to `main`; agents work there on a branch
+and a pull request as everywhere else.
 
 ## Branches
 
-```
+```text
 <type>/<slug>
 <type>/<issue>-<slug>
 ```
@@ -24,15 +27,22 @@ commit on `main`. Nobody pushes to `main`; the organisation rulesets in
 - A worktree branch (`worktree-<name>`) is renamed to `<type>/<slug>` before
   its first push.
 - Bot branches keep their own names: `dependabot/...`, `chore/tombstones`
-  (weekly M365 drift).
+  (weekly M365 drift); `bearclave-bot`'s `deps/tools`, `deps/actions` and
+  `deps/ci` already have the `<type>/<slug>` form.
 - The `pr` check refuses any other branch name.
+
+**How it is enforced.** The branch name and the title are checked by the
+required check `pr / check`, not by a ruleset: the ruleset rules for branch
+names and commit messages exist only in GitHub Enterprise. A branch with a
+wrong name can be pushed, but its pull request cannot be merged. The commits
+on a branch are not checked; only the title reaches `main`.
 
 ## Commits
 
 [Conventional Commits 1.0](https://www.conventionalcommits.org/en/v1.0.0/),
 template in [templates/commit-message.txt](https://github.com/bearclave/governance/blob/main/standards/templates/commit-message.txt):
 
-```
+```text
 <type>(<scope>)!: <summary>
 
 <body: why the change is needed, what it does not do, wrapped at 72>
@@ -79,16 +89,23 @@ the pull request title reaches `main` - but they follow the format as well.
 
 ## Pull requests
 
-**Open a draft on the first push**, so the pipeline runs and the plan is
-visible early. Mark it ready for review when it is done.
+**Push the branch at least daily; open the pull request when the change is
+ready for its first full run.** A pushed branch without a pull request costs
+nothing, every push to a pull request runs the pipeline and costs Actions
+minutes (3,000 a month for the whole organisation). Open it as a draft when
+the plan is needed early, mark it ready for review when it is done. An agent
+opens a pull request only when the owner says so for that change.
 
 **Title** = the future commit on `main`, in the commit format above:
 `feat(conditional-access): block legacy authentication`. The `pr` check
-refuses a title that does not match, and sets the labels from it.
+refuses a title that does not match, and sets the labels from it. A title
+of a bot (Dependabot, `bearclave-bot`) longer than 72 characters only warns,
+because the bot writes it; shorten it before the merge.
 
 **Description** from [templates/pull_request_template.md](https://github.com/bearclave/governance/blob/main/standards/templates/pull_request_template.md)
-(GitHub fills it in). The sections are not optional; write "none" rather than
-delete one:
+(`.github/pull_request_template.md`, managed; GitHub fills it in). The
+sections are not optional, for `bearclave-bot` too; write "none" rather than
+delete one. Only Dependabot's pull requests are exempt:
 
 | Section | Content |
 |---|---|
@@ -115,11 +132,19 @@ pull requests (module first); a rename and a behaviour change are two; a new
 app feature and its refactoring are two.
 
 **Labels.** The `pr` check sets `type:*`, `breaking` and `size:*`. Add by
-hand where it applies: `prio:high`, `status:blocked`, `area:*`. Full list in
+hand where it applies: `prio:high`, `status:blocked`. Full list in
 [issues.md](https://github.com/bearclave/governance/blob/main/standards/issues.md#labels).
 
 **Assignee** is the author; the `pr` check assigns them when nobody is.
-Dependabot pull requests are assigned to the owner by `dependabot.yml`.
+Dependabot pull requests are assigned to the owner by `dependabot.yml`,
+`bearclave-bot`'s `deps` pull requests by the workflow that opens them.
+
+**Author.** A pull request an agent prepares is opened by the GitHub App
+`bearclave-bot` (`bot-gh pr create ...`, the helper
+[`bearclave/ci` `tools/bot-gh.py`](https://github.com/bearclave/ci/blob/main/tools/bot-gh.py)),
+so that the owner can approve it: nobody can approve their own pull request.
+The commits stay the owner's, signed with his key; only the author of the
+pull request is the bot.
 
 ## Review
 
@@ -133,21 +158,44 @@ Dependabot pull requests are assigned to the owner by `dependabot.yml`.
 3. For infrastructure: the plan comment in the pull request shows only the
    intended changes. Anything destroyed or replaced is named in Impact.
 4. Every review conversation resolved (the ruleset requires it).
-5. There is one owner, so no approval is required; the merge itself is the
-   approval. With a second person on a repository its `CODEOWNERS` adds a
-   required review.
+5. **The owner approves every pull request.** The ruleset `main-pull-request`
+   requires one approving review and dismisses it on every new push, so the
+   approval is always of the final diff. Pull requests of `bearclave-bot` and
+   of Dependabot are approved the same way. A pull request the owner opened
+   under his own account cannot be approved; he merges it through the
+   ruleset's bypass (organisation owners, pull requests only). GitHub lets
+   the bypass merge any pull request; by this rule the owner uses it only
+   for his own. An agent never approves a pull request, under any account,
+   and never merges with `--admin`.
+6. **Destroys and replaces need an approval given after the plan.** In a
+   Terragrunt repository the check `destroy / approved` (part of
+   `pipeline / gate`) passes only when the pull request was approved after
+   its latest plan; approving re-runs it. The push of the merge then applies
+   the destroys by itself ([pipelines.md](https://github.com/bearclave/governance/blob/main/standards/pipelines.md#rules-for-every-workflow)).
 
 ## Merge
 
 - **Squash merge only.** The commit on `main` takes the pull request title
   and description (repository setting), so both have to be final before
   merging.
+- **Approve, then auto-merge.** Once the review is done, the owner approves
+  and turns on auto-merge (`gh pr merge --auto --squash`, or the button).
+  GitHub merges as soon as the required checks and the approval are there,
+  and nobody waits for the last check by hand. A new push dismisses the
+  approval, so auto-merge waits for the next one. Auto-merge does not use the
+  bypass: a pull request the owner opened himself he merges directly.
+- **No merge queue.** GitHub offers it for private repositories only on
+  Enterprise Cloud, and with one owner merging a few pull requests a day it
+  would add nothing: "Branch up to date with `main`" below keeps the merges
+  of production repositories in order.
 - **Branch up to date with `main`** in repositories that touch production
   (the ruleset requires it): "Update branch" re-runs the plan on the merged
   state.
 - **Who merges.** Changes to live configuration (`iac-*` except
   `iac-modules`, `app-*`) are merged by the owner. An agent may merge only
-  where the owner said so for that change.
+  where the owner said so for that change. Dependency pull requests
+  (Dependabot, `bearclave-bot`'s `deps`) are approved and merged by the
+  owner like any other ([toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md#dependency-updates)).
 - The branch is deleted by GitHub after the merge; `git uklid` and the daily
   `git-sync-main` clean up locally.
 - **After the merge**, check the run on `main`: the apply or deployment went
@@ -156,11 +204,54 @@ Dependabot pull requests are assigned to the owner by `dependabot.yml`.
 - Revert with `git revert` in a new pull request titled
   `revert: <original title>`; never rewrite `main`.
 
+## Housekeeping
+
+Branches and pull requests do not linger; nothing is deleted automatically,
+since a deleted branch or a closed pull request is easy to lose track of.
+
+| What | Stale after | What happens |
+|---|---|---|
+| Branch without a pull request | 30 days | open a draft pull request for it or delete it |
+| Pull request (draft or ready) without any update | 14 days | finish it, mark it `status:blocked` with a comment why, or close it |
+| Merged branch | at once | GitHub deletes it (repository setting); `git uklid` locally |
+
+A weekly report (`housekeeping` of `bearclave/ci`, one run for the whole
+organisation) lists what is stale in one issue per repository, assigned to
+the owner, and updates that issue instead of opening a new one; pull
+requests labelled `status:blocked` are listed apart. Tags are never cleaned up this way: release tags are never
+deleted ([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md#tags)).
+
+## Notifications
+
+GitHub's own notifications, read by e-mail and in the GitHub app; no
+webhook or bot posts to Teams.
+
+| The owner gets | Because |
+|---|---|
+| a review request or an assignment of a pull request | `CODEOWNERS` requests the review of `@bearclave/owners`; the `pr` check, `dependabot.yml` and the `deps` workflows of `ci` assign the owner |
+| an issue assigned to him | issues are assigned when they are created ([issues.md](https://github.com/bearclave/governance/blob/main/standards/issues.md)) |
+| a failed workflow run he started, or of a schedule he last changed | GitHub notifies the actor of the run |
+| Dependabot alerts | weekly e-mail digest |
+| the housekeeping issue | it is assigned to him |
+
+Settings of the owner's account (Settings → Notifications):
+
+- Watching: "Participating and @mentions"; no notifications of releases.
+- E-mail for: review requests, assignments, failed workflows; not for
+  every comment on a watched repository.
+- Dependabot alerts: e-mail, weekly digest.
+
+The owner's morning briefing reads the same through `gh`: pull requests
+waiting for his approval, red runs on `main`, open issues labelled
+`source:drift`, `prio:high` or of the type `Security`. A run on a schedule
+notifies only whoever changed its cron last, so the briefing is what catches
+a red drift run.
+
 ## Where the rules live
 
 | What | Where |
 |---|---|
 | Branch protection, merge settings, required checks, labels, issue types | [`bearclave/iac-github`](https://github.com/bearclave/iac-github) |
-| PR and issue templates | [`bearclave/.github`](https://github.com/bearclave/.github) |
+| PR and issue templates, CODEOWNERS | `governance` `standards/templates/`, copied into every repository by `tools/sync.py` |
 | Shared workflows and their checks | [`bearclave/ci`](https://github.com/bearclave/ci) |
 | These rules | [`bearclave/governance`](https://github.com/bearclave/governance) `standards/` |

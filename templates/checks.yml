@@ -30,23 +30,11 @@ defaults:
     shell: bash
 
 jobs:
+  # One job: ESLint where there is JavaScript, then the repository's own
+  # command. A job of its own for ESLint cost a minute even without any.
   checks:
-    if: inputs.command != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Repository checks
-        env:
-          COMMAND: ${{ inputs.command }}
-        run: bash -euo pipefail -c "$COMMAND"
-
-  eslint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,10 +42,16 @@ jobs:
 
       @@include templates/_fragments/eslint-steps.yml@@
 
+      - name: Repository checks
+        if: ${{ !cancelled() && inputs.command != '' }}
+        env:
+          COMMAND: ${{ inputs.command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
   gate:
-    needs: [checks, eslint]
+    needs: [checks]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       @@include templates/_fragments/gate-step.yml@@

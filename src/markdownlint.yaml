@@ -1,0 +1,23 @@
+# The markdownlint rules every repository is checked against (pr / check),
+# unless it has .github/markdownlint.yaml: its keys replace these, rule by
+# rule. Rules: https://github.com/DavidAnson/markdownlint#rules--aliases
+default: true
+# Long lines are the norm in tables and links; the prose wraps by hand.
+MD013: false
+# HTML has its uses: <details>, comments, anchors.
+MD033: false
+# A file may start with a comment, front matter or a level 2 heading
+# (templates, rules with paths).
+MD041: false
+# The same heading under different parents (Usage, Example) is fine.
+MD024:
+  siblings_only: true
+# A code block without a language is plain text.
+MD040: false
+# Bold as a label (**Why**) is not a heading.
+MD036: false
+# Ordered lists may number 1. 1. 1. or 1. 2. 3.
+MD029:
+  style: one_or_ordered
+# Tables are written compactly (|---|---|); aligning their pipes is churn.
+MD060: false

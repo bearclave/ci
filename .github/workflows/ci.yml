@@ -37,17 +37,7 @@ jobs:
         python3 src/layout_check.py --self-test
         pwsh -NoProfile -Command '$r = Invoke-Pester ./tests/m365 -PassThru -Output Detailed; if ($r.FailedCount -gt 0) { exit 1 }'
         tools/build.py --check
-
-  conventions:
-    uses: ./.github/workflows/conventions.yml
-    permissions:
-      contents: read
-    with:
-      config: tests/fixtures/selftest.yaml
-
-  sentinel:
-    uses: ./.github/workflows/sentinel-lint.yml
-    permissions:
-      contents: read
-    with:
-      config: tests/fixtures/sentinel-selftest.yaml
+        yq -o=json . tests/fixtures/selftest.yaml >"$RUNNER_TEMP/conventions.json"
+        python3 src/conventions.py "$RUNNER_TEMP/conventions.json" . --skip todo-issue,markdown-links
+        yq -o=json . tests/fixtures/sentinel-selftest.yaml >"$RUNNER_TEMP/sentinel-lint.json"
+        python3 src/sentinel_lint.py "$RUNNER_TEMP/sentinel-lint.json" .

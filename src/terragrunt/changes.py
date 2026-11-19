@@ -13,8 +13,10 @@ Prints `relevant=true` or `relevant=false`. A path counts when it matches
 '^(tenant/|_common/|\\.github/)|^(root|account)\\.hcl$') and is not one of
 the paths that never reach a plan:
 
-- .github/dependabot.yml and .github/release.yml: read by GitHub, not by
-  the pipeline;
+- anything under .github/ but the workflows, tool-versions.env and
+  trivyignore.yaml (what decides how a plan runs and passes): dependabot,
+  release notes, the conventions and Sentinel configs, issue and pull request
+  templates, CODEOWNERS are read by GitHub or by other jobs, not by a plan;
 - anything under .claude/: the agents' rules;
 - a Markdown file outside every unit (no terragrunt.hcl in its directory or
   above): a unit may read a file of its own, nothing reads a README of
@@ -24,7 +26,9 @@ import os
 import re
 import sys
 
-NEVER = {".github/dependabot.yml", ".github/release.yml"}
+# What under .github/ changes a plan: the workflows run it, the tool
+# versions and the trivy exceptions decide its result.
+PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
 UNIT = "terragrunt.hcl"
 
 
@@ -43,7 +47,9 @@ def in_unit(path: str, units: set) -> bool:
 
 def ignored(path: str, units) -> bool:
     """True for a path that cannot change a plan. units None: not known."""
-    if path in NEVER or path.startswith(".claude/"):
+    if path.startswith(".claude/"):
+        return True
+    if path.startswith(".github/") and not path.startswith(PLAN_INPUTS):
         return True
     if path.lower().endswith(".md"):
         return units is not None and not in_unit(path, units)

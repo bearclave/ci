@@ -5,8 +5,9 @@
 #
 # Usage: verify-failed.sh <verification.json> <verification.md>
 # Env:   GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_EVENT_NAME,
-#        GITHUB_SERVER_URL, GITHUB_RUN_ID; run in a checkout of main with
-#        its whole history.
+#        GITHUB_SERVER_URL, GITHUB_RUN_ID; OWNER (the organisation variable,
+#        assigned to the issue and the revert; empty assigns nobody); run in a
+#        checkout of main with its whole history.
 set -euo pipefail
 
 JSON=${1:?missing verification.json}
@@ -15,7 +16,13 @@ REPO=${GITHUB_REPOSITORY:?}
 SHA=${GITHUB_SHA:?}
 RUN_URL="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
 SHORT=${SHA:0:7}
-OWNER=matej-hrabalek
+OWNER=${OWNER:-}
+assign_pr=()
+assign_issue=()
+if [ -n "$OWNER" ]; then
+  assign_pr=(--assignee "$OWNER")
+  assign_issue=(-f "assignees[]=$OWNER")
+fi
 
 # The pull request the commit came from, for the title and the links.
 pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)][0] // empty' 2>/dev/null || true)
@@ -90,7 +97,7 @@ no checks: push a commit or close and reopen the pull request to run them.
 - Original: $pr_ref
 EOF
       if url=$(gh pr create --repo "$REPO" --draft --base main --head "$branch" \
-        --title "$rtitle" --body-file "$body" --assignee "$OWNER" 2>&1); then
+        --title "$rtitle" --body-file "$body" "${assign_pr[@]}" 2>&1); then
         revert_note="Draft revert pull request: $url"
       else
         echo "::warning::gh pr create: $url"
@@ -144,11 +151,11 @@ if [ -n "$existing" ]; then
   gh issue comment "$existing" --repo "$REPO" --body-file "$issue_body"
   echo "Issue #$existing updated."
 elif ! gh api -X POST "repos/$REPO/issues" -f title="$issue_title" -F body=@"$issue_body" \
-  -f type=Bug -f "assignees[]=$OWNER" -f 'labels[]=prio:high' -f 'labels[]=source:drift' \
+  -f type=Bug "${assign_issue[@]}" -f 'labels[]=prio:high' -f 'labels[]=source:drift' \
   --jq '"Issue: " + .html_url'; then
   # The workflow token may not set the issue type everywhere.
   gh api -X POST "repos/$REPO/issues" -f title="$issue_title" -F body=@"$issue_body" \
-    -f "assignees[]=$OWNER" -f 'labels[]=prio:high' -f 'labels[]=source:drift' \
+    "${assign_issue[@]}" -f 'labels[]=prio:high' -f 'labels[]=source:drift' \
     --jq '"Issue (without type): " + .html_url'
 fi
 echo "$revert_note"

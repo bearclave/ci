@@ -1,70 +1,141 @@
-# The pipeline of the home network (iac-home): a router reached through
-# WireGuard, a certificate renewed on schedule.
+# The pipeline of the home network (iac-home): the jobs of terragrunt.yml
+# (templates/_fragments/terragrunt-jobs.yml) with the defaults of a router
+# reached through WireGuard and a certificate renewed on schedule.
 #
-# Pull request into main -> plan of every unit, summarised in the run
-# Push to main            -> plan, then apply in the home-prod environment
-# Schedule (weekly)       -> plan of main; renews the Let's Encrypt
-#                           certificate when due, any other change is drift
-#                           and fails the run
+# Pull request into main -> select, validate and plan the affected units
+#                           through WireGuard under the read-only identity,
+#                           a plan comment, destroy / approved, conventions
+# Push to main            -> plan (read-only identity), then apply in
+#                           home-prod under the identity that writes, its
+#                           verification and the apply comment
+# Schedule (weekly)       -> plan of the whole tree; applies the renewal unit
+#                           (Let's Encrypt) when it is due, any other change is
+#                           drift and fails the run
 # Manual run on main      -> as a push
 #
-# GitHub's runners reach the router through WireGuard: the runner joins the
-# home network with the repository's own script (vpn-script up|down), which
-# reads its keys from the vault and maps the router's internal name.
+# The runner joins the home network with the repository's own script
+# (vpn-script up|down), which signs in to Azure, reads its keys from the
+# vault and maps the router's internal name. One router, one WireGuard peer:
+# the plan runs as one job, and the caller's concurrency group never lets two
+# runs overlap, a pull request plan included.
 #
-# One router, one state, one WireGuard peer: the caller's concurrency group
-# never lets two runs overlap, a pull request plan included.
+# The configuration reads the router's password from the vault while it is
+# parsed (run_cmd), so validate signs in as the plan identity too.
 #
 #   jobs:
 #     pipeline:
 #       uses: bearclave/ci/.github/workflows/terragrunt-home.yml@v2
+#       if: github.event_name != 'pull_request_review'
 #       permissions:
-#         contents: read
+#         contents: write        # verify: the revert branch
 #         id-token: write
+#         pull-requests: write
+#         issues: write          # verify: the issue
+#         actions: read
 #       with:
-#         client-id: ${{ vars.AZURE_CLIENT_ID }}
+#         client-id-plan: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+#         client-id-apply: ${{ vars.AZURE_CLIENT_ID_APPLY }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
+#         allow-destroy: ${{ inputs.allow_destroy == true }}
 #       secrets:
 #         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
+#     review:                    # destroy / approved after a later review
+#       if: github.event_name == 'pull_request_review'
+#       uses: bearclave/ci/.github/workflows/destroy-review.yml@v2
 #
-# Versions: TERRAFORM_VERSION and TERRAGRUNT_* in the caller's
-# .github/tool-versions.env. The required check is "pipeline / gate".
+# client-id-plan and client-id-apply replace client-id (one identity for
+# both, until v2.4): a pull request must not get the identity that writes.
+#
+# Versions: TERRAFORM_VERSION, TERRAGRUNT_*, TRIVY_* in the caller's
+# .github/tool-versions.env; every unit commits its .terraform.lock.hcl.
+# The required check is "pipeline / gate".
 name: terragrunt-home
 
 on:
   workflow_call:
     inputs:
-      client-id:
+      relevant-paths:
+        description: Regular expression of the paths whose change needs a plan (grep -E over the changed files)
+        type: string
+        default: '^(router-hap/|_common/|tools/|\.github/)|^(root|account)\.hcl$'
+      environment:
+        description: Environment of the apply job; its branch policy allows main only
+        type: string
+        default: home-prod
+      client-id-plan:
+        description: Client ID of the read-only identity every plan runs as (pull request, main, schedule)
+        type: string
+        required: true
+      client-id-apply:
+        description: Client ID of the identity the apply job runs as; federated on the environment only
         type: string
         required: true
       tenant-id:
         type: string
         required: true
-      environment:
-        type: string
-        default: home-prod
-      working-directory:
-        description: Directory whose units are planned and applied
-        type: string
-        default: router-hap
-      renewal-unit:
-        description: Unit under working-directory a scheduled run may apply (certificate renewal)
-        type: string
-        default: letsencrypt
-      vpn-script:
-        description: Script of the repository that joins (up) and leaves (down) the home network (default tools/home-vpn.sh, or scripts/home-vpn.sh before the move to tools/)
+      subscription-id:
+        description: Default subscription of the azurerm provider; empty where the repository has none
         type: string
         default: ""
-      shellcheck-paths:
-        description: Shell scripts of the repository to check, space-separated globs (default tools/*.sh tools/bootstrap/render.sh nas/acme/*.sh, or the same under scripts/ and bootstrap/ before the move to tools/)
-        type: string
-        default: ""
+      conventions:
+        description: Run the conventions check (conventions.yaml) on pull requests
+        type: boolean
+        default: true
       conventions-config:
         description: Path of the conventions file (default .github/conventions.yaml, or conventions.yaml where it is still in the root)
         type: string
         default: ""
+      sentinel-lint:
+        description: Not used here; the jobs are those of terragrunt.yml
+        type: boolean
+        default: false
+      sentinel-config:
+        description: Not used here; the jobs are those of terragrunt.yml
+        type: string
+        default: ""
+      principal-refs:
+        description: Not used here; the jobs are those of terragrunt.yml
+        type: boolean
+        default: false
+      github-app-vault-plan:
+        description: Not used here; the jobs are those of terragrunt.yml
+        type: string
+        default: ""
+      github-app-vault-apply:
+        description: Not used here; the jobs are those of terragrunt.yml
+        type: string
+        default: ""
+      scope:
+        description: "changed = affected units only, all = the whole tree (manual runs)"
+        type: string
+        default: changed
+      allow-destroy:
+        description: Apply also what destroys or replaces resources (manual runs)
+        type: boolean
+        default: false
+      plan-shards:
+        description: Not used here; behind the VPN the plan is one job
+        type: number
+        default: 1
+      require-lock-files:
+        description: A unit without a committed .terraform.lock.hcl fails validate (false only warns)
+        type: boolean
+        default: true
+      validate-sign-in:
+        description: Sign in to Azure as the plan identity in validate; the configuration reads the router's password while it is parsed
+        type: boolean
+        default: true
+      vpn-script:
+        description: Script of the repository that joins (up) and leaves (down) the home network
+        type: string
+        default: tools/home-vpn.sh
+      renewal-unit:
+        description: Unit a scheduled run applies when its plan proposes something (the certificate)
+        type: string
+        default: router-hap/letsencrypt
     secrets:
       modules-deploy-key:
+        description: Read-only deploy key of bearclave/iac-modules
         required: true
 
 permissions:
@@ -76,159 +147,14 @@ defaults:
 
 env:
   TOOLS_DIR: ${{ github.workspace }}/.tools/bin
+  MODULES_DIR: ${{ github.workspace }}/iac-modules
   ARM_USE_OIDC: "true"
   ARM_USE_AZUREAD: "true"
   ARM_TENANT_ID: ${{ inputs.tenant-id }}
-  ARM_CLIENT_ID: ${{ inputs.client-id }}
-  TG_NON_INTERACTIVE: "true"
-  # Plain log lines, so the plan summary can be read from them.
-  TG_NO_COLOR: "true"
-  TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ github.workspace }}/iac-modules
+  ARM_SUBSCRIPTION_ID: ${{ inputs.subscription-id }}
+  # The plan identity everywhere; the apply job sets its own.
+  ARM_CLIENT_ID: ${{ inputs.client-id-plan }}
+  GITHUB_APP_VAULT: ""
 
 jobs:
-  conventions:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      @@include templates/_fragments/conventions-steps.yml@@
-
-  plan:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      id-token: write
-    outputs:
-      has_changes: ${{ steps.plan.outputs.has_changes }}
-      certificates_due: ${{ steps.plan.outputs.certificates_due }}
-      drift: ${{ steps.plan.outputs.drift }}
-    env:
-      # A preview does not lock the state: a cancelled run would leave its
-      # lock behind.
-      TF_CLI_ARGS_plan: ${{ github.event_name == 'pull_request' && '-lock=false' || '' }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      @@include templates/_fragments/home-setup.yml@@
-
-      - name: HCL formatting
-        run: terragrunt hcl fmt --check --diff
-
-      - name: Shell scripts
-        env:
-          SCRIPTS: ${{ inputs.shellcheck-paths || (hashFiles('tools/home-vpn.sh') != '' && 'tools/*.sh tools/bootstrap/render.sh nas/acme/*.sh' || 'scripts/*.sh bootstrap/render.sh nas/acme/*.sh') }}
-        run: |
-          # shellcheck disable=SC2086 # the globs are meant to expand
-          shellcheck $SCRIPTS
-
-      - name: Join the home network
-        env:
-          VPN: ${{ inputs.vpn-script || (hashFiles('tools/home-vpn.sh') != '' && 'tools/home-vpn.sh' || 'scripts/home-vpn.sh') }}
-        run: '"./$VPN" up'
-
-      # Changes are read from the plan output (a "Plan:" line); run --all does
-      # not pass terraform's detailed exit code through reliably. The run
-      # summary gets every unit's plan line, the log the full plans.
-      - name: Plan
-        id: plan
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          RENEWAL: ${{ inputs.renewal-unit }}
-        run: |
-          set -uo pipefail
-          terragrunt run --all -- plan -no-color 2>&1 | tee "$RUNNER_TEMP/plan.txt"
-          rc=${PIPESTATUS[0]}
-          changes=false
-          grep -q "Plan: [0-9]" "$RUNNER_TEMP/plan.txt" && changes=true
-          certificates=false
-          grep -q "\[$RENEWAL\] terraform: Plan: [0-9]" "$RUNNER_TEMP/plan.txt" && certificates=true
-          drift=false
-          grep -E "\[[a-z]+\] terraform: Plan: [0-9]" "$RUNNER_TEMP/plan.txt" | grep -vq "\[$RENEWAL\]" && drift=true
-          {
-            echo "has_changes=$changes"
-            echo "certificates_due=$certificates"
-            echo "drift=$drift"
-          } >>"$GITHUB_OUTPUT"
-          {
-            echo "## Plan"
-            echo
-            echo '```'
-            grep -E "^\S+ STDOUT \[[a-z]+\] terraform: (Plan:|No changes)" "$RUNNER_TEMP/plan.txt" \
-              | sed -E 's/^\S+ STDOUT \[([a-z]+)\] terraform: /\1: /' || true
-            echo '```'
-          } >>"$GITHUB_STEP_SUMMARY"
-          # A scheduled run renews a due certificate (apply job) even when
-          # other units drift; the gate fails the run afterwards.
-          exit "$rc"
-
-      - name: Leave the home network
-        if: always()
-        env:
-          VPN: ${{ inputs.vpn-script || (hashFiles('tools/home-vpn.sh') != '' && 'tools/home-vpn.sh' || 'scripts/home-vpn.sh') }}
-        run: '"./$VPN" down'
-
-  apply:
-    needs: plan
-    if: >-
-      github.ref == 'refs/heads/main'
-      && (
-        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-          && needs.plan.outputs.has_changes == 'true')
-        || (github.event_name == 'schedule' && needs.plan.outputs.certificates_due == 'true')
-      )
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: ${{ inputs.environment }}
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      @@include templates/_fragments/home-setup.yml@@
-
-      - name: Join the home network
-        env:
-          VPN: ${{ inputs.vpn-script || (hashFiles('tools/home-vpn.sh') != '' && 'tools/home-vpn.sh' || 'scripts/home-vpn.sh') }}
-        run: '"./$VPN" up'
-
-      # A scheduled run applies the certificate renewal and nothing else.
-      - name: Apply
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          EVENT: ${{ github.event_name }}
-          RENEWAL: ${{ inputs.renewal-unit }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT" = schedule ]; then
-            cd "$RENEWAL" && terragrunt apply -auto-approve -no-color
-          else
-            terragrunt run --all -- apply -auto-approve -no-color
-          fi
-
-      - name: Leave the home network
-        if: always()
-        env:
-          VPN: ${{ inputs.vpn-script || (hashFiles('tools/home-vpn.sh') != '' && 'tools/home-vpn.sh' || 'scripts/home-vpn.sh') }}
-        run: '"./$VPN" down'
-
-  # The required check, and the drift verdict of a scheduled run.
-  gate:
-    needs: [conventions, plan, apply]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      @@include templates/_fragments/gate-step.yml@@
-
-      # Schedule: anything but the certificate that differs from main is drift.
-      - name: No drift
-        if: github.event_name == 'schedule' && needs.plan.outputs.drift == 'true'
-        run: |
-          echo "::error::drift: the router differs from main (plan in the run summary)"
-          exit 1
+  @@include templates/_fragments/terragrunt-jobs.yml@@

@@ -35,13 +35,18 @@ The GitHub type `Task` is disabled: tasks belong in Notion.
 | Debt | What is wrong · Why it matters · Proposed fix · Found in |
 | Security | Finding · Exposure · Proposed fix · References |
 
-- **Assignee**: always the owner, `matej-hrabalek`, until the repository has
+- **Assignee**: the owner (organisation variable `OWNER`, today
+  `matej-hrabalek`; the issue forms assign him), until the repository has
   another maintainer.
 - **Priority** by label: `prio:high` (fix this week, or production is
   affected), no label (normal), `prio:low` (when convenient). A `Security`
   issue with real exposure is always `prio:high`.
 - **Source** label when the issue did not come from a person's idea:
-  `source:review`, `source:drift`, `source:manual-change`.
+  `source:review`, `source:drift`, `source:manual-change`. A red drift run
+  opens no issue by itself: whoever reads it (the owner, the morning
+  briefing, an agent) opens a `Bug` with `source:drift` and the run link.
+  The pipeline opens one by itself only when the verification after an
+  apply fails ([pipelines.md](https://github.com/bearclave/governance/blob/main/standards/pipelines.md#rules-for-every-workflow)).
 - **Closed** by the pull request that resolves it (`Closes #12` in its
   description), or by hand with a comment saying why it is not done
   (`not planned` / `duplicate`).
@@ -73,7 +78,7 @@ Procedure:
    ```bash
    gh api -X POST repos/bearclave/<repo>/issues \
      -f title='<title>' -F body=@/tmp/issue.md -f type='<Bug|Feature|Debt|Security>' \
-     -f 'assignees[]=matej-hrabalek' -f 'labels[]=source:review'
+     -f 'assignees[]=<owner>' -f 'labels[]=source:review'
    ```
 
 4. Name the issue (`#N` and link) in the pull request's Review section or in
@@ -96,16 +101,34 @@ pull requests share it; a label marked "PR" is set on pull requests only.
 | `source:manual-change` | issue | a change made by hand that belongs in code | person, agent |
 | `status:blocked` | both | waits on something outside the repository; a comment says on what | person, agent |
 | `status:needs-decision` | both | waits on the owner's decision | person, agent |
-| `area:<name>` | both | optional, repository-specific area (`area:sentinel`, `area:router`) | person, agent |
+
+No other labels: `iac-github` deletes every label not in this list, so a
+repository-specific label (`area:*`) is not used; the scope of the title and
+the path in the issue say the area.
 
 Issues carry no `type:*` label: their type is the issue type. GitHub's
 default labels (`bug`, `enhancement`, `good first issue`, ...) and
 Dependabot's `dependencies`/`github_actions` are not used.
 
+## Issues and pull requests
+
+- A pull request does not need an issue. It needs one when it resolves a
+  reported problem or a planned feature: `Closes #12` in Links closes the
+  issue on merge and links both in the Project.
+- Work larger than one pull request is a parent issue with a sub-issue per
+  pull request; each pull request closes its sub-issue.
+- An issue is never closed by a pull request that does not resolve it
+  (`Refs #12` for a related one).
+
 ## Where issues show up
 
 - Per repository on GitHub, and across the organisation in the Projects
   `IaC`, `Apps`, `Templates & content` and `Platform` (one per repository
-  group, see [repositories.md](https://github.com/bearclave/governance/blob/main/standards/repositories.md)).
+  group): fields, views and what Status means are in
+  [projects.md](https://github.com/bearclave/governance/blob/main/standards/projects.md).
+- Every open issue and pull request is added to the Project of its
+  repository's `group` by the daily workflow `project-sync` in `ci`
+  (06:15 UTC; new items appear within a day). Nothing is set up per
+  repository, and the Projects' own "Auto-add" workflow is off.
 - In VS Code in the GitHub Overview view (assigned to me by type,
   `prio:high`, by repository).

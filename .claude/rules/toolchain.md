@@ -11,8 +11,8 @@ paths:
 
 What the pipelines run on, which tools and providers they use, where each
 version is pinned and how it is bumped. The goal is a small, boring
-toolchain: one runner image, as few tools as possible, every version in one
-place.
+toolchain: one runner image, as few tools as possible, every version pinned
+where its pipeline reads it.
 
 ## Runners
 
@@ -22,6 +22,7 @@ place.
 | No self-hosted runners | nothing to patch, nothing that keeps state between runs ([security.md](https://github.com/bearclave/governance/blob/main/standards/security.md)) |
 | The home network is reached from the hosted runner through WireGuard | `terragrunt-home.yml`; no runner at home |
 | A bump of the image is a `deps` pull request in `bearclave/ci` | all workflows move together and the plan shows the effect |
+| The callers in the repositories run no job of their own | `runs-on` lives only in the shared workflows of `ci` |
 
 **What a job may take from the image** - nothing else is assumed to be there:
 
@@ -39,32 +40,52 @@ sha256 before it runs.
 
 ## Tools and where their version lives
 
-One file, **`tool-versions.env` in `bearclave/ci`**, holds the version and
-sha256 of every downloaded tool. It is released with `ci`, so a repository
-on `@v2.3.1` gets exactly the tools of that release. Repositories keep no
-copy of their own.
+Two places, nothing else:
+
+| File | Holds | Read by |
+|---|---|---|
+| `security.yml` and `pr.yml` of `bearclave/ci` (`env`) | gitleaks, actionlint, zizmor, shellcheck; markdownlint-cli2 (image version and digest): version and sha256 | the `security` and `pr` jobs of every repository |
+| **`.github/tool-versions.env` of each repository** | the tools its own pipeline installs: Terraform, Terragrunt, TFLint, Trivy, Microsoft365DSC, ... with sha256 | the shared workflow it calls, from the caller's checkout |
+
+A repository's plan therefore runs exactly the versions in its own
+`tool-versions.env`, whatever release of `ci` it calls.
 
 | Tool | Installed by | Used in |
 |---|---|---|
-| Terraform | `hashicorp/setup-terraform` with the pinned version | `terragrunt*`, `terraform-modules` |
+| Terraform | release binary + sha256 (or `hashicorp/setup-terraform` with the pinned version) | `terragrunt*`, `terraform-modules` |
 | Terragrunt | release binary + sha256 | `terragrunt*` |
 | TFLint | release binary + sha256 | `terraform-modules` |
 | Trivy | release binary + sha256 | `terragrunt*`, `terraform-modules` |
 | gitleaks, actionlint, zizmor, shellcheck | release binary + sha256 | `security` |
+| markdownlint-cli2 | container image pinned by digest | `pr` |
 | Microsoft365DSC | `Install-Module -RequiredVersion` | `m365-*` |
 | Pester, PSScriptAnalyzer | `Install-Module -RequiredVersion` | `m365-*` |
 | Static Web Apps CLI | `npx` at a pinned version | `static-web-app` |
 | ESLint, `@eslint/js`, `globals` | `npx` at a pinned version, or the repository's `package.json` | `static-web-app`, `checks` |
 
-- **Exception:** `template-iac-*` cannot read the private `bearclave/ci` and
-  carry their own `tool-versions.env`, written by
-  `ci/tools/export-for-templates.py` from the same file.
-- **Bumps:** Dependabot does not read `tool-versions.env`. A weekly workflow
-  in `bearclave/ci` compares it with the upstream releases and opens one
-  `deps` pull request with the new versions and sha256, only for releases at
-  least 7 days old (the same rule as Dependabot).
+**One version across the organisation.** Every `tool-versions.env` that
+pins a tool pins the same version: today **Terraform 1.16.4** and
+**Terragrunt 1.1.6**. `deps.yml` bumps them in all repositories in the same
+month; a repository that falls behind is a `Debt` issue.
+
+- `template-iac-*` carry their own `tool-versions.env` like every other
+  repository; `ci/tools/export-for-templates.py` keeps it equal to the live
+  one.
+- **Bumps:** Dependabot does not read `tool-versions.env`; `deps.yml` in
+  `bearclave/ci` does, monthly (see [Dependency updates](#dependency-updates)).
 - **New tool:** only when no existing tool or the image can do the job; it
   goes into `tool-versions.env` and the table above in the same pull request.
+
+## Languages
+
+| Language | Version | Where pinned |
+|---|---|---|
+| Python | the runner's `python3` (3.12 on `ubuntu-24.04`), standard library only in pipeline scripts | the runner image |
+| Python of an application | `requires-python` in `pyproject.toml`, the base image in the `Dockerfile` | the repository |
+| Node.js | the runner's `node` for tooling; an Azure Functions app pins its runtime in `staticwebapp.config.json`/`package.json` `engines` | the repository |
+| TypeScript | `typescript` in `devDependencies` | `package.json` |
+| PowerShell | the runner's `pwsh` | the runner image |
+| HCL | Terraform and Terragrunt above | `tool-versions.env` |
 
 ## Terraform providers
 
@@ -81,19 +102,56 @@ copy of their own.
   its own pull request with the upgrade guide linked in Why.
 - `required_version` of Terraform is a lower bound in modules and follows
   `tool-versions.env` in configuration.
+- `.terraform.lock.hcl` is **not** in `.gitignore`. The pipeline's
+  `init` runs with `-lockfile=readonly`: a unit whose lock file is missing or
+  would change fails the validate job.
+
+## Dependency updates
+
+| What | Who keeps it current | How often |
+|---|---|---|
+| Actions in the shared workflows (`ci` `templates/`, its own workflows) | `deps.yml` in `ci`: new SHA and tag comment, then `tools/build.py` | weekly |
+| Tools in `.github/tool-versions.env` of every repository and `templates/security.yml` of `ci` | `deps.yml` in `ci`: version and sha256 (the release asset's `digest`), one pull request per repository | monthly |
+| Providers pinned in `root.hcl`/`account.hcl` | `deps.yml` in `ci` | monthly |
+| Provider lower bounds of the modules (`*-modules`) | not bumped; `deps.yml` lists them next to the latest release in its run summary | monthly |
+| `bearclave/ci@vX.Y.Z` pins | `ci-pins.yml` in `ci`, one pull request per pinned repository | after each `ci` release |
+| npm, Python (uv), Docker of applications | Dependabot, one grouped pull request per ecosystem ([templates/dependabot.yml](https://github.com/bearclave/governance/blob/main/standards/templates/dependabot.yml)) | monthly |
+| Security updates | Dependabot security updates (repository settings) | at once |
+| Actions in the other repositories | none: they only call `bearclave/ci` and the managed `pr.yml` | - |
+
+- **Cooldown.** Only releases at least 7 days old; a compromised release is
+  usually pulled within days. `deps.yml` proposes versions within the same
+  major and lists a newer major in the pull request: a major is a pull
+  request of its own, by hand, with the upgrade guide linked in Why.
+- **Who opens, who merges.** `deps.yml` and `ci-pins.yml` run as the GitHub
+  App `bearclave-bot` and open one `deps` pull request per repository
+  (branches `deps/tools`, `deps/actions`, `deps/ci`), labelled `type:deps`
+  and assigned to the owner. Every dependency pull request, Dependabot's
+  included, is approved and merged by the owner; nothing merges by itself.
+  A bot's pull request still open on its branch is left alone (`deps.yml`)
+  or moved to the newer release (`ci-pins.yml`).
+- **`dependabot.yml`** exists only in a repository with npm, uv or Docker
+  packages. `ci` has none: Dependabot bumped the generated workflows, not
+  `templates/` (ci#12).
+- **Cost.** About 3-5 pull requests a month instead of a weekly run in every
+  repository; a pull request that only changes `.github/dependabot.yml`,
+  `.github/release.yml`, `.claude/` or Markdown outside the units plans
+  nothing in a Terragrunt repository.
 
 ## Locally
 
-The Mac runs the same versions as the pipeline: `mise` reads the versions
-from `tool-versions.env` of `bearclave/ci`, so a local plan does not run on a
-different Terraform. Homebrew installs only what the pipeline does not use.
+The Mac runs the same versions as the pipeline: `tenv` installs Terraform
+and Terragrunt at the versions of the repository's `.github/tool-versions.env`
+(`tenv tf install <version>`, `tenv tg install <version>`), so a local plan
+does not run on a different Terraform. Homebrew installs only what the
+pipeline does not use.
 
 ## Where it is documented
 
 | What | Where |
 |---|---|
 | These rules | this file |
-| Versions and sha256 | `bearclave/ci` `tool-versions.env` |
+| Versions and sha256 | `.github/tool-versions.env` of each repository; the security tools in `security.yml` of `bearclave/ci` |
 | Exact provider versions | `root.hcl` of each configuration repository |
 | What a pipeline runs | its row in [pipelines.md](https://github.com/bearclave/governance/blob/main/standards/pipelines.md) and the README of `bearclave/ci` |
 

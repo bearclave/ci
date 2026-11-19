@@ -33,20 +33,34 @@ else. Templates for each pipeline: [templates/workflows/](https://github.com/bea
 | Workflow | Used by | Does |
 |---|---|---|
 | `security.yml` | every repository | gitleaks over the history, actionlint, zizmor, shellcheck |
-| `pr.yml` | every repository | title and branch format, labels, assignee, description sections |
+| `pr.yml` | every repository | title and branch format, labels, assignee, description sections, root layout, `todo-issue`, Markdown links, markdownlint |
 | `checks.yml` | `checks` | ESLint where there is JavaScript, optional extra command, then `gate` |
 | `terragrunt.yml` / `terragrunt-drift.yml` | `iac-azure`, `iac-github` | validate (fmt, HCL, `terraform validate`, lock files), conventions, Sentinel lint, plan of affected units with trivy, PR comment, `destroy / approved`, apply from `main`, verification of the apply, gate; drift fails on check blocks too |
 | `destroy-review.yml` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` of the last pull request run |
 | `terragrunt-home.yml` | `iac-home` | plan and apply of the router through WireGuard, certificate renewal, drift |
 | `terraform-modules.yml` | `iac-modules` | fmt, validate, tflint, trivy config, conventions |
 | `m365-dsc.yml` / `m365-drift.yml` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of affected types, apply, tombstones |
-| `static-web-app.yml` | `app-web-*` | common site checks, ESLint, the site's own checks, deploy to the Static Web App from `main` |
+| `static-web-app.yml` | `app-web-*` | common site checks, ESLint, the site's own checks, deploy to the Static Web App from `main` in the environment `prod` |
 | `container.yml` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `content-sentinel` | Sentinel lint, generated views up to date |
-| `conventions.yml`, `sentinel-lint.yml` | inside the pipelines above | rule checks driven by the repository's YAML |
+| `conventions.yml`, `sentinel-lint.yml` | inside the pipelines above | rule checks driven by the repository's YAML, `todo-issue` |
+| `release.yml` | versioned repositories, on demand | dry run: the next version and the release notes ([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md#releasing)) |
+| `housekeeping.yml` | the organisation, weekly | stale branches and pull requests, one issue per repository ([workflow.md](https://github.com/bearclave/governance/blob/main/standards/workflow.md#housekeeping)) |
+
+The workflows of `ci` itself, not called by other repositories:
+
+| Workflow | Trigger | Does | Identity (environment) |
+|---|---|---|---|
+| `ci.yml`, `pr-check.yml` | pull request, weekly | tests, self-tests, generated workflows up to date; the `pr` check | `GITHUB_TOKEN` |
+| `deps.yml` | weekly (actions), monthly (tools, providers) | the `deps` pull requests ([toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md#dependency-updates)) | `sp-ci-deps` → `bearclave-bot` (`deps`) |
+| `ci-pins.yml` | a published release | the pin bumps in the repositories on `@vX.Y.Z` | `sp-ci-deps` → `bearclave-bot` (`deps`) |
+| `major-tag.yml` | a published release | moves `vX` ([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md#tags)) | `sp-ci-major-tag` → `bearclave-bot` (`major-tag`) |
+| `project-sync.yml` | daily 06:15 UTC | issues and pull requests into the Projects ([projects.md](https://github.com/bearclave/governance/blob/main/standards/projects.md)) | `sp-project-sync` → `bearclave-bot` (`project-sync`) |
+| `housekeeping` | weekly | the housekeeping report for every repository | `bearclave-bot` |
 
 Versions: callers use `@v2`; repositories with `touches-production=true`
-pin the exact release (`@v2.3.1`) and Dependabot proposes the bump, so a
+pin the exact release (`@v2.3.1`) and `ci-pins.yml` in `ci` opens the bump
+after each release ([toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md#dependency-updates)), so a
 change to an apply pipeline reaches production only through a pull request
 with a plan. See [versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md).
 
@@ -67,6 +81,9 @@ table; a new check comes with its row.
 | actionlint | `security` (`scan`) | - | none: fix the workflow |
 | zizmor | `security` (`scan`) | in `security.yml` | none in a repository |
 | shellcheck | `security` (`scan`), and inside `run:` through actionlint | `--severity=warning` | `# shellcheck disable=SCxxxx # reason` on the line |
+| markdownlint-cli2 | `pr` (`check`) | `src/markdownlint.yaml` of ci; `.github/markdownlint.yaml` of the repository replaces rules one by one | a rule set in `.github/markdownlint.yaml` with a comment why, or `<!-- markdownlint-disable-next-line MDxxx -->` with a reason |
+| `markdown-links` (relative links and anchors in `*.md`) | `pr` (`check`) | - | none: fix the link |
+| `todo-issue` (`TODO`/`FIXME` with an issue number) | `pr` (`check`) | `.github/conventions.yaml` | `exceptions` in `.github/conventions.yaml` |
 | title, branch, description, labels | `pr` (`check`) | `src/pr_check.py` of ci | none |
 | root layout | `pr` (`check`) | `standards/layout.yaml` | `layout.exceptions` in `.github/conventions.yaml` (`review` optional) |
 | conventions | `terragrunt`, `terragrunt-home`, `terraform-modules` (`conventions`) | `.github/conventions.yaml` `rules` | `exceptions` in `.github/conventions.yaml` |
@@ -142,8 +159,10 @@ everything else is configured in the repository section, not rewritten.
 ## Rules for every workflow
 
 - **Plan on the pull request, apply from `main`.** Apply runs in a protected
-  environment (`azure-prod`, `m365-prod`, `home-prod`, `github-prod`) whose
-  deployment branch policy allows `main` only.
+  environment (`azure-prod`, `m365-prod`, `home-prod`, `github-prod`;
+  `prod` for an application) whose deployment branch policy allows `main`
+  only. The plan and the drift sign in as the read-only identity, the apply
+  as the write identity ([identities.md](https://github.com/bearclave/governance/blob/main/standards/identities.md)).
 - **Apply only what the plan proposed**, and only when it proposed
   something.
 - **Destroys and replaces need an approval given after the plan.** On a pull
@@ -168,7 +187,8 @@ everything else is configured in the repository section, not rewritten.
 - Tools as pinned release binaries checked against sha256; actions pinned
   to a commit SHA ([security.md](https://github.com/bearclave/governance/blob/main/standards/security.md)).
 - The plan goes into one pull request comment that is rewritten on every
-  push, and into the job summary; raw plan files stay on the runner.
+  push, and into the job summary; raw plan files stay on the runner (see
+  Pull request comments).
 - Drift runs weekly, plans the whole scope and fails on any difference.
 - **Validate before the plan.** Formatting, syntax and `terraform validate`
   run in a job of their own, without any sign-in, and the plan needs it: a
@@ -186,11 +206,49 @@ everything else is configured in the repository section, not rewritten.
   this has `contents`, `pull-requests` and `issues: write`, so the caller
   grants them to `pipeline`.
 
+## Pull request comments
+
+A pipeline that plans speaks to the pull request in two comments, the same
+in every repository. Both are deterministic, built from the plan in JSON by
+the scripts of `bearclave/ci` (README, Plan and apply comments), never by a
+model.
+
+**Plan comment** - one per pull request, rewritten on every push:
+
+1. Heading `## 📋 Plan complete` or `## ❌ Plan failed`.
+2. One line: repository · commit · units · ➕ created · ✏️ updated ·
+   🗑️ destroyed · ♻️ replaced (and 📥 imported, 🚚 moved, ⏏️ forgotten
+   when there are any).
+3. `### ⚠️ Destroys and replaces` first, when there are any:
+   icon | Resource | Name | Unit | Why (for a replace, the setting that
+   forces it).
+4. `### Changes`: icon | Resource | Name | What changes | From | To, one row
+   per change that matters, in fixed wording - ``tag `owner` ``,
+   ``setting `x` ``, ``setting `x`: added `y` ``, ``diagnostic settings
+   added: logs `...` → workspace `...` ``. Resource types read as names
+   (Key Vault, Repository).
+5. Imports that change nothing as one count line.
+6. **Status** (security findings, formatting, validation) and **Needed**
+   (what has to happen: an approval of a destroy, a fix, review and merge).
+7. Terraform's own diff per unit, folded in `<details>`.
+
+Only what really changes is shown: values known only after apply, computed
+IDs, etags, URLs, timestamps, data sources and outputs are left out. Over
+GitHub's size limit the details are cut, never the tables, and the comment
+says what was cut. The raw plan is in the run artifact.
+
+**Apply comment** - on the pull request merged as the applied commit, after
+each apply on `main`: `## ✅ Apply complete` or `## ❌ Apply failed`;
+repository · merge commit · units · duration; icon | Resource | Name |
+What happened | Result, the plan's rows in the past tense with ✅ done,
+❌ failed or ⏭️ not applied; errors; `### Verification`, filled by the
+post-apply checks.
+
 ## Changing a shared workflow
 
 1. Change it in `bearclave/ci` (template or script, then `tools/build.py`),
    test it from the pull request's own run.
 2. Merge, release (`v2.x.y`, move `v2`).
 3. Repositories on `@v2` get it at once; pinned repositories get a
-   Dependabot pull request with a plan.
+   `bearclave-bot` pull request (`ci-pins.yml`) with a plan.
 4. `tools/export-for-templates.py` for the templates, a pull request each.

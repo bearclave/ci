@@ -1,5 +1,5 @@
-# The sentinel-lint workflow run over the sample rule in tests/fixtures by
-# ci.yml, so that a pull request here tries the generated workflow end to end.
+# The Sentinel lint run over the sample rule in tests/fixtures by the command
+# of ci.yml, so that a pull request here tries the script on a real tree.
 rules:
   - path: tests/fixtures/sentinel/rules
     format: pair

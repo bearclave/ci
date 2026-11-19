@@ -25,11 +25,9 @@
 .github/workflows/checks.yml linguist-generated
 .github/workflows/container.yml linguist-generated
 .github/workflows/content-sentinel.yml linguist-generated
-.github/workflows/conventions.yml linguist-generated
 .github/workflows/m365-drift.yml linguist-generated
 .github/workflows/m365-dsc.yml linguist-generated
 .github/workflows/pr.yml linguist-generated
-.github/workflows/sentinel-lint.yml linguist-generated
 .github/workflows/static-web-app.yml linguist-generated
 .github/workflows/terraform-modules.yml linguist-generated
 .github/workflows/terragrunt-drift.yml linguist-generated

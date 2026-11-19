@@ -2,8 +2,7 @@
 # Moves the major tag (v2) of bearclave/ci to a published release (v2.x.y).
 # Normally major-tag.yml does it as bearclave-bot when the release is
 # published; this is the manual fallback and creates a new major tag (v3).
-# The only force push an agent may run: the owner allowed this script, not
-# force pushes in general (versioning.md).
+# It force-pushes the tag: the owner runs it, never an agent (versioning.md).
 #
 # Usage: tools/move-major-tag.sh v2.3.1
 set -euo pipefail

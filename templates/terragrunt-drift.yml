@@ -11,6 +11,11 @@
 # runs of ci.yml: the plan here locks the state too, and a drift plan in the
 # middle of an apply would read a half-applied state.
 #
+# It runs as the read-only plan identity, federated on main (a scheduled run
+# runs on main): a drift check only reads, and the identity that writes is
+# federated on the apply job's environment alone. In iac-github that is the
+# read-only GitHub App as well.
+#
 #   jobs:
 #     drift:
 #       uses: bearclave/ci/.github/workflows/terragrunt-drift.yml@v2
@@ -18,9 +23,10 @@
 #         contents: read
 #         id-token: write
 #       with:
-#         client-id: ${{ vars.AZURE_CLIENT_ID_PLATFORM }}
+#         client-id: ${{ vars.AZURE_CLIENT_ID_PLAN }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 #         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+#         github-app-vault: kv-githubro-sec-weu-001   # iac-github only
 #       secrets:
 #         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
 name: terragrunt-drift
@@ -29,7 +35,7 @@ on:
   workflow_call:
     inputs:
       client-id:
-        description: The full identity, so that drift sees everything; federated on main
+        description: The read-only plan identity (AZURE_CLIENT_ID_PLAN), federated on main
         type: string
         required: true
       tenant-id:
@@ -43,7 +49,7 @@ on:
         type: string
         default: ""
       github-app-vault:
-        description: Key Vault with the GitHub App (iac-github)
+        description: Key Vault with the read-only GitHub App (iac-github)
         type: string
         default: ""
     secrets:
@@ -70,7 +76,7 @@ env:
 
 jobs:
   drift:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read

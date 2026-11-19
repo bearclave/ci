@@ -177,10 +177,26 @@ class SelectUnits(unittest.TestCase):
         self.assertFalse(r["all"])
         self.assertEqual(r["units"], ["tenant/groups"])
 
-    def test_docs_alone_select_everything(self):
-        # The workflow filters such a change out before it gets here; when it
-        # does arrive (a manual run), the whole tree is the safe answer.
+    def test_docs_alone_select_nothing(self):
+        # A push of a README, an agent rule or a GitHub config plans nothing.
         self.write("README.md")
+        self.write(".claude/rules/x.md")
+        self.write(".github/conventions.yaml")
+        self.write(".github/CODEOWNERS")
+        self.commit()
+        r = self.select()
+        self.assertFalse(r["all"])
+        self.assertEqual(r["units"], [])
+
+    def test_plan_inputs_under_github_select_everything(self):
+        for path in (".github/tool-versions.env", ".github/trivyignore.yaml"):
+            with self.subTest(path=path):
+                self.write(path, f"{path} changed\n")
+                self.commit()
+                self.assertTrue(self.select(self.git("rev-parse", "HEAD~1"))["all"])
+
+    def test_scripts_outside_units_select_everything(self):
+        self.write("tools/home-vpn.sh")
         self.commit()
         self.assertTrue(self.select()["all"])
 

@@ -10,9 +10,9 @@
 # root.hcl/account.hcl of the Terragrunt repositories (module lower bounds are
 # only reported in the run summary).
 #
-# The job signs in to Azure as sp-ci-major-tag by OIDC on the environment
-# major-tag (main and release tags only), the identity major-tag.yml uses to
-# read the App's key from kv-githubbot. No secret in GitHub. A manual run is
+# The job signs in to Azure as sp-ci-deps by OIDC on the environment deps
+# (main and release tags only; Key Vault Secrets User on kv-githubbot, nothing
+# else) to read the App's key. No secret in GitHub. A manual run is
 # a dry run unless dry-run is unticked: it reads everything and writes the
 # diffs to the log, nothing else.
 name: deps
@@ -44,12 +44,13 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    environment: major-tag
+    environment: deps
     permissions:
       contents: read
       id-token: write
     env:
-      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_MAJOR_TAG }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_DEPS }}
+      OWNER: ${{ vars.OWNER }}
       AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || (github.event.schedule == '41 5 * * 1' && 'actions' || 'tools') }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}

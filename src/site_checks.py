@@ -19,10 +19,16 @@ What only a deployed site, or a failed deployment, would show otherwise:
             non-empty <title>, end tags that match, no id twice
   links     every internal href and src leads to a file or a route of the
             config, every #anchor to an id on its page; no empty href or "#"
+  seo       internal links are root-relative (/x, never x), so a page reads
+            the same under any route; every page that is not noindex has a
+            canonical, and where it has hreflang links, one of them is the
+            page itself (Google ignores the set otherwise), one is
+            x-default, and each leads to a page; sitemap.xml lists only
+            pages that exist, and every canonical
 
 Every finding is a GitHub annotation on its file; the exit code is 1 when
-there is one. What is specific to a site (its sitemap, hreflang, tests) stays
-in the site's own `site-checks` command.
+there is one. What is specific to a site (its tests, generated content)
+stays in the site's own `site-checks` command.
 """
 import html.parser
 import json
@@ -79,6 +85,9 @@ class Page(html.parser.HTMLParser):
         self.refs = []          # (line, attribute, value)
         self.inline_scripts, self.styles, self.style_attrs, self.handlers = [], [], [], []
         self.in_script = None
+        self.canonical = None   # (line, href)
+        self.hreflangs = []     # (line, lang, href)
+        self.noindex = False
 
     def handle_decl(self, decl):
         if decl.lower().startswith("doctype"):
@@ -93,6 +102,14 @@ class Page(html.parser.HTMLParser):
             self.charset = True
         if tag == "title":
             self.in_title, self.title = True, self.title or ""
+        if tag == "meta" and a.get("name", "").lower() == "robots" and "noindex" in a.get("content", "").lower():
+            self.noindex = True
+        if tag == "link":
+            rel = a.get("rel", "").lower().split()
+            if "canonical" in rel and self.canonical is None:
+                self.canonical = (line, a.get("href", ""))
+            if "alternate" in rel and "hreflang" in a:
+                self.hreflangs.append((line, a["hreflang"], a.get("href", "")))
         if "id" in a:
             self.ids.setdefault(a["id"], []).append(line)
         if tag == "a" and "name" in a:
@@ -283,6 +300,8 @@ def check_pages(app: str, root: str, context: dict, findings: Findings):
                 continue
             if EXTERNAL.match(value):
                 continue
+            if not value.startswith(("/", "#")):
+                findings.add(where, line, "seo", f'{attr}="{value}" is relative; links start with /')
             base, _, anchor = value.partition("#")
             path = base.split("?", 1)[0]
             if path == "":
@@ -295,7 +314,47 @@ def check_pages(app: str, root: str, context: dict, findings: Findings):
             elif anchor and target and target.endswith(".html") and target in parsed \
                     and anchor not in parsed[target].ids:
                 findings.add(where, line, "links", f'{value}: #{anchor} is not an id on that page')
+    check_seo(app, root, parsed, resolve, findings)
     return len(pages)
+
+
+ORIGIN = re.compile(r"^https?://[^/]+", re.I)
+
+
+def check_seo(app: str, root: str, parsed: dict, resolve, findings: Findings):
+    canonicals = []
+    for page, p in parsed.items():
+        if p.noindex:
+            continue
+        where = os.path.relpath(page, root)
+        if not p.canonical or not p.canonical[1].strip():
+            findings.add(where, 1, "seo", "no canonical link")
+            continue
+        canonicals.append((where, p.canonical[0], p.canonical[1]))
+        if not p.hreflangs:
+            continue
+        line = p.hreflangs[0][0]
+        if p.canonical[1] not in [h for _, _, h in p.hreflangs]:
+            findings.add(where, line, "seo", "no hreflang link to the page itself; Google ignores the set")
+        if "x-default" not in [lang.lower() for _, lang, _ in p.hreflangs]:
+            findings.add(where, line, "seo", "no hreflang x-default")
+        for hline, lang, href in p.hreflangs:
+            if not resolve(page, ORIGIN.sub("", href) or "/")[0]:
+                findings.add(where, hline, "seo", f'hreflang "{lang}" -> {href} leads to no page')
+    sitemap = os.path.join(app, "sitemap.xml")
+    if not os.path.isfile(sitemap):
+        return
+    where = os.path.relpath(sitemap, root)
+    with open(sitemap, encoding="utf-8") as fh:
+        text = fh.read()
+    locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", text)
+    index = os.path.join(app, "index.html")
+    for loc in locs:
+        if not resolve(index, ORIGIN.sub("", loc) or "/")[0]:
+            findings.add(where, 1, "seo", f"{loc} leads to no page")
+    for page_where, line, canonical in canonicals:
+        if canonical not in locs:
+            findings.add(where, 1, "seo", f"{canonical} (canonical of {page_where}) is not in the sitemap")
 
 
 def escape(text: str) -> str:

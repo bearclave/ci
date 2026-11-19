@@ -1,0 +1,15 @@
+# A repository whose resources sit behind a VPN (iac-home: the router,
+# through WireGuard) joins that network with its own script (vpn-script up):
+# the script signs in to Azure as ARM_CLIENT_ID, reads its keys from the
+# vault and brings the tunnel up. The network has one peer for the runners,
+# so the caller's concurrency group never lets two runs overlap.
+- name: Join the network
+  if: inputs.vpn-script != ''
+  env:
+    VPN: ${{ inputs.vpn-script }}
+    TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+  run: |
+    set -euo pipefail
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq wireguard-tools >/dev/null
+    "./$VPN" up
