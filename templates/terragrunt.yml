@@ -354,7 +354,7 @@ jobs:
           terragrunt run --all "${args[@]}" -- validate >validate.txt 2>&1 || rc=$?
           cat validate.txt
           if [ "$rc" -ne 0 ]; then
-            annotate validate validate.txt
+            annotate validate.txt
             echo "::error title=terraform validate::A unit does not initialise or validate (log above): its configuration, a module source, a provider version, or a dependency without mock outputs for validate."
             exit "$rc"
           fi
