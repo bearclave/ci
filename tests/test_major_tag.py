@@ -70,5 +70,44 @@ class Newest(unittest.TestCase):
         self.assertIsNone(major_tag.version("2.1.0"))
 
 
+def ruleset(name, include=("refs/tags/v*",), exclude=(), bypass="never", rules=("update",),
+            target="tag", enforcement="active"):
+    return {"name": name, "id": 1, "source_type": "Repository", "source": "bearclave/ci",
+            "target": target, "enforcement": enforcement, "current_user_can_bypass": bypass,
+            "conditions": {"ref_name": {"include": list(include), "exclude": list(exclude)}},
+            "rules": [{"type": r} for r in rules]}
+
+
+class Blocking(unittest.TestCase):
+    REF = "refs/tags/v2"
+
+    def test_every_matching_ruleset_must_be_bypassed(self):
+        # The case of issue #27: the bot bypasses major-tags, not the old
+        # repository ruleset tagy-verzi on refs/tags/v*.
+        rulesets = [ruleset("major-tags", exclude=["refs/tags/v*.*.*"], bypass="always"),
+                    ruleset("tagy-verzi")]
+        self.assertEqual(len(major_tag.blocking(self.REF, rulesets)), 1)
+        self.assertIn("tagy-verzi", major_tag.blocking(self.REF, rulesets)[0])
+
+    def test_ignored(self):
+        cases = {
+            "bypassed": ruleset("a", bypass="always"),
+            "excluded": ruleset("a", exclude=["refs/tags/v2"]),
+            "release tags only": ruleset("a", include=["refs/tags/v*.*.*"]),
+            "not a tag ruleset": ruleset("a", target="branch"),
+            "evaluate": ruleset("a", enforcement="evaluate"),
+            "creation only": ruleset("a", rules=["creation"]),
+        }
+        for name, rs in cases.items():
+            with self.subTest(name):
+                self.assertEqual(major_tag.blocking(self.REF, [rs]), [])
+
+    def test_pull_request_bypass_is_not_enough(self):
+        self.assertEqual(len(major_tag.blocking(self.REF, [ruleset("a", bypass="pull_requests_only")])), 1)
+
+    def test_force_move_needs_non_fast_forward_bypass(self):
+        self.assertEqual(len(major_tag.blocking(self.REF, [ruleset("a", rules=["non_fast_forward"])])), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
