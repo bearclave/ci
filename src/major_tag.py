@@ -19,6 +19,7 @@ Usage: major_tag.py vX.Y.Z             move the major tag (bot token)
                                        reading with GH_TOKEN (e.g. gh auth token)
 """
 import base64
+import fnmatch
 import json
 import os
 import re
@@ -80,6 +81,26 @@ def newest(tag: str, releases: list) -> str:
             if not r.get("draft") and not r.get("prerelease")
             and version(r.get("tag_name", "")) and version(r["tag_name"])[0] == major]
     return max(tags + [tag], key=version)
+
+
+def blocking(ref: str, rulesets: list) -> list:
+    """Names of the active tag rulesets that forbid moving ref and that the
+    caller cannot bypass. Every ruleset that matches a ref applies (repository
+    and organisation alike); bypassing one of them is not enough."""
+    found = []
+    for rs in rulesets:
+        if rs.get("target") != "tag" or rs.get("enforcement") != "active":
+            continue
+        cond = rs.get("conditions", {}).get("ref_name", {})
+        if not any(fnmatch.fnmatchcase(ref, p) for p in cond.get("include", [])):
+            continue
+        if any(fnmatch.fnmatchcase(ref, p) for p in cond.get("exclude", [])):
+            continue
+        if not {r.get("type") for r in rs.get("rules", [])} & {"update", "non_fast_forward"}:
+            continue
+        if rs.get("current_user_can_bypass") != "always":
+            found.append(f"{rs.get('name')} ({rs.get('source_type')} {rs.get('source')}, id {rs.get('id')})")
+    return found
 
 
 # --- GitHub --------------------------------------------------------------------
@@ -193,6 +214,14 @@ def main(argv: list) -> int:
     if current == commit:
         say(f"{major} already points at {tag} ({commit[:12]}); nothing to do.")
         return 0
+    # Rulesets as the caller sees them: current_user_can_bypass is the
+    # caller's own (the bot's in a real run, the reader's in a dry run).
+    listed = request("GET", f"/repos/{REPO}/rulesets?includes_parents=true&targets=tag", token)
+    rulesets = [request("GET", f"/repos/{REPO}/rulesets/{rs['id']}", token) for rs in listed]
+    blockers = blocking(f"refs/tags/{major}", rulesets)
+    if blockers:
+        sys.exit(f"refused: the caller cannot bypass {', '.join(blockers)}, which forbid moving {major}; "
+                 f"the owner adds bearclave-bot to its bypass list or deletes it if it is a leftover")
     if dry_run:
         say(f"would move {major} from {current[:12]} to {tag} ({commit[:12]}).")
         return 0
