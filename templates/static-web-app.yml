@@ -1,7 +1,9 @@
 # The pipeline of a static website (app-web-bearclave, app-web-matejhrabalek):
-# the site's own checks on every run, and on main a deployment into its
-# Static Web App - only when something under the deployed paths changed
-# since the last successful run.
+# the common site checks (src/site_checks.py: the config and its security
+# headers, the pages against the CSP, well-formed HTML, links), ESLint and the
+# site's own checks on every run, and on main a deployment into its Static
+# Web App - only when something under the deployed paths changed since the
+# last successful run.
 #
 #   jobs:
 #     security:
@@ -18,8 +20,8 @@
 #       with:
 #         swa-name: stapp-web-sro-weu-001
 #         swa-resource-group: rg-web-sro-weu-001
-#         site-checks: |
-#           node tools/check-links.mjs
+#         site-checks: |                   # optional: what only this site checks
+#           node tools/test-contact.cjs
 #         client-id: ${{ vars.AZURE_CLIENT_ID }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 #         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
@@ -41,9 +43,9 @@ on:
         type: string
         required: true
       site-checks:
-        description: Commands that check the site, one per line, run on the Node of the runner
+        description: Commands of the site's own checks, one per line, run on the Node of the runner, after the common ones
         type: string
-        required: true
+        default: ""
       app-location:
         description: Directory with the static content
         type: string
@@ -89,7 +91,18 @@ jobs:
 
       # The whole site is static, so nothing compiles; these checks stand in
       # for what only the deployed site or a failed deployment would show.
-      - name: Site checks
+      - name: Common site checks
+        env:
+          APP_LOCATION: ${{ inputs.app-location }}
+        run: |
+          script="$RUNNER_TEMP/site_checks.py"
+          cat >"$script" <<'__CI_EOF__'
+          @@include src/site_checks.py@@
+          __CI_EOF__
+          python3 "$script" "$APP_LOCATION"
+
+      - name: Site checks of the repository
+        if: inputs.site-checks != ''
         env:
           CHECKS: ${{ inputs.site-checks }}
         run: |
@@ -101,11 +114,21 @@ jobs:
             echo "::endgroup::"
           done <<<"$CHECKS"
 
+  eslint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      @@include templates/_fragments/eslint-steps.yml@@
+
   # The site is deployed only when the content actually changed. The check is
   # a step rather than a path filter on the trigger, so that the checks run
   # on every push and every pull request.
   deploy:
-    needs: [site]
+    needs: [site, eslint]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -181,7 +204,7 @@ jobs:
             --no-use-keychain
 
   gate:
-    needs: [site, deploy]
+    needs: [site, eslint, deploy]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

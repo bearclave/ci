@@ -4,6 +4,7 @@
 Usage: layout_check.py <layout.json> <exceptions.json> <repository name> [<root>]
        layout_check.py --self-test
 """
+import datetime
 import fnmatch
 import json
 import os
@@ -113,6 +114,14 @@ def check(layout: dict, config: dict, name: str, root: str) -> tuple:
     for k, e in enumerate(exceptions):
         if k not in used and e.get("path") and e.get("reason"):
             warnings.append((".github/conventions.yaml", f"layout exception for {e['path']} matches nothing"))
+        # review (YYYY-MM-DD) is optional here: a layout exception is
+        # structure. A date that has passed only warns.
+        review = str(e.get("review") or "")
+        if review and not re.match(r"^\d{4}-\d{2}-\d{2}$", review):
+            errors.append((".github/conventions.yaml", f"layout exception for {e.get('path')}: review {review!r} is not YYYY-MM-DD"))
+        elif review and review < datetime.date.today().isoformat():
+            warnings.append((".github/conventions.yaml",
+                             f"layout exception for {e.get('path')} was due for review on {review}"))
     return errors, warnings
 
 

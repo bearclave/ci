@@ -54,6 +54,7 @@ copy of their own.
 | Microsoft365DSC | `Install-Module -RequiredVersion` | `m365-*` |
 | Pester, PSScriptAnalyzer | `Install-Module -RequiredVersion` | `m365-*` |
 | Static Web Apps CLI | `npx` at a pinned version | `static-web-app` |
+| ESLint, `@eslint/js`, `globals` | `npx` at a pinned version, or the repository's `package.json` | `static-web-app`, `checks` |
 
 - **Exception:** `template-iac-*` cannot read the private `bearclave/ci` and
   carry their own `tool-versions.env`, written by

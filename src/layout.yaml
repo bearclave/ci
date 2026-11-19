@@ -30,6 +30,7 @@ common:
     - .editorconfig
     - .gitleaks.toml
     - .tflint.hcl
+    - eslint.config.mjs
     - .dockerignore
     - Dockerfile
     - package.json
