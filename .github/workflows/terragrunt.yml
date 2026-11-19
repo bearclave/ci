@@ -2629,7 +2629,6 @@ jobs:
           REPORTS=${2:?missing report directory}
           IGNORE="$PWD/.github/trivyignore.yaml"
           [ -f "$IGNORE" ] || IGNORE="$PWD/.trivyignore.yaml"
-          UNIT_IGNORE=$(mktemp --suffix=.yaml)
 
           mkdir -p "$REPORTS"
           REPORTS=$(cd "$REPORTS" && pwd)
@@ -2638,30 +2637,45 @@ jobs:
             exit 0
           fi
 
-          found=0
-          while IFS= read -r plan; do
+          # One trivy per unit, as many at once as the runner has cores; each writes its
+          # own report and exit code, collected below.
+          scan() {
+            local plan=$1 report rc=0 ignore
             report="$REPORTS/$(tr / _ <<<"${plan%/tfplan.json}").json"
+            ignore=$(mktemp --suffix=.yaml)
             yq -o=json '.' "$IGNORE" |
               jq --arg plan "$plan" '{misconfigurations: [(.misconfigurations // [])[]
                 | select((.paths // []) | length == 0 or any(.[]; . == $plan)) | del(.paths)]}' |
-              yq -P '.' >"$UNIT_IGNORE"
-            rc=0
+              yq -P '.' >"$ignore"
             (cd "$PLANS" && trivy config --quiet --skip-check-update \
-              --severity HIGH,CRITICAL --exit-code 3 --ignorefile "$UNIT_IGNORE" \
+              --severity HIGH,CRITICAL --exit-code 3 --ignorefile "$ignore" \
               --format json --output "$report" "$plan") || rc=$?
-            case "$rc" in
-              0) ;;
-              3) found=1 ;;
-              *) echo "trivy failed on $plan" >&2; exit "$rc" ;;
-            esac
-            # The unit goes into the report itself, so that the summary does not have
-            # to guess it from trivy's target; the log shows what failed where.
-            unit="${plan%/tfplan.json}"
+            rm -f "$ignore"
+            echo "$rc" >"$report.rc"
+            [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ] || { echo "trivy failed on $plan" >&2; return 0; }
+            local unit="${plan%/tfplan.json}"
             jq --arg unit "$unit" '.Unit = $unit' "$report" >"$report.tmp" && mv "$report.tmp" "$report"
             jq -r --arg unit "$unit" '.Results[]? | .Target as $t | .Misconfigurations[]?
               | select(.Status == "FAIL")
               | "\($unit): \(.Severity) \(.AVDID // .ID) \(.Title) [target \($t)]"' "$report"
-          done < <(cd "$PLANS" && find . -name tfplan.json | sed 's|^\./||' | sort)
+          }
+          export -f scan
+          export PLANS REPORTS IGNORE
+
+          plans=$(cd "$PLANS" && find . -name tfplan.json | sed 's|^\./||' | sort)
+          # shellcheck disable=SC2016 # $1 expands in the child bash, not here.
+          [ -z "$plans" ] || xargs -r -P "$(nproc)" -I{} bash -c 'scan "$1"' _ {} <<<"$plans"
+
+          found=0
+          for rc in "$REPORTS"/*.rc; do
+            [ -e "$rc" ] || continue
+            case "$(cat "$rc")" in
+              0) ;;
+              3) found=1 ;;
+              *) exit 1 ;;
+            esac
+            rm -f "$rc"
+          done
 
           [ "$found" -eq 0 ] || exit 3
           __CI_EOF__
