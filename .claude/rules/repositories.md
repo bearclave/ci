@@ -34,25 +34,31 @@ Set on every repository in `bearclave/iac-github`; the rulesets target them.
 
 ## What every repository contains
 
+Where everything else goes - root files, `.github/`, the folder vocabulary,
+`docs/` - is [layout.md](https://github.com/bearclave/governance/blob/main/standards/layout.md).
+
 | Path | Owner | Content |
 |---|---|---|
 | `README.md` | repository | documentation, structure in [documentation.md](https://github.com/bearclave/governance/blob/main/standards/documentation.md) |
-| `CLAUDE.md` | repository | working rules specific to the repository ([templates/CLAUDE.md](https://github.com/bearclave/governance/blob/main/standards/templates/CLAUDE.md)) |
+| `.claude/CLAUDE.md` | repository | working rules specific to the repository ([templates/CLAUDE.md](https://github.com/bearclave/governance/blob/main/standards/templates/CLAUDE.md)) |
 | `.claude/settings.json` | managed | denied commands, no attribution |
-| `.claude/rules/*.md` | managed | these standards |
+| `.claude/rules/*.md` | managed | these standards: the always-rules and the language rules of the repository's languages |
 | `.github/workflows/ci.yml` | repository | calls the shared workflow of its `pipeline` ([templates/workflows/](https://github.com/bearclave/governance/tree/main/standards/templates/workflows/)) |
-| `.github/workflows/pr.yml` | managed | the `pr` check: title, branch, labels, assignee |
+| `.github/workflows/pr.yml` | managed | the `pr` check: title, branch, labels, assignee, root layout |
 | `.github/workflows/drift.yml` | repository | only where something is applied: the weekly drift |
 | `.github/dependabot.yml` | repository | from [templates/dependabot.yml](https://github.com/bearclave/governance/blob/main/standards/templates/dependabot.yml), plus the repository's ecosystems |
 | `.github/release.yml` | managed | release note categories |
 | `.github/tool-versions.env` | repository | pinned tools with sha256, where the pipeline installs any |
+| `.github/conventions.yaml` | repository | conventions rules, layout exceptions - where there are any |
 | `.editorconfig` | managed | indentation and line endings |
+| `.gitattributes` | managed | `text=auto eol=lf`, binary formats; the repository's generated paths below the marker |
 | `.gitignore` | repository | |
 
-"Managed" files are written by `governance/sync.py` and carry a header
-saying so; a local edit is overwritten by the next sync. Pull request and
-issue templates are not copied: GitHub takes them from `bearclave/.github`.
-The `template-*` repositories get none of the managed files: they are copied
+"Managed" files are written by `governance/tools/sync.py` and carry a header
+saying so; a local edit is overwritten by the next sync (the section of
+`.gitattributes` below its marker is kept). Pull request and issue templates
+are not copied: GitHub takes them from `bearclave/.github`. The `template-*`
+repositories get only `.gitattributes`, without the header: they are copied
 to customers and must not name the organisation.
 
 ## Where the settings live
@@ -69,7 +75,7 @@ there is a pull request like any other.
    group, pipeline and properties; the merge creates it with labels,
    rulesets and settings.
 2. Clone it into the folder of its group, `git novy feat/skeleton`.
-3. Run `governance/sync.py` for it, add `README.md`, `CLAUDE.md`,
+3. Run `governance/tools/sync.py <name>` for it, add `README.md`, `.claude/CLAUDE.md`,
    `.github/workflows/ci.yml` and `dependabot.yml` from the templates.
 4. Open the first pull request; it must already pass `security / scan`,
    `pr / check` and `pipeline / gate`.

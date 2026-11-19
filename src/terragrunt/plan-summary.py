@@ -320,7 +320,7 @@ def main(path: str, fail_on_change: bool = False, github_output: bool = False,
         if findings:
             out.append("### Security findings\n")
             out.append("trivy over the plan, HIGH and CRITICAL. A finding that is accepted "
-                       "goes into `.trivyignore.yaml` with the reason.\n")
+                       "goes into `.github/trivyignore.yaml` with the reason.\n")
             out += ["| Unit | Severity | Check | Resource |", "|---|---|---|---|"]
             out += [f"| {code(u)} | {sev} | {cid}: {title} | {code(res) if res else ''} |"
                     for u, sev, cid, title, res in findings]

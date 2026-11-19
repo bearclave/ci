@@ -1,7 +1,10 @@
 # The pull request check of the organisation standards
 # (bearclave/governance standards/workflow.md): a Conventional Commit title,
 # a <type>/<slug> branch, the sections of the description; it sets the
-# type:*, breaking and size:* labels and assigns the author.
+# type:*, breaking and size:* labels and assigns the author. It also checks
+# the root layout against governance standards/layout.yaml (a managed copy in
+# src/layout.yaml), with the exceptions in the repository's
+# .github/conventions.yaml (layout: exceptions:).
 #
 # Every repository has the same caller, .github/workflows/pr.yml (managed by
 # governance/sync.py), and the check reports as "pr / check":
@@ -56,3 +59,30 @@ jobs:
           @@include src/pr_check.py@@
           __CI_EOF__
           python3 "$RUNNER_TEMP/pr_check.py"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          persist-credentials: false
+
+      - name: Root layout
+        if: ${{ !cancelled() }}
+        env:
+          REPOSITORY: ${{ github.event.repository.name }}
+        run: |
+          cat >"$RUNNER_TEMP/layout.yaml" <<'__CI_EOF__'
+          @@include src/layout.yaml@@
+          __CI_EOF__
+          cat >"$RUNNER_TEMP/layout_check.py" <<'__CI_EOF__'
+          @@include src/layout_check.py@@
+          __CI_EOF__
+          yq -o=json '.' "$RUNNER_TEMP/layout.yaml" >"$RUNNER_TEMP/layout.json"
+          config=.github/conventions.yaml
+          [ -f "$config" ] || config=conventions.yaml
+          if [ -f "$config" ]; then
+            yq -o=json '.layout // {}' "$config" >"$RUNNER_TEMP/layout-exceptions.json"
+          else
+            echo '{}' >"$RUNNER_TEMP/layout-exceptions.json"
+          fi
+          python3 "$RUNNER_TEMP/layout_check.py" "$RUNNER_TEMP/layout.json" \
+            "$RUNNER_TEMP/layout-exceptions.json" "$REPOSITORY" .

@@ -1,4 +1,4 @@
-# Managed by bearclave/governance (sync.py) - do not edit here.
+# Managed by bearclave/governance (tools/sync.py) - do not edit here.
 root = true
 
 [*]

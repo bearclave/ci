@@ -1,6 +1,6 @@
 # The pipeline of content-sentinel, the catalogue of Sentinel content: the
 # analytic rules against what Sentinel takes, and the generated views
-# (terragrunt/, ARM/_kql/, CATALOG.md) up to date with ARM/.
+# (terragrunt/, ARM/_kql/, the catalogue) up to date with ARM/.
 #
 #   jobs:
 #     pipeline:
@@ -15,9 +15,9 @@ on:
   workflow_call:
     inputs:
       sentinel-config:
-        description: Path of the Sentinel lint config
+        description: Path of the Sentinel lint config (default .github/sentinel-lint.yaml, or sentinel-lint.yaml where it is still in the root)
         type: string
-        default: sentinel-lint.yaml
+        default: ""
 
 permissions:
   contents: read
@@ -33,8 +33,9 @@ jobs:
     steps:
       @@include templates/_fragments/sentinel-steps.yml@@
 
-  # terragrunt/, ARM/_kql/ and CATALOG.md are generated from ARM/. A change
-  # to ARM/ without running the generators leaves the views behind.
+  # terragrunt/, ARM/_kql/ and the catalogue (docs/catalog.md, CATALOG.md
+  # before the move) are generated from ARM/. A change to ARM/ without
+  # running the generators leaves the views behind.
   generated:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -46,16 +47,18 @@ jobs:
       - name: Views match ARM/
         run: |
           set -euo pipefail
-          python3 _tools/generate_kql.py --check
-          python3 _tools/generate_catalog.py --check
-          python3 _tools/convert_to_terragrunt.py >/dev/null
+          tools=tools
+          [ -f "$tools/convert_to_terragrunt.py" ] || tools=_tools
+          python3 "$tools/generate_kql.py" --check
+          python3 "$tools/generate_catalog.py" --check
+          python3 "$tools/convert_to_terragrunt.py" >/dev/null
           if ! git diff --exit-code --stat -- terragrunt/; then
-            echo "::error::terragrunt/ is not what _tools/convert_to_terragrunt.py writes from ARM/ - run it and commit"
+            echo "::error::terragrunt/ is not what $tools/convert_to_terragrunt.py writes from ARM/ - run it and commit"
             exit 1
           fi
           if [ -n "$(git status --porcelain -- terragrunt/)" ]; then
             git status --porcelain -- terragrunt/
-            echo "::error::terragrunt/ is missing files _tools/convert_to_terragrunt.py writes - run it and commit"
+            echo "::error::terragrunt/ is missing files $tools/convert_to_terragrunt.py writes - run it and commit"
             exit 1
           fi
 

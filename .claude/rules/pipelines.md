@@ -51,7 +51,7 @@ with a plan. See [versioning.md](https://github.com/bearclave/governance/blob/ma
 
 Templates of the organisation (`template-iac-*`) cannot reach the private
 `bearclave/ci`: they carry local copies of the shared workflows, written by
-`ci/export-for-templates.py`, and call them with `uses: ./.github/workflows/...`.
+`ci/tools/export-for-templates.py`, and call them with `uses: ./.github/workflows/...`.
 Their check names are the same.
 
 ## Rules for every workflow
@@ -80,9 +80,9 @@ Their check names are the same.
 
 ## Changing a shared workflow
 
-1. Change it in `bearclave/ci` (template or script, then `./build.py`),
+1. Change it in `bearclave/ci` (template or script, then `tools/build.py`),
    test it from the pull request's own run.
 2. Merge, release (`v2.x.y`, move `v2`).
 3. Repositories on `@v2` get it at once; pinned repositories get a
    Dependabot pull request with a plan.
-4. `export-for-templates.py` for the templates, a pull request each.
+4. `tools/export-for-templates.py` for the templates, a pull request each.

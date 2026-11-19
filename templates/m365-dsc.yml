@@ -149,6 +149,7 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
+          $settings = if (Test-Path ./.github/pssa.psd1) { './.github/pssa.psd1' } else { './.pssa.psd1' }
           $changed = @(git diff --name-only "$env:PR_BASE...HEAD")
           if ($changed | Where-Object { $_ -match '^(\.pssa\.psd1$|\.github/)' }) {
             $paths = @('src', 'tools', 'tests', 'config')
@@ -161,7 +162,7 @@ jobs:
           if ($paths.Count -eq 0) { 'No PowerShell file changed.'; exit 0 }
           "Analysing: $($paths -join ', ')"
           $findings = $paths | ForEach-Object {
-            Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings ./.pssa.psd1
+            Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings $settings
           }
           @($findings) | Sort-Object Severity, ScriptName, Line |
             Format-Table Severity, RuleName, ScriptName, Line, Message -AutoSize |

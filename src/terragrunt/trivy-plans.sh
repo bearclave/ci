@@ -6,12 +6,12 @@
 # <plan-json-dir> holds <unit>/tfplan.json (terragrunt's --json-out-dir). Each
 # report lands in <report-dir> as <unit with / as _>.json, with the unit in
 # its "Unit" field. Exit code 3 when there is a HIGH or CRITICAL finding that
-# .trivyignore.yaml does not accept, 0 when there is none, anything else when
+# .github/trivyignore.yaml does not accept, 0 when there is none, anything else when
 # trivy itself failed.
 #
 # trivy turns a plan into a main.tf of its own, so every finding has that file
 # as its target and the `paths` of an ignore entry cannot tell the units
-# apart. In .trivyignore.yaml `paths` therefore lists units (<unit>/tfplan.json)
+# apart. In .github/trivyignore.yaml `paths` therefore lists units (<unit>/tfplan.json)
 # and is applied here: each unit gets the entries that name it or name no unit
 # at all.
 #
@@ -21,7 +21,8 @@ set -euo pipefail
 
 PLANS=${1:?missing plan directory}
 REPORTS=${2:?missing report directory}
-IGNORE="$PWD/.trivyignore.yaml"
+IGNORE="$PWD/.github/trivyignore.yaml"
+[ -f "$IGNORE" ] || IGNORE="$PWD/.trivyignore.yaml"
 UNIT_IGNORE=$(mktemp --suffix=.yaml)
 
 mkdir -p "$REPORTS"

@@ -194,5 +194,5 @@ jobs:
       - name: No unaccepted security finding
         if: always() && steps.trivy.outputs.found == 'true'
         run: |
-          echo "::error::trivy found a HIGH or CRITICAL setting (Security findings in the summary). Fix it, or accept it in .trivyignore.yaml with the reason."
+          echo "::error::trivy found a HIGH or CRITICAL setting (Security findings in the summary). Fix it, or accept it in .github/trivyignore.yaml with the reason."
           exit 1
