@@ -1,0 +1,74 @@
+# Keeps the pinned tools, Terraform providers and the actions of the shared
+# workflows current (src/deps.py), as the GitHub App bearclave-bot: one deps
+# pull request per repository, assigned to the owner, who approves and
+# merges. It replaces Dependabot in this repository, which bumped the
+# generated workflows instead of templates/ (#12).
+#
+# Weekly: the actions of templates/ and of this repository's own workflows,
+# then tools/build.py. Monthly: .github/tool-versions.env of every repository,
+# the security tools of templates/security.yml, and the providers pinned in
+# root.hcl/account.hcl of the Terragrunt repositories (module lower bounds are
+# only reported in the run summary).
+#
+# The job signs in to Azure as sp-ci-major-tag by OIDC on the environment
+# major-tag (main and release tags only), the identity major-tag.yml uses to
+# read the App's key from kv-githubbot. No secret in GitHub. A manual run is
+# a dry run unless dry-run is unticked: it reads everything and writes the
+# diffs to the log, nothing else.
+name: deps
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"   # Mondays: actions
+    - cron: "11 6 2 * *"   # 2nd of the month: tools and providers
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: What to check
+        type: choice
+        options: [all, tools, actions]
+        default: all
+      dry-run:
+        description: Only report, open no pull request
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: deps
+  cancel-in-progress: false
+
+jobs:
+  deps:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: major-tag
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_MAJOR_TAG }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || (github.event.schedule == '41 5 * * 1' && 'actions' || 'tools') }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Sign in to Azure
+        run: |
+          set -euo pipefail
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
+
+      - name: Check and open pull requests
+        run: |
+          set -euo pipefail
+          args=(--scope "$SCOPE")
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          python3 src/deps.py "${args[@]}"

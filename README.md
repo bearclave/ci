@@ -9,7 +9,7 @@ each repository that drifts on its own.
 ```text
 templates/            the workflows, with @@include markers; _fragments/ shared pieces
 .github/workflows/    generated from templates/ by tools/build.py (do not edit);
-                      ci.yml, pr-check.yml, major-tag.yml are this repository's own
+                      ci.yml, pr-check.yml, major-tag.yml, deps.yml are this repository's own
 src/                  the scripts the workflows carry; layout.yaml (managed copy)
 tests/                unit tests of src/, mirroring it
 tools/                build.py, export-for-templates.py, sync-templates.py
@@ -441,7 +441,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `exception_review.py`, `site_checks.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `major_tag.py` (run by `major-tag.yml` of this repository); `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `exception_review.py`, `site_checks.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `major_tag.py` (run by `major-tag.yml` of this repository); `deps.py`, `github_bot.py` (run by `deps.yml`); `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
 | `src/terragrunt/` | unit selection, plan and apply comments, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `tools/` | `build.py`, `export-for-templates.py`, `sync-templates.py`; `sanitise-plan.py` turns plans of a run into test fixtures | |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
@@ -457,8 +457,8 @@ generated from the pull request labels; the major tag `v2` moves to the newest
 one.
 
 - Callers use `@v2`, so a fix reaches every repository when the tag moves.
-- Repositories that touch production may pin the exact `@v2.Y.Z`; Dependabot
-  then proposes the bump as a pull request with its plan.
+- Repositories that touch production may pin the exact `@v2.Y.Z`; the bump
+  comes as a pull request with its plan.
 - `v1` stays where it is for anything that still calls it; it gets no changes.
 - The `release-tags` ruleset refuses to update or delete a `v*.*.*` tag; only
   an organisation owner and the GitHub App `bearclave-bot` may move `v2`
@@ -473,13 +473,49 @@ with it the check name) is a major version.
 The tools (gitleaks, actionlint, zizmor, shellcheck) are release binaries
 checked against a sha256, pinned in the `env` of `security.yml`; the tools of
 the pipelines (terraform, terragrunt, tflint, trivy, Microsoft365DSC) in the
-caller's `.github/tool-versions.env`. Dependabot does not see them; a version
-and its checksum are bumped together by hand. The checksum is the `digest`
-GitHub publishes with the release asset:
+caller's `.github/tool-versions.env`. Dependabot does not see them;
+`deps.yml` (below) bumps a version and its checksum together. The checksum is
+the `digest` GitHub publishes with the release asset:
 
 ```bash
 gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
   --jq '.assets[] | select(.name | test("linux_x64")) | .digest'
+```
+
+## Dependencies
+
+`deps.yml` (`src/deps.py`, sign-in in `src/github_bot.py`) runs as the GitHub
+App `bearclave-bot` and opens one `deps` pull request per repository and
+scope, from the branch `deps/tools` or `deps/actions`, labelled `type:deps`
+and assigned to the owner, who approves and merges it:
+
+| Scope | When | What |
+|---|---|---|
+| `actions` | Mondays | the actions pinned in `templates/` and in this repository's own workflows, then `tools/build.py` |
+| `tools` | the 2nd of the month | `.github/tool-versions.env` of every repository (version and sha256), the security tools in `templates/security.yml`, the providers pinned in `root.hcl`/`account.hcl` of the Terragrunt repositories; the lower bounds of the module repositories only in the run summary |
+
+A version is proposed when it is a release at least 7 days old and of the
+same major; a newer major is only listed in the pull request (its own pull
+request by hand, with the upgrade guide). A pull request still open on the
+branch is left alone. `iac-m365` (being retired) is skipped.
+
+It replaces Dependabot in this repository (#12): Dependabot bumps the
+generated workflows, not `templates/`, so its pull requests failed
+`build.py --check`. Fixing them up after the fact would need a
+`pull_request_target` workflow writing to Dependabot's branch (a pattern
+zizmor flags, and a second writer on a branch Dependabot rebases); one script
+that edits `templates/` and runs `build.py` is simpler and also covers the
+pins Dependabot cannot read. Security alerts are not affected: Dependabot
+security updates stay on in the repository settings.
+
+The job signs in as `sp-ci-major-tag` on the environment `major-tag` (main
+and release tags), the identity `major-tag.yml` already uses. A manual run is
+a dry run by default and prints the diffs:
+
+```bash
+gh workflow run deps.yml -f scope=all                  # dry run
+gh workflow run deps.yml -f scope=tools -f dry-run=false
+GH_TOKEN=$(gh auth token) python3 src/deps.py --dry-run --scope tools --repo iac-azure   # locally
 ```
 
 ## Releasing
