@@ -12,7 +12,9 @@
 #                           destroys were approved in the merged pull request;
 #                           then verify the apply (second plan, Activity Log,
 #                           check blocks) - a failure is red and opens an
-#                           issue and a draft revert, nothing rolls back
+#                           issue and a draft revert, nothing rolls back;
+#                           the apply comment goes on the merged pull
+#                           request (README, Plan and apply comments)
 # Manual run on main      -> the same; with allow-destroy it also applies what
 #                           destroys or replaces (the fallback)
 #
@@ -642,7 +644,9 @@ jobs:
       planned_at: ${{ steps.planned.outputs.at }}
       selection: ${{ needs.validate.outputs.selection }}
     steps:
-      # Only the scripts this job runs; the rest stay with the plan jobs.
+      # Only the scripts this job runs; the rest stay with the plan jobs. A
+      # step per large script: actionlint deadlocks on a run script of more
+      # than about 64 KB.
       - name: Summary scripts
         run: |
           d="$RUNNER_TEMP/ci"
@@ -650,14 +654,18 @@ jobs:
           cat >"$d/plan-summary.py" <<'__CI_EOF__'
           @@include src/terragrunt/plan-summary.py@@
           __CI_EOF__
-          cat >"$d/plan_details.py" <<'__CI_EOF__'
-          @@include src/terragrunt/plan_details.py@@
-          __CI_EOF__
           cat >"$d/pr-comment.sh" <<'__CI_EOF__'
           @@include src/pr-comment.sh@@
           __CI_EOF__
           chmod +x "$d"/*
           echo "$d" >>"$GITHUB_PATH"
+
+      - name: Plan details script
+        run: |
+          d="$RUNNER_TEMP/ci"
+          cat >"$d/plan_details.py" <<'__CI_EOF__'
+          @@include src/terragrunt/plan_details.py@@
+          __CI_EOF__
 
       # A share that failed before its upload is missing here: the summary
       # covers the rest and the last step fails the job.
@@ -670,28 +678,30 @@ jobs:
           path: parts
           merge-multiple: true
 
+      # The plan comment (README, Plan and apply comments). Without a plan it
+      # is still rewritten, or the pull request keeps showing the plan of an
+      # earlier commit. changes.json - the text of its tables, nothing
+      # sensitive - goes with the plan artifact for the apply comment.
       - name: Summary
         id: summary
         if: always()
         env:
           SHARDS: ${{ needs.validate.outputs.shards }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          CHECKS: formatting and validation=${{ needs.validate.result }}
         run: |
           set -euo pipefail
-          # Without a plan the comment still has to be rewritten, or the pull
-          # request keeps showing the plan of an earlier commit.
-          if [ "$SHARDS" = "[]" ]; then
-            printf '## Terragrunt plan\n\nNothing to plan: the change selects no unit.\n' \
-              | tee plan.md >>"$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
           find parts -name 'plan-*.txt' -print0 2>/dev/null | sort -z |
             xargs -0 -r cat >plan.txt
-          if [ ! -s plan.txt ]; then
-            printf '## Terragrunt plan\n\nNo plan was produced, see the run log.\n' \
-              | tee plan.md >>"$GITHUB_STEP_SUMMARY"
-            exit 0
+          args=()
+          if [ "$SHARDS" = "[]" ]; then
+            args+=(--nothing-selected)
+          elif [ ! -s plan.txt ]; then
+            args+=(--no-plan)
           fi
-          plan-summary.py plan.txt --github-output --import=parts | tee plan.md
+          plan-summary.py plan.txt --github-output --import=parts --trivy= \
+            --checks="$CHECKS" --commit="$COMMIT" --changes-out=changes.json "${args[@]}" \
+            | tee plan.md
           cat plan.md >>"$GITHUB_STEP_SUMMARY"
 
       - name: Upload the plan
@@ -702,6 +712,7 @@ jobs:
           path: |
             plan.txt
             plan.md
+            changes.json
           retention-days: 30
 
       - name: Comment into the pull request
@@ -811,6 +822,8 @@ jobs:
       id-token: write
     outputs:
       verification: ${{ steps.verify.outputs.result }}
+      started: ${{ steps.window.outputs.epoch }}
+      ended: ${{ steps.ended.outputs.epoch }}
     env:
       ARM_CLIENT_ID: ${{ inputs.client-id-apply }}
       GITHUB_APP_VAULT: ${{ inputs.github-app-vault-apply }}
@@ -860,7 +873,9 @@ jobs:
       # received it, the runner's clock may differ.
       - name: Start of the apply
         id: window
-        run: echo "start=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
+        run: |
+          echo "start=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
+          echo "epoch=$(date +%s)" >>"$GITHUB_OUTPUT"
 
       # The selection is the one the plan job made, not worked out again.
       # Deleted units go first: what replaces them under a new path may need
@@ -883,7 +898,9 @@ jobs:
           args=()
           for u in "${deleted[@]}"; do args+=(--queue-include-dir "$u"); done
           cd "$RUNNER_TEMP/base"
-          terragrunt run --all destroy "${args[@]}" --non-interactive --no-color
+          # destroy.txt is read by the apply comment.
+          terragrunt run --all destroy "${args[@]}" --non-interactive --no-color 2>&1 |
+            tee "$GITHUB_WORKSPACE/destroy.txt"
 
       - name: Apply
         id: apply
@@ -902,8 +919,26 @@ jobs:
           mkdir -p "$TG_PROVIDER_CACHE_DIR"
           args=()
           for u in "${units[@]}"; do args+=(--queue-include-dir "$u"); done
-          # apply.txt is read by the verification (check blocks).
+          # apply.txt is read by the verification (check blocks) and the
+          # apply comment.
           terragrunt run --all apply "${args[@]}" --non-interactive --no-color 2>&1 | tee apply.txt
+
+      - name: End of the apply
+        id: ended
+        if: always()
+        run: echo "epoch=$(date +%s)" >>"$GITHUB_OUTPUT"
+
+      # Terraform masks what is sensitive, as in plan.txt.
+      - name: Upload the apply output
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apply-${{ github.run_id }}
+          path: |
+            apply.txt
+            destroy.txt
+          if-no-files-found: ignore
+          retention-days: 30
 
       # Verification of what the apply did. It takes a minute or two: one more
       # plan of the applied units, at once, and a read of the Activity Log. It
@@ -1016,6 +1051,85 @@ jobs:
             verification.json
             verification.md
           retention-days: 30
+
+  # The apply comment (apply-summary.py) on the pull request the applied
+  # commit came from: what the plan of this run meant to change, in the past
+  # tense, per resource whether it went through, and the verification. A job
+  # of its own, so that the apply identity needs no access to pull requests.
+  report:
+    needs: [plan, apply]
+    if: >-
+      always() && github.event_name != 'pull_request'
+      && contains(fromJSON('["success", "failure", "cancelled"]'), needs.apply.result)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Report scripts
+        run: |
+          d="$RUNNER_TEMP/ci"
+          mkdir -p "$d"
+          cat >"$d/apply-summary.py" <<'__CI_EOF__'
+          @@include src/terragrunt/apply-summary.py@@
+          __CI_EOF__
+          cat >"$d/pr-comment.sh" <<'__CI_EOF__'
+          @@include src/pr-comment.sh@@
+          __CI_EOF__
+          chmod +x "$d"/*
+          echo "$d" >>"$GITHUB_PATH"
+
+      - name: Plan of this run
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plan-${{ github.run_id }}
+          path: plan
+
+      - name: Apply output
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: apply-${{ github.run_id }}
+          path: apply
+
+      # verification-<run id> from the apply job, and any other post-apply
+      # check's verification-<run id>-<name> (README, Plan and apply comments).
+      - name: Verification
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: verification-${{ github.run_id }}*
+          path: verification
+
+      - name: Summary
+        env:
+          OUTCOME: ${{ needs.apply.result }}
+          STARTED: ${{ needs.apply.outputs.started }}
+          ENDED: ${{ needs.apply.outputs.ended }}
+        run: |
+          set -euo pipefail
+          apply-summary.py apply/destroy.txt apply/apply.txt --changes=plan/changes.json \
+            --verification=verification --outcome="$OUTCOME" \
+            --started="$STARTED" --ended="$ENDED" | tee apply.md
+          cat apply.md >>"$GITHUB_STEP_SUMMARY"
+
+      # The pull request merged as this commit; a commit pushed to main
+      # directly has none, and the summary of the run is all there is. Each
+      # run comments anew: the push and a later manual run are two applies.
+      - name: Comment into the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq '[.[] | select(.merged_at != null)][0].number // empty')
+          if [ -z "$pr" ]; then
+            echo "No merged pull request for $GITHUB_SHA; the summary of the run has the apply."
+            exit 0
+          fi
+          pr-comment.sh "$pr" apply.md "terragrunt-apply-$GITHUB_RUN_ID"
 
   # The result of the verification as a check of its own. When it failed: a
   # Bug issue (prio:high, source:drift) and a draft pull request that reverts

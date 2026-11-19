@@ -1,0 +1,83 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_management_group.this",
+   "mode": "managed",
+   "type": "azurerm_management_group",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_management_group_subscription_association.this[\"sub-home-prod\"]",
+   "mode": "managed",
+   "type": "azurerm_management_group_subscription_association",
+   "name": "this",
+   "index": "sub-home-prod",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_management_group_subscription_association.this[\"sub-osvc-prod\"]",
+   "mode": "managed",
+   "type": "azurerm_management_group_subscription_association",
+   "name": "this",
+   "index": "sub-osvc-prod",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_management_group_subscription_association.this[\"sub-sro-prod\"]",
+   "mode": "managed",
+   "type": "azurerm_management_group_subscription_association",
+   "name": "this",
+   "index": "sub-sro-prod",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Owner/sp:sp-tf-platform\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Owner/sp:sp-tf-platform",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "subscription_ids": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

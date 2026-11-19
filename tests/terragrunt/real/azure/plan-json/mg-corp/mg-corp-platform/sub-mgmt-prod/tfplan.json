@@ -1,0 +1,170 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_consumption_budget_subscription.this[0]",
+   "mode": "managed",
+   "type": "azurerm_consumption_budget_subscription",
+   "name": "this",
+   "index": 0,
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.BotService\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.BotService",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.KeyVault\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.KeyVault",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.Logic\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.Logic",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.OperationalInsights\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.OperationalInsights",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.OperationsManagement\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.OperationsManagement",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.PolicyInsights\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.PolicyInsights",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.Security\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.Security",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.SecurityInsights\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.SecurityInsights",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.Storage\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.Storage",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"microsoft.insights\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "microsoft.insights",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Security Reader/group:sg-azure-security-readers\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Security Reader/group:sg-azure-security-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

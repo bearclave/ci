@@ -1,0 +1,65 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azapi_resource.this[\"defender-for-cloud-mgmt-prod\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "defender-for-cloud-mgmt-prod",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"defender-for-cloud-osvc-prod\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "defender-for-cloud-osvc-prod",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"defender-for-cloud-sro-prod\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "defender-for-cloud-sro-prod",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"office-365\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "office-365",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "connector_ids": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

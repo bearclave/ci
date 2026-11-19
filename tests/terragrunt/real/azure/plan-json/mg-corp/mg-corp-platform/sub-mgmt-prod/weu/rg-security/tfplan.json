@@ -1,0 +1,180 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_resource_group.this",
+   "mode": "managed",
+   "type": "azurerm_resource_group",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001",
+     "location": "westeurope",
+     "managed_by": "",
+     "name": "rg-security-mgmt-weu-001",
+     "tags": {
+      "criticality": "high",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null
+    },
+    "after": {
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001",
+     "location": "westeurope",
+     "managed_by": "",
+     "name": "rg-security-mgmt-weu-001",
+     "tags": {
+      "criticality": "medium",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "tags": {}
+    },
+    "after_sensitive": {
+     "tags": {}
+    }
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Log Analytics Reader/group:sg-azure-security-readers\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Log Analytics Reader/group:sg-azure-security-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Log Analytics Reader/group:sg-azure-security-responders\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Log Analytics Reader/group:sg-azure-security-responders",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "action_reason": "delete_because_each_key",
+   "change": {
+    "actions": [
+     "delete"
+    ],
+    "before": {
+     "condition": "",
+     "condition_version": "",
+     "delegated_managed_identity_resource_id": "",
+     "description": "",
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000039",
+     "name": "00000000-0000-0000-0000-000000000039",
+     "principal_id": "00000000-0000-0000-0000-000000000040",
+     "principal_type": "Group",
+     "role_definition_id": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Authorization/roleDefinitions/00000000-0000-0000-0000-000000000041",
+     "role_definition_name": "Log Analytics Reader",
+     "scope": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001",
+     "skip_service_principal_aad_check": null,
+     "timeouts": null
+    },
+    "after": null,
+    "after_unknown": {},
+    "before_sensitive": {},
+    "after_sensitive": false
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Microsoft Sentinel Automation Contributor/sp:Azure Security Insights\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Microsoft Sentinel Automation Contributor/sp:Azure Security Insights",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Microsoft Sentinel Contributor/group:sg-azure-security-contributors\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Microsoft Sentinel Contributor/group:sg-azure-security-contributors",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Microsoft Sentinel Reader/group:sg-azure-security-readers\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Microsoft Sentinel Reader/group:sg-azure-security-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Microsoft Sentinel Responder/group:sg-azure-security-responders\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Microsoft Sentinel Responder/group:sg-azure-security-responders",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "location": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "name": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

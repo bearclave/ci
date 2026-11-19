@@ -1,0 +1,85 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_monitor_data_collection_endpoint.this",
+   "mode": "managed",
+   "type": "azurerm_monitor_data_collection_endpoint",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "configuration_access_endpoint": "https://dce-security-mgmt-weu-001-kzc5.westeurope-1.handler.control.monitor.azure.com",
+     "description": "Logs Ingestion API pro syslog domaci site (Vector na NASu).",
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.Insights/dataCollectionEndpoints/dce-security-mgmt-weu-001",
+     "immutable_id": "dce-08d16b5c21564af985524cc2ceda8b7d",
+     "kind": "",
+     "location": "westeurope",
+     "logs_ingestion_endpoint": "https://dce-security-mgmt-weu-001-kzc5.westeurope-1.ingest.monitor.azure.com",
+     "metrics_ingestion_endpoint": "https://dce-security-mgmt-weu-001-kzc5.westeurope-1.metrics.ingest.monitor.azure.com",
+     "name": "dce-security-mgmt-weu-001",
+     "public_network_access_enabled": true,
+     "resource_group_name": "rg-security-mgmt-weu-001",
+     "tags": {
+      "criticality": "high",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null
+    },
+    "after": {
+     "configuration_access_endpoint": "https://dce-security-mgmt-weu-001-kzc5.westeurope-1.handler.control.monitor.azure.com",
+     "description": "Logs Ingestion API pro syslog domaci site (Vector na NASu).",
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.Insights/dataCollectionEndpoints/dce-security-mgmt-weu-001",
+     "immutable_id": "dce-08d16b5c21564af985524cc2ceda8b7d",
+     "kind": "",
+     "location": "westeurope",
+     "logs_ingestion_endpoint": "https://dce-security-mgmt-weu-001-kzc5.westeurope-1.ingest.monitor.azure.com",
+     "metrics_ingestion_endpoint": "https://dce-security-mgmt-weu-001-kzc5.westeurope-1.metrics.ingest.monitor.azure.com",
+     "name": "dce-security-mgmt-weu-001",
+     "public_network_access_enabled": true,
+     "resource_group_name": "rg-security-mgmt-weu-001",
+     "tags": {
+      "criticality": "medium",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "tags": {}
+    },
+    "after_sensitive": {
+     "tags": {}
+    }
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "logs_ingestion_endpoint": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

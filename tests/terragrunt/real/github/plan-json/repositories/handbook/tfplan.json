@@ -1,0 +1,323 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.16.4",
+ "resource_changes": [
+  {
+   "address": "github_actions_repository_access_level.this",
+   "mode": "managed",
+   "type": "github_actions_repository_access_level",
+   "name": "this",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_issue_labels.this",
+   "mode": "managed",
+   "type": "github_issue_labels",
+   "name": "this",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_repository.this",
+   "mode": "managed",
+   "type": "github_repository",
+   "name": "this",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "allow_auto_merge": true,
+     "allow_forking": false,
+     "allow_merge_commit": false,
+     "allow_rebase_merge": false,
+     "allow_squash_merge": true,
+     "allow_update_branch": true,
+     "archive_on_destroy": true,
+     "archived": false,
+     "auto_init": false,
+     "default_branch": "main",
+     "delete_branch_on_merge": true,
+     "description": "Field notes and gotchas from Azure security work.",
+     "etag": "W/\"(blob)\"",
+     "fork": "false",
+     "full_name": "bearclave/handbook",
+     "git_clone_url": "git://github.com/bearclave/handbook.git",
+     "gitignore_template": null,
+     "has_discussions": false,
+     "has_downloads": false,
+     "has_issues": true,
+     "has_projects": true,
+     "has_wiki": false,
+     "homepage_url": "",
+     "html_url": "https://github.com/bearclave/handbook",
+     "http_clone_url": "https://github.com/bearclave/handbook.git",
+     "id": "handbook",
+     "ignore_vulnerability_alerts_during_read": false,
+     "is_template": false,
+     "license_template": null,
+     "merge_commit_message": "PR_TITLE",
+     "merge_commit_title": "MERGE_MESSAGE",
+     "name": "handbook",
+     "node_id": "R_kgDOUYEb3Q",
+     "pages": [],
+     "primary_language": "",
+     "private": true,
+     "repo_id": 1367415773,
+     "security_and_analysis": [
+      {
+       "advanced_security": [],
+       "code_security": [],
+       "secret_scanning": [
+        {
+         "status": "disabled"
+        }
+       ],
+       "secret_scanning_ai_detection": [],
+       "secret_scanning_non_provider_patterns": [],
+       "secret_scanning_push_protection": [
+        {
+         "status": "disabled"
+        }
+       ]
+      }
+     ],
+     "source_owner": "",
+     "source_repo": "",
+     "squash_merge_commit_message": "PR_BODY",
+     "squash_merge_commit_title": "PR_TITLE",
+     "ssh_clone_url": "user1@example.com:bearclave/handbook.git",
+     "svn_url": "https://github.com/bearclave/handbook",
+     "template": [],
+     "topics": [
+      "knowledge",
+      "platform"
+     ],
+     "visibility": "private",
+     "vulnerability_alerts": true,
+     "web_commit_signoff_required": false
+    },
+    "after": {
+     "allow_auto_merge": true,
+     "allow_forking": false,
+     "allow_merge_commit": false,
+     "allow_rebase_merge": false,
+     "allow_squash_merge": true,
+     "allow_update_branch": true,
+     "archive_on_destroy": true,
+     "archived": false,
+     "auto_init": false,
+     "default_branch": "main",
+     "delete_branch_on_merge": true,
+     "description": "Field notes and gotchas from Azure security work (test).",
+     "etag": "W/\"(blob)\"",
+     "fork": "false",
+     "full_name": "bearclave/handbook",
+     "git_clone_url": "git://github.com/bearclave/handbook.git",
+     "gitignore_template": null,
+     "has_discussions": false,
+     "has_downloads": false,
+     "has_issues": true,
+     "has_projects": true,
+     "has_wiki": false,
+     "homepage_url": "",
+     "html_url": "https://github.com/bearclave/handbook",
+     "http_clone_url": "https://github.com/bearclave/handbook.git",
+     "id": "handbook",
+     "ignore_vulnerability_alerts_during_read": false,
+     "is_template": false,
+     "license_template": null,
+     "merge_commit_message": "PR_TITLE",
+     "merge_commit_title": "MERGE_MESSAGE",
+     "name": "handbook",
+     "node_id": "R_kgDOUYEb3Q",
+     "pages": [],
+     "primary_language": "",
+     "private": true,
+     "repo_id": 1367415773,
+     "security_and_analysis": [
+      {
+       "advanced_security": [],
+       "code_security": [],
+       "secret_scanning": [
+        {
+         "status": "disabled"
+        }
+       ],
+       "secret_scanning_ai_detection": [],
+       "secret_scanning_non_provider_patterns": [],
+       "secret_scanning_push_protection": [
+        {
+         "status": "disabled"
+        }
+       ]
+      }
+     ],
+     "source_owner": "",
+     "source_repo": "",
+     "squash_merge_commit_message": "PR_BODY",
+     "squash_merge_commit_title": "PR_TITLE",
+     "ssh_clone_url": "user1@example.com:bearclave/handbook.git",
+     "svn_url": "https://github.com/bearclave/handbook",
+     "template": [],
+     "topics": [
+      "knowledge",
+      "platform"
+     ],
+     "visibility": "private",
+     "vulnerability_alerts": true,
+     "web_commit_signoff_required": false
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "pages": [],
+     "security_and_analysis": [
+      {
+       "advanced_security": [],
+       "code_security": [],
+       "secret_scanning": [
+        {}
+       ],
+       "secret_scanning_ai_detection": [],
+       "secret_scanning_non_provider_patterns": [],
+       "secret_scanning_push_protection": [
+        {}
+       ]
+      }
+     ],
+     "template": [],
+     "topics": [
+      false,
+      false
+     ]
+    },
+    "after_sensitive": {
+     "pages": [],
+     "security_and_analysis": [
+      {
+       "advanced_security": [],
+       "code_security": [],
+       "secret_scanning": [
+        {}
+       ],
+       "secret_scanning_ai_detection": [],
+       "secret_scanning_non_provider_patterns": [],
+       "secret_scanning_push_protection": [
+        {}
+       ]
+      }
+     ],
+     "template": [],
+     "topics": [
+      false,
+      false
+     ]
+    }
+   }
+  },
+  {
+   "address": "github_repository_custom_property.this[\"direct-commit\"]",
+   "mode": "managed",
+   "type": "github_repository_custom_property",
+   "name": "this",
+   "index": "direct-commit",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_repository_custom_property.this[\"entity\"]",
+   "mode": "managed",
+   "type": "github_repository_custom_property",
+   "name": "this",
+   "index": "entity",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_repository_custom_property.this[\"group\"]",
+   "mode": "managed",
+   "type": "github_repository_custom_property",
+   "name": "this",
+   "index": "group",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_repository_custom_property.this[\"pipeline\"]",
+   "mode": "managed",
+   "type": "github_repository_custom_property",
+   "name": "this",
+   "index": "pipeline",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_repository_custom_property.this[\"touches-production\"]",
+   "mode": "managed",
+   "type": "github_repository_custom_property",
+   "name": "this",
+   "index": "touches-production",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_repository_dependabot_security_updates.this",
+   "mode": "managed",
+   "type": "github_repository_dependabot_security_updates",
+   "name": "this",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "name": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "node_id": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

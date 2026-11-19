@@ -24,7 +24,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck; review dates of the gitleaks allowlists |
 | `pr.yml` | `pr` | every repository | Conventional Commit title, `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`); the root layout (`src/layout_check.py`, below) |
 | `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `vs-code-extensions`, `.github` | ESLint where there is JavaScript, an optional command of the repository, then the gate |
-| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, validate, plan of the affected units with trivy and a PR comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, verification of the apply, gate |
+| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, validate, plan of the affected units with trivy and a plan comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, verification of the apply, an apply comment on the merged pull request, gate |
 | `destroy-review.yml` | `review` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` check of the last pull request run |
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, failed check blocks, analytic rules outside the code |
 | `terragrunt-home.yml` | `pipeline` | `iac-home` | conventions, plan and apply of the router through WireGuard, certificate renewal and drift on schedule |
@@ -129,6 +129,66 @@ works before and after its move:
 | PSScriptAnalyzer | `.github/pssa.psd1` | `.pssa.psd1` |
 | home VPN, shell scripts | `tools/home-vpn.sh`, `tools/*.sh`, `tools/bootstrap/render.sh` | `scripts/`, `bootstrap/` |
 | content generators | `tools/*.py` | `_tools/*.py` |
+
+## Plan and apply comments
+
+`terragrunt.yml` writes two comments, built from the plan in JSON without
+anything but the scripts (`src/terragrunt/plan-summary.py`, `plan_details.py`,
+`apply-summary.py`; tests with sanitised real plans in `tests/terragrunt/`).
+
+**Plan comment**, one per pull request, rewritten on every push (marker
+`terragrunt-plan`):
+
+```
+## 📋 Plan complete                      ## ❌ Plan failed on an error or a failed check
+repo · commit · units · ➕ 1 · ✏️ 2 · 🗑️ 0 · ♻️ 1
+### ⚠️ Destroys and replaces             icon | Resource | Name | Unit | Why
+### Changes                              icon | Resource | Name | What changes | From | To
+📥 Imported without a change: n          one line, per unit
+**Status:** security findings, formatting and validation
+**Needed:** approval of a destroy, a fix, or review and merge
+<details> per unit: terraform's own diff </details>
+```
+
+- One row per change that matters, in fixed wording: ``tag `owner` ``,
+  ``setting `public_network_access_enabled` ``, ``setting `topics`: added `x` ``,
+  ``diagnostic settings added: logs `AuditEvent` → workspace `law-…` ``. The
+  resource type becomes a readable name from the dictionary in
+  `plan_details.py` (`KINDS`; any other type is spelled out from its name).
+- Left out: values known only after apply, computed IDs, etags, URLs and
+  timestamps (`NOISE`), data sources, outputs, and imports that change
+  nothing. The raw plan stays in the artifact `plan-<run id>` (`plan.txt`).
+- Sensitive values never appear; the JSON plan never leaves the job that
+  made it. A plan split into shares passes on only the rows
+  (`plan-summary.py --export`), and `plan` merges them (`--import`).
+- Over GitHub's size limit the details are shortened, the largest unit
+  first, then left out; the tables come last, and the comment ends with what
+  was cut.
+
+**Apply comment**, on the pull request merged as the applied commit, a new
+one per run (marker `terragrunt-apply-<run id>`), from the `report` job:
+
+```
+## ✅ Apply complete                     ## ❌ Apply failed
+repo · merge commit · units · ⏱️ duration · run
+icon | Resource | Name | What happened | Result     ✅ done, ❌ failed: <error>, ⏭️ not applied / not run
+### ❌ Errors
+### Verification
+```
+
+The rows are those of the plan of the same run (`changes.json` in the plan
+artifact: the text of the tables only), in the past tense; the result of
+each comes from the apply output (`apply.txt` and `destroy.txt` in the
+artifact `apply-<run id>`).
+
+**Verification** is `verification.md` of the apply job's verification
+(Terragrunt: validate and verify), from the artifact `verification-<run id>`.
+Another post-apply check adds its own: markdown (a `| Check | Result |
+Detail |` table, under a `#### <name>` line) in any `*.md` file of an
+artifact `verification-<run id>-<name>`, uploaded by a job that the `report`
+job `needs`. Every `verification-<run id>*` artifact goes in, in name order;
+a leading `### Verification` line is dropped. Without any, the section says
+that no check has reported.
 
 ## Conventions
 
@@ -375,7 +435,8 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 | Directory | Content | Tests |
 |---|---|---|
 | `src/` | `conventions.py`, `sentinel_lint.py`, `exception_review.py`, `site_checks.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
-| `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
+| `src/terragrunt/` | unit selection, plan and apply comments, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
+| `tools/` | `build.py`, `export-for-templates.py`, `sync-templates.py`; `sanitise-plan.py` turns plans of a run into test fixtures | |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 
 A script reads the repository it runs for from the working directory (the

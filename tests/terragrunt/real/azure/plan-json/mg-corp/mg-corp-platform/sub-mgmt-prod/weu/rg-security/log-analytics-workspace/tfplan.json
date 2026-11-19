@@ -1,0 +1,841 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azapi_resource_action.table_auxiliary[\"AADManagedIdentitySignInLogs\"]",
+   "mode": "managed",
+   "type": "azapi_resource_action",
+   "name": "table_auxiliary",
+   "index": "AADManagedIdentitySignInLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource_action.table_auxiliary[\"AADNonInteractiveUserSignInLogs\"]",
+   "mode": "managed",
+   "type": "azapi_resource_action",
+   "name": "table_auxiliary",
+   "index": "AADNonInteractiveUserSignInLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource_action.table_auxiliary[\"MicrosoftGraphActivityLogs\"]",
+   "mode": "managed",
+   "type": "azapi_resource_action",
+   "name": "table_auxiliary",
+   "index": "MicrosoftGraphActivityLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"AADProvisioningLogs\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "AADProvisioningLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"AADServicePrincipalSignInLogs\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "AADServicePrincipalSignInLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"AlertEvidence\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "AlertEvidence",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"AlertInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "AlertInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"AuditLogs\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "AuditLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"AzureActivity\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "AzureActivity",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"CloudAppEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "CloudAppEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceFileCertificateInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceFileCertificateInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceFileEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceFileEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceImageLoadEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceImageLoadEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceLogonEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceLogonEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceNetworkEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceNetworkEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceNetworkInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceNetworkInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceProcessEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceProcessEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"DeviceRegistryEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "DeviceRegistryEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"EmailAttachmentInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "EmailAttachmentInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"EmailEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "EmailEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"EmailPostDeliveryEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "EmailPostDeliveryEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"EmailUrlInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "EmailUrlInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"IdentityDirectoryEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "IdentityDirectoryEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"IdentityLogonEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "IdentityLogonEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"IdentityQueryEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "IdentityQueryEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"SigninLogs\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "SigninLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_plan[\"UrlClickEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_plan",
+   "index": "UrlClickEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"AADProvisioningLogs\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "AADProvisioningLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"AADServicePrincipalSignInLogs\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "AADServicePrincipalSignInLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"AlertEvidence\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "AlertEvidence",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"AlertInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "AlertInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"AuditLogs\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "AuditLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"AzureActivity\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "AzureActivity",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"CloudAppEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "CloudAppEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceFileCertificateInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceFileCertificateInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceFileEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceFileEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceImageLoadEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceImageLoadEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceLogonEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceLogonEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceNetworkEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceNetworkEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceNetworkInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceNetworkInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceProcessEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceProcessEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"DeviceRegistryEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "DeviceRegistryEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"EmailAttachmentInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "EmailAttachmentInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"EmailEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "EmailEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"EmailPostDeliveryEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "EmailPostDeliveryEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"EmailUrlInfo\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "EmailUrlInfo",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"IdentityDirectoryEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "IdentityDirectoryEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"IdentityLogonEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "IdentityLogonEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"IdentityQueryEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "IdentityQueryEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"SigninLogs\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "SigninLogs",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_update_resource.table_retention[\"UrlClickEvents\"]",
+   "mode": "managed",
+   "type": "azapi_update_resource",
+   "name": "table_retention",
+   "index": "UrlClickEvents",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_log_analytics_workspace.this",
+   "mode": "managed",
+   "type": "azurerm_log_analytics_workspace",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "allow_resource_only_permissions": true,
+     "cmk_for_query_forced": false,
+     "daily_quota_gb": 5,
+     "data_collection_rule_id": "",
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.OperationalInsights/workspaces/law-security-mgmt-weu-001",
+     "identity": [],
+     "immediate_data_purge_on_30_days_enabled": false,
+     "internet_ingestion_access_type": "Enabled",
+     "internet_query_access_type": "Enabled",
+     "local_authentication_enabled": false,
+     "location": "westeurope",
+     "name": "law-security-mgmt-weu-001",
+     "primary_shared_key": "(redacted)",
+     "reservation_capacity_in_gb_per_day": null,
+     "resource_group_name": "rg-security-mgmt-weu-001",
+     "retention_in_days": 90,
+     "secondary_shared_key": "(redacted)",
+     "sku": "PerGB2018",
+     "tags": {
+      "criticality": "high",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null,
+     "workspace_id": "00000000-0000-0000-0000-000000000006"
+    },
+    "after": {
+     "allow_resource_only_permissions": true,
+     "cmk_for_query_forced": false,
+     "daily_quota_gb": 5,
+     "data_collection_rule_id": "",
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.OperationalInsights/workspaces/law-security-mgmt-weu-001",
+     "identity": [],
+     "immediate_data_purge_on_30_days_enabled": false,
+     "internet_ingestion_access_type": "Enabled",
+     "internet_query_access_type": "Enabled",
+     "local_authentication_enabled": false,
+     "location": "westeurope",
+     "name": "law-security-mgmt-weu-001",
+     "primary_shared_key": "(redacted)",
+     "reservation_capacity_in_gb_per_day": null,
+     "resource_group_name": "rg-security-mgmt-weu-001",
+     "retention_in_days": 90,
+     "secondary_shared_key": "(redacted)",
+     "sku": "PerGB2018",
+     "tags": {
+      "criticality": "medium",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null,
+     "workspace_id": "00000000-0000-0000-0000-000000000006"
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "identity": [],
+     "primary_shared_key": true,
+     "secondary_shared_key": true,
+     "tags": {}
+    },
+    "after_sensitive": {
+     "identity": [],
+     "primary_shared_key": true,
+     "secondary_shared_key": true,
+     "tags": {}
+    }
+   }
+  },
+  {
+   "address": "module.diagnostics.azurerm_monitor_diagnostic_setting.this[0]",
+   "module_address": "module.diagnostics",
+   "mode": "managed",
+   "type": "azurerm_monitor_diagnostic_setting",
+   "name": "this",
+   "index": 0,
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "name": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "workspace_id": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

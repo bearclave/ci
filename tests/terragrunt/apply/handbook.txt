@@ -1,0 +1,13 @@
+05:52:10.101 INFO   The following units will be run, starting with dependencies and then their dependents:
+.
+╰── repositories/handbook
+05:52:14.212 STDOUT [repositories/handbook] terraform: github_repository.this: Refreshing state... [id=handbook]
+05:52:15.734 STDOUT [repositories/handbook] terraform: Terraform will perform the following actions:
+05:52:15.734 STDOUT [repositories/handbook] terraform:   # github_repository.this will be updated in-place
+05:52:15.734 STDOUT [repositories/handbook] terraform:   ~ resource "github_repository" "this" {
+05:52:15.734 STDOUT [repositories/handbook] terraform:       ~ description = "Field notes and gotchas from Azure security work." -> "Field notes and gotchas from Azure security work (test)."
+05:52:15.734 STDOUT [repositories/handbook] terraform:     }
+05:52:15.734 STDOUT [repositories/handbook] terraform: Plan: 0 to add, 1 to change, 0 to destroy.
+05:52:15.901 STDOUT [repositories/handbook] terraform: github_repository.this: Modifying... [id=handbook]
+05:52:17.322 STDOUT [repositories/handbook] terraform: github_repository.this: Modifications complete after 1s [id=handbook]
+05:52:17.330 STDOUT [repositories/handbook] terraform: Apply complete! Resources: 0 added, 1 changed, 0 destroyed.

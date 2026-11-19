@@ -1,0 +1,117 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azapi_resource.this[\"azure-roles\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "azure-roles",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"break-glass-accounts\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "break-glass-accounts",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"device-code-allowed-users\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "device-code-allowed-users",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"entra-privileged-accounts\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "entra-privileged-accounts",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"entra-privileged-groups\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "entra-privileged-groups",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"legit-email-domains\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "legit-email-domains",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"sentinel-users\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "sentinel-users",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.this[\"subscription-list\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "this",
+   "index": "subscription-list",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "ids": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}
