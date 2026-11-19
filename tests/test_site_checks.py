@@ -20,7 +20,7 @@ HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
 }
-PAGE = ('<!DOCTYPE html>\n<html lang="en">\n<head><meta charset="utf-8"><title>T</title>'
+PAGE = ('<!DOCTYPE html>\n<html lang="en">\n<head><meta charset="utf-8"><title>T</title>{head}'
         '<link rel="stylesheet" href="/site.css"></head>\n<body>\n<p id="top">x\n{body}\n</body>\n</html>\n')
 
 
@@ -35,14 +35,17 @@ class SiteChecks(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def site(self, config=None, pages=None):
+    def site(self, config=None, pages=None, heads=None, sitemap=None):
         config = config if config is not None else {"routes": [{"route": "/about", "rewrite": "/about.html"}],
                                                     "globalHeaders": HEADERS}
         (self.app / "staticwebapp.config.json").write_text(json.dumps(config))
         for name, body in (pages or {"index.html": '<a href="/about#team">a</a>',
                                      "about.html": '<h2 id="team">t</h2>'}).items():
             (self.app / name).parent.mkdir(parents=True, exist_ok=True)
-            (self.app / name).write_text(PAGE.format(body=body))
+            head = (heads or {}).get(name, '<meta name="robots" content="noindex">')
+            (self.app / name).write_text(PAGE.format(head=head, body=body))
+        if sitemap is not None:
+            (self.app / "sitemap.xml").write_text(sitemap)
         findings = site_checks.Findings()
         context = site_checks.check_config(str(self.app), "src", findings)
         site_checks.check_pages(str(self.app), str(self.root), context, findings)
@@ -67,12 +70,32 @@ class SiteChecks(unittest.TestCase):
                                                '<a href="about.html#nope">d</a><span id="top"></span>',
                                  "about.html": ""})
         self.assertEqual([c for c, _ in found], ["csp", "csp", "csp", "html", "html", "links", "links", "links",
-                                                 "links"])
+                                                 "links", "seo"])
 
     def test_relative_links_and_folders(self):
         found = self.site(pages={"en/index.html": '<a href="../about.html">a</a><a href="/en/">b</a>',
                                  "about.html": ""})
-        self.assertEqual(found, [])
+        self.assertEqual(found, [("seo", 'href="../about.html" is relative; links start with /')])
+
+    def test_seo(self):
+        alt = ('<link rel="canonical" href="https://x.test/{0}">'
+               '<link rel="alternate" hreflang="en" href="https://x.test/{0}">'
+               '<link rel="alternate" hreflang="x-default" href="https://x.test/{1}">')
+        sitemap = "<urlset><url><loc>https://x.test/</loc></url><url><loc>https://x.test/gone</loc></url></urlset>"
+        pages = {"index.html": "", "about.html": "", "other.html": "", "404.html": ""}
+        heads = {"index.html": alt.format("", ""),
+                 "about.html": '<link rel="canonical" href="https://x.test/about.html">'
+                               '<link rel="alternate" hreflang="cs" href="https://x.test/missing.html">',
+                 "other.html": ""}
+        found = self.site(pages=pages, heads=heads, sitemap=sitemap)
+        messages = [m for c, m in found if c == "seo"]
+        self.assertEqual(len(messages), 6, messages)
+        self.assertTrue(any("no canonical" in m for m in messages))
+        self.assertTrue(any("page itself" in m for m in messages))
+        self.assertTrue(any("x-default" in m for m in messages))
+        self.assertTrue(any("missing.html" in m for m in messages))
+        self.assertTrue(any("gone leads to no page" in m for m in messages))
+        self.assertTrue(any("about.html (canonical" in m for m in messages))
 
 
 if __name__ == "__main__":

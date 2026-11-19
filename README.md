@@ -28,8 +28,8 @@ name, never `secrets: inherit`). The header of each workflow shows its caller.
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree as the read-only identity, trivy, failed check blocks, analytic rules outside the code |
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
 | `m365-dsc.yml`, `m365-drift.yml` | `pipeline`, `drift` | `iac-m365` | Microsoft365DSC: plan, apply, weekly drift (to be retired) |
-| `static-web-app.yml` | `pipeline` | `app-web-*` | site checks, ESLint, the site's own checks, deploy in the `environment` when the content changed |
-| `container.yml` | `pipeline` | `app-home` | lint and tests in the image; push to GHCR from `main` (`:main`) and from a release (`:vX.Y.Z`) |
+| `static-web-app.yml` | `pipeline` | `app-web-*` | site checks (with SEO), ESLint, the site's own checks, deploy in the `environment` when the content changed, smoke test of `url` |
+| `container.yml` | `pipeline` | `app-home` | ESLint, lint and tests in the image; push to GHCR from `main` (`:main`) and from a release (`:vX.Y.Z`) |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
 | `release.yml` | `release` | versioned repositories, by hand (no caller yet) | the next `vX.Y.Z` and its notes, and the commands of a signed release; publishes nothing |
 | `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows |

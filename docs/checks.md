@@ -157,12 +157,18 @@ read it.
 site: `staticwebapp.config.json` (valid, no route twice, rewrite targets
 exist), its `globalHeaders` (a CSP without `'unsafe-inline'`/`'unsafe-eval'`
 for scripts, framing forbidden, HSTS, `nosniff`, `Referrer-Policy`), the pages
-against that CSP, well-formed HTML and the internal links and anchors. What
+against that CSP, well-formed HTML, the internal links and anchors, and
+what search engines read: root-relative links, a canonical on every page
+that is not `noindex`, hreflang sets that name the page itself and
+`x-default`, a `sitemap.xml` of existing pages and every canonical. What
 only one site checks stays in its `site-checks` input.
+
+After a deployment the job requests the caller's `url` input and fails
+unless it answers 200 within about two minutes (the smoke test).
 
 ## ESLint
 
-`checks.yml` and `static-web-app.yml` run ESLint, in their main job, over the
+`checks.yml`, `static-web-app.yml` and `container.yml` run ESLint, in their main job, over the
 JavaScript git tracks, with the repository's `eslint.config.mjs` (a managed
 file of governance `tools/sync.py`). Without JavaScript the steps are skipped
 and cost nothing. A repository whose `package.json` pins `eslint` runs that
