@@ -8,8 +8,8 @@
   not in a commented-out line, not in history. gitleaks scans the whole
   history on every pull request (`security / scan`); the push ruleset
   `push-restricted-files` refuses `*.tfstate*`, `.terraform/`, `*.tfvars`, `*.tfvars.json`, `*.pfx`, `*.p12`, `*.pem`, `*.key`, `*.p8`, `*.ppk`, `*.jks`, `*.keystore`, `id_rsa`, `id_ecdsa`, `id_ed25519`, `*.kdbx`, `*.ovpn`, `.env*` and files over 5 MB.
-  `*.mobileconfig` is allowed: the Intune profiles of `iac-m365` are
-  configuration, not secrets.
+  `*.mobileconfig` is allowed: Intune profiles are configuration, not
+  secrets.
 - **No secret in GitHub either**, where avoidable. Pipelines sign in to Azure
   by workload identity federation (OIDC) and read what they need from a Key
   Vault (GitHub App keys included). The only GitHub secret is
@@ -35,9 +35,10 @@
   the write identity federated **only** on the production environment.
 - Federated credentials use the immutable subject with the organisation and
   repository IDs, so a credential cannot pass to a re-created repository.
-- Every identity is declared in `iac-azure` (`tenant/applications`,
-  `tenant/federated-credentials`) with a description of what it may do, and
-  listed in `bearclave/ci` `docs/identities.md`.
+- Every identity is declared in `iac-identity` (one file per application,
+  with its federated credentials and permissions; `iac-azure` `tenant/`
+  until the hand-over) with a description of what it may do, and listed in
+  `bearclave/ci` `docs/identities.md`.
 - GitHub Apps get the permissions their purpose needs, set in code
   (`iac-github` `tools/`); an App installed on all repositories with write
   access (such as `claude`) is limited to the repositories it works in.
@@ -58,8 +59,8 @@
   [toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md#dependency-updates). Dependabot security
   updates are on in every repository and come at once, whatever the
   schedule.
-- Terraform providers and Microsoft365DSC are pinned to exact versions and
-  providers verified by the committed `.terraform.lock.hcl`; a bump is a
+- Terraform providers are pinned to exact versions and verified by the
+  committed `.terraform.lock.hcl`; a bump is a
   `deps` pull request with its plan ([toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md)).
 
 ## Workflows

@@ -17,8 +17,7 @@ paths:
 - `$ErrorActionPreference = 'Stop'` at the top of every script.
 - Approved verbs (`Get-Verb`), `Verb-Noun` in PascalCase, singular nouns.
 - Data in `.psd1` files (`Import-PowerShellDataFile`), never in code;
-  configuration fragments validated against their schema
-  (`tools/Test-Configuration.ps1` in `iac-m365`).
+  configuration fragments validated against their schema.
 - No `Write-Host` for data; output objects, `Write-Verbose` for tracing.
 - Secrets never as parameters or in variables printed to the log;
   certificates come from Key Vault at run time.

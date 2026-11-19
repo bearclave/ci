@@ -6,20 +6,39 @@ What a repository must have, by the custom property `pipeline` it calls.
 On top of what every repository has ([repositories.md](https://github.com/bearclave/governance/blob/main/standards/repositories.md#what-every-repository-contains)).
 A missing item is a `Debt` issue in that repository.
 
-## IaC: `terragrunt`, `terragrunt-home`, `m365-dsc`
+## IaC: `terragrunt`, `terragrunt-home`
+
+`iac-azure`, `iac-github`, `iac-home` and the repositories of the Microsoft
+cloud, one per security domain and apply identity:
+
+| Repository | Manages | Providers |
+|---|---|---|
+| `iac-identity` | applications and service principals (with federated credentials, certificates, API permissions), directory and custom roles, groups and their members, enterprise and SAML applications, the Entra policies but Conditional Access | `azuread`, `msgraph` |
+| `iac-conditional-access` | Conditional Access and what it uses: named locations, authentication strengths and contexts | `msgraph` |
+| `iac-intune` | Intune and Defender for Endpoint: compliance, configuration, endpoint security, app protection, apps, update rings | `microsoft365wp`, `msgraph` |
+| `iac-exchange` | Exchange Online and Defender for Office 365 | `exo` |
+| `iac-purview` | sensitivity labels and their policies, DLP, retention, alert policies, the audit log | `scc`, `exo` |
+| `iac-sentinel` | the content of Microsoft Sentinel: data connectors, analytic rules, hunting queries, parsers, watchlists, automation rules, workbooks, playbooks | `azurerm`, `azapi`, `azuread` (lookups) |
+
+Teams, users, guests, licences and the organisation settings are not in
+code ([code/m365.md](https://github.com/bearclave/governance/blob/main/standards/code/m365.md#in-code-and-out-of-code)). `iac-m365`
+(Microsoft365DSC, pipeline `m365-dsc`) is retired: it hands its domains over
+one by one ([code/terragrunt.md](https://github.com/bearclave/governance/blob/main/standards/code/terragrunt.md#handing-a-unit-over-to-another-repository))
+and is archived after the last one; nothing new uses `m365-dsc`.
 
 | Item | Rule |
 |---|---|
-| Pipeline | `ci.yml` from [templates/workflows/](https://github.com/bearclave/governance/tree/main/standards/templates/workflows/); plan on the pull request, apply from `main` ([pipelines.md](https://github.com/bearclave/governance/blob/main/standards/pipelines.md)) |
-| Drift | weekly, read-only identity, red on any difference (`drift.yml`, or the schedule in `ci.yml` for `terragrunt-home`) |
-| Environment | `<subject>-prod` (`azure-prod`, `github-prod`, `home-prod`, `m365-prod`), deployment branches `main` only, in `iac-github` |
+| Pipeline | `ci.yml` from [templates/workflows/](https://github.com/bearclave/governance/tree/main/standards/templates/workflows/); plan on the pull request, apply from `main` ([pipelines.md](https://github.com/bearclave/governance/blob/main/standards/pipelines.md)); `subscription-id` empty where the repository manages no Azure resource |
+| Drift | weekly, read-only identity, red on any difference (`drift.yml`, or the schedule in `ci.yml` for `terragrunt-home`); the Microsoft 365 repositories on different days, so that Graph and Exchange do not throttle them together |
+| Environment | `<subject>-prod` (`azure-prod`, `github-prod`, `home-prod`, `identity-prod`, `conditional-access-prod`, `intune-prod`, `exchange-prod`, `purview-prod`, `sentinel-prod`), deployment branches `main` only, in `iac-github` |
 | Identities | a plan and an apply identity ([identities.md](https://github.com/bearclave/governance/blob/main/standards/identities.md)), variables `AZURE_CLIENT_ID_PLAN` and `AZURE_CLIENT_ID_APPLY` |
 | Versions | `.github/tool-versions.env` (Terraform, Terragrunt, trivy with sha256); providers exact in `account.hcl` ([toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md)) |
 | Lock files | `.terraform.lock.hcl` committed in every unit, hashes `linux_amd64` and `darwin_arm64` |
 | Layout | `root.hcl`, `account.hcl`, `_common/` (`units/`, `deps/`), `infrastructure/`; no `tools/`, no `deploy/` ([code/terragrunt.md](https://github.com/bearclave/governance/blob/main/standards/code/terragrunt.md)) |
+| Collections | the Microsoft cloud repositories: collection units of `<key>.yaml`, the schema of each in `.github/schemas/`, `.vscode/settings.json` mapping them, one page per collection in `docs/` ([code/terragrunt.md](https://github.com/bearclave/governance/blob/main/standards/code/terragrunt.md#collections)) |
 | Modules | from `iac-modules` at a tag (`modules_ref` in `account.hcl`), in `_common/units/<module>.hcl`, never a local path |
 | Properties | `touches-production=true`; exact pin of `bearclave/ci` (`@vX.Y.Z`) |
-| Docs | README Pipeline table with every trigger and identity; `docs/setup.md` (bootstrap as a procedure with its commands: state, identities, environment), `docs/manual-steps.md`, `docs/out-of-scope.md` where something is not in code |
+| Docs | README Pipeline table with every trigger and identity; `docs/setup.md` (bootstrap as a procedure with its commands: state, identities, environment), `docs/manual-steps.md`, `docs/out-of-scope.md` where something is not in code; `docs/<collection>.md` per collection |
 | State moves | `.github/state-moves.yaml` while a moved unit waits for its apply |
 
 ## Modules: `terraform-modules`
@@ -53,12 +72,17 @@ deployment.
 ## Know-how, tools and content: `checks`, `content-sentinel`
 
 `governance`, `handbook`, `ops-tools`, `.github`, `vs-code-extensions`,
-`app-office-templates` (`checks`); `content-sentinel` (its own pipeline:
-Sentinel lint, generated views up to date).
+`app-office-templates` (`checks`); `content-sentinel`, the catalogue of all
+Sentinel content, deploys nothing. Once it is in the YAML format of
+`iac-sentinel` it has no pipeline of its own: `pipeline` `checks` without a
+command, and `pr / check` validates every file against the schemas
+(`collection-schema`); until then `content-sentinel.yml` (Sentinel lint,
+generated views up to date). `iac-sentinel` holds only what is deployed
+([code/sentinel.md](https://github.com/bearclave/governance/blob/main/standards/code/sentinel.md#content-sentinel)).
 
 | Item | Rule |
 |---|---|
-| Pipeline | `checks.yml`: security scan, ESLint where there is JavaScript, the repository's own command (tests, generators up to date); `content-sentinel.yml` |
+| Pipeline | `checks.yml`: security scan, ESLint where there is JavaScript, the repository's own command (tests, generators up to date); `content-sentinel.yml` until the catalogue is converted |
 | Docs | Markdown rules of [documentation.md](https://github.com/bearclave/governance/blob/main/standards/documentation.md#markdown); links work |
 | Releases | only where something is consumed by reference ([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md)) |
 | Properties | `touches-production=false`; `direct-commit=true` only where the owner writes straight to `main` |

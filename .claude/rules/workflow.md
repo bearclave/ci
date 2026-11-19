@@ -26,8 +26,7 @@ and a pull request as everywhere else.
   stays a draft PR with the label `status:blocked` and a comment why.
 - A worktree branch (`worktree-<name>`) is renamed to `<type>/<slug>` before
   its first push.
-- Bot branches keep their own names: `dependabot/...`, `chore/tombstones`
-  (weekly M365 drift); `bearclave-bot`'s `deps/tools`, `deps/actions` and
+- Bot branches keep their own names: `dependabot/...`; `bearclave-bot`'s `deps/tools`, `deps/actions` and
   `deps/ci` already have the `<type>/<slug>` form.
 - The `pr` check refuses any other branch name.
 

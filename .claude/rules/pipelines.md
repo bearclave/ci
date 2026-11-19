@@ -33,16 +33,15 @@ else. Templates for each pipeline: [templates/workflows/](https://github.com/bea
 | Workflow | Used by | Does |
 |---|---|---|
 | `security.yml` | every repository | gitleaks over the history, actionlint, zizmor, shellcheck |
-| `pr.yml` | every repository | title and branch format, labels, assignee, description sections, root layout, `todo-issue`, Markdown links, markdownlint |
+| `pr.yml` | every repository | title and branch format, labels, assignee, description sections, root layout, `todo-issue`, Markdown links, the objects of collections against their schema, markdownlint |
 | `checks.yml` | `checks` | ESLint where there is JavaScript, optional extra command, then `gate` |
-| `terragrunt.yml` / `terragrunt-drift.yml` | `iac-azure`, `iac-github` | validate (fmt, HCL, `terraform validate`, lock files), conventions, Sentinel lint, plan of affected units with trivy, PR comment, `destroy / approved`, apply from `main`, verification of the apply, gate; drift fails on check blocks too |
-| `destroy-review.yml` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` of the last pull request run |
+| `terragrunt.yml` / `terragrunt-drift.yml` | `iac-azure`, `iac-github`, `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-purview`, `iac-sentinel` | validate (fmt, HCL, `terraform validate`, lock files), conventions, Sentinel lint, plan of affected units with trivy, PR comment, `destroy / approved`, apply from `main`, verification of the apply, gate; drift fails on check blocks too |
+| `destroy-review.yml` | the repositories of `terragrunt.yml` | on a submitted approval, re-runs the failed `destroy / approved` of the last pull request run |
 | `terragrunt-home.yml` | `iac-home` | plan and apply of the router through WireGuard, certificate renewal, drift |
 | `terraform-modules.yml` | `iac-modules` | fmt, validate, tflint, trivy config, conventions |
-| `m365-dsc.yml` / `m365-drift.yml` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of affected types, apply, tombstones |
 | `static-web-app.yml` | `app-web-*` | common site checks (with SEO), ESLint, the site's own checks, deploy to the Static Web App from `main` in the environment `prod`, smoke test of the site's `url` |
 | `container.yml` | `app-home` | ESLint, lint and tests in the image, push to GHCR from `main` and from a release |
-| `content-sentinel.yml` | `content-sentinel` | Sentinel lint, generated views up to date |
+| `content-sentinel.yml` | `content-sentinel` until its catalogue is converted to the YAML of `iac-sentinel`, then `checks` | Sentinel lint, generated views up to date |
 | conventions, Sentinel lint (fragments) | inside the pipelines above | rule checks driven by the repository's YAML |
 | `release.yml` | versioned repositories, on demand | dry run: the next version and the release notes ([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md#releasing)) |
 | `housekeeping.yml` | the organisation, weekly | stale branches and pull requests, one issue per repository ([workflow.md](https://github.com/bearclave/governance/blob/main/standards/workflow.md#housekeeping)) |
@@ -84,6 +83,7 @@ table; a new check comes with its row.
 | markdownlint-cli2 | `pr` (`check`) | `src/markdownlint.yaml` of ci; `.github/markdownlint.yaml` of the repository replaces rules one by one | a rule set in `.github/markdownlint.yaml` with a comment why, or `<!-- markdownlint-disable-next-line MDxxx -->` with a reason |
 | `markdown-links` (relative links and anchors in `*.md`) | `pr` (`check`) | - | none: fix the link |
 | `todo-issue` (`TODO`/`FIXME` with an issue number) | `pr` (`check`) | `.github/conventions.yaml` | `exceptions` in `.github/conventions.yaml` |
+| `collection-schema` (every `<key>.yaml` of a collection against the JSON Schema of its module) | `pr` (`check`) | `.github/schemas/<module>.schema.json`; `collection-schema` in `.github/conventions.yaml` | `exceptions` in `.github/conventions.yaml` |
 | title, branch, description, labels | `pr` (`check`) | `src/pr_check.py` of ci | none |
 | root layout | `pr` (`check`) | `standards/layout.yaml` | `layout.exceptions` in `.github/conventions.yaml` (`review` optional) |
 | conventions | `terragrunt`, `terragrunt-home`, `terraform-modules` (`conventions`) | `.github/conventions.yaml` `rules` | `exceptions` in `.github/conventions.yaml` |
@@ -97,7 +97,6 @@ table; a new check comes with its row.
 | ESLint | `static-web-app`, `container`, `checks` (`eslint`) | `eslint.config.mjs` (managed, below) | the repository section of `eslint.config.mjs`, each entry with a comment why |
 | common site checks | `static-web-app` (`site`) | `src/staticwebapp.config.json` | none: fix the site |
 | site checks of the repository | `static-web-app` (`site`) | `site-checks` input | in the repository's script |
-| PSScriptAnalyzer, Pester | `m365-dsc` | `.github/pssa.psd1` | `.github/pssa.psd1` (`iac-m365` is being retired) |
 | ruff, tests | `container` (in the `Dockerfile`) | `[tool.ruff]` in `pyproject.toml` | `[tool.ruff.lint]` of the repository |
 
 **One exception format.** Wherever the format is ours, an exception names
@@ -159,8 +158,8 @@ everything else is configured in the repository section, not rewritten.
 ## Rules for every workflow
 
 - **Plan on the pull request, apply from `main`.** Apply runs in a protected
-  environment (`azure-prod`, `m365-prod`, `home-prod`, `github-prod`;
-  `prod` for an application) whose deployment branch policy allows `main`
+  environment (`<subject>-prod` of the repository,
+  [repo-types.md](https://github.com/bearclave/governance/blob/main/standards/repo-types.md#iac-terragrunt-terragrunt-home); `prod` for an application) whose deployment branch policy allows `main`
   only. The plan and the drift sign in as the read-only identity, the apply
   as the write identity ([identities.md](https://github.com/bearclave/governance/blob/main/standards/identities.md)).
 - **Apply only what the plan proposed**, and only when it proposed

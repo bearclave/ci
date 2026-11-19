@@ -15,7 +15,7 @@ Only what something reads from the root by itself:
 |---|---|
 | Git and GitHub | `README.md`, `.gitignore`, `.gitattributes`, `.editorconfig`, `LICENSE` (only where the code is handed over) |
 | Ecosystem manifests | `package.json` + lock, `pyproject.toml` + `uv.lock`, `Dockerfile`, `.dockerignore` |
-| Terragrunt context | `root.hcl`, `account.hcl` (terragrunt pipelines); `tenant.psd1` (`iac-m365`) |
+| Terragrunt context | `root.hcl`, `account.hcl` (terragrunt pipelines) |
 | Tools that look in the root | `.gitleaks.toml`, `.tflint.hcl`, `eslint.config.mjs`, `.mcp.json` (Claude Code) |
 | Folders | the vocabulary below and the content folders of the pipeline |
 
@@ -35,6 +35,7 @@ repository), a document in `docs/`.
 | `.github/dependabot.yml`, `.github/release.yml`, `.github/tool-versions.env` | GitHub and CI |
 | `.github/conventions.yaml` | conventions check, and the exceptions to this layout |
 | `.github/state-moves.yaml` | Terragrunt: the units whose state the owner moved ([code/terragrunt.md](https://github.com/bearclave/governance/blob/main/standards/code/terragrunt.md#moving-a-unit)) |
+| `.github/schemas/` | `<module>.schema.json`: the JSON Schema of each collection, copied from its module ([code/terragrunt.md](https://github.com/bearclave/governance/blob/main/standards/code/terragrunt.md#schemas)) |
 | `.github/sentinel-lint.yaml` | Sentinel lint |
 | `.github/trivyignore.yaml` | accepted trivy findings, each with a reason and a review date |
 | `.github/pssa.psd1` | PSScriptAnalyzer settings |
@@ -53,9 +54,10 @@ English, plural, the same names everywhere:
 | `tools/` | scripts a person runs for this repository: build, generators, bootstrap, operations |
 | `docs/` | longer documents (below) |
 | `_common/` | shared code that is neither a unit nor a module (Terragrunt includes, `_common/` of modules) |
+| `.vscode/` | `settings.json` only, with what the editor needs to read the repository: the `yaml.schemas` of the collections. No extensions list, no personal settings |
 
-Only in the group `app` and in `iac-m365`, each with a line in the README
-Layout section:
+Only in the group `app`, each with a line in the README Layout section
+(`content/` also in the group `template`, for a catalogue):
 
 | Folder | Holds |
 |---|---|
@@ -72,7 +74,7 @@ Content folders of a pipeline:
 | `terragrunt`, `terragrunt-home` | `infrastructure/` (required), every unit below it |
 | `terraform-modules` | folders holding modules, one per platform (`azure/`, `entra/`, `github/`, `routeros/`) |
 | `static-web-app` | `api/` (the Functions folder of the site) |
-| `content-sentinel` | `ARM/`, `terragrunt/` |
+| `content-sentinel` | `ARM/`, `terragrunt/` until the catalogue is in the YAML of `iac-sentinel`; then `content/` and the pipeline `checks` ([code/sentinel.md](https://github.com/bearclave/governance/blob/main/standards/code/sentinel.md#content-sentinel)) |
 | `ci` | `templates/` |
 
 A script belongs in `tools/` only when it serves this repository. Logic

@@ -29,8 +29,8 @@ where its pipeline reads it.
 | Tool | Used for |
 |---|---|
 | `bash`, coreutils, `curl`, `tar`, `unzip`, `jq`, `git` | scripts and downloads |
-| `python3` (standard library only) | the conventions and Sentinel lint scripts |
-| `pwsh` | the Microsoft365DSC pipelines |
+| `python3` (standard library only) | the conventions, schema and Sentinel lint scripts |
+| `yq` | YAML to JSON for those scripts (the configs, the objects of collections) |
 | `az` | sign-in by OIDC and Azure calls (through `azure/login`) |
 | `gh` | pull request comments and labels |
 | `node` / `npx` | the Static Web Apps CLI and site builds, at a pinned package version |
@@ -45,7 +45,7 @@ Two places, nothing else:
 | File | Holds | Read by |
 |---|---|---|
 | `security.yml` and `pr.yml` of `bearclave/ci` (`env`) | gitleaks, actionlint, zizmor, shellcheck; markdownlint-cli2 (image version and digest): version and sha256 | the `security` and `pr` jobs of every repository |
-| **`.github/tool-versions.env` of each repository** | the tools its own pipeline installs: Terraform, Terragrunt, TFLint, Trivy, Microsoft365DSC, ... with sha256 | the shared workflow it calls, from the caller's checkout |
+| **`.github/tool-versions.env` of each repository** | the tools its own pipeline installs: Terraform, Terragrunt, TFLint, Trivy, ... with sha256 | the shared workflow it calls, from the caller's checkout |
 
 A repository's plan therefore runs exactly the versions in its own
 `tool-versions.env`, whatever release of `ci` it calls.
@@ -58,8 +58,6 @@ A repository's plan therefore runs exactly the versions in its own
 | Trivy | release binary + sha256 | `terragrunt*`, `terraform-modules` |
 | gitleaks, actionlint, zizmor, shellcheck | release binary + sha256 | `security` |
 | markdownlint-cli2 | container image pinned by digest | `pr` |
-| Microsoft365DSC | `Install-Module -RequiredVersion` | `m365-*` |
-| Pester, PSScriptAnalyzer | `Install-Module -RequiredVersion` | `m365-*` |
 | Static Web Apps CLI | `npx` at a pinned version | `static-web-app` |
 | ESLint, `@eslint/js`, `globals` | `npx` at a pinned version, or the repository's `package.json` | `static-web-app`, `container`, `checks` |
 

@@ -16,7 +16,7 @@ what runs, and the apply run is its record.
 | `app-home` | yes | the image tag the NAS runs (today `:main`) |
 | `app-office-templates` | yes | the generated templates handed to the website |
 | `vs-code-extensions` | per extension | the `version` in each extension's `package.json`, built into its VSIX; no git tag ([below](#vs-code-extensions)) |
-| `iac-azure`, `iac-m365`, `iac-home`, `iac-github`, `app-web-*` | no | applied or deployed from `main` |
+| `iac-*` but `iac-modules`, `app-web-*` | no | applied or deployed from `main` |
 | `governance`, `handbook`, `ops-tools`, `.github`, `content-sentinel` | no | read, not consumed |
 
 ## First releases

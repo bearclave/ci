@@ -57,17 +57,22 @@ federation is a smaller blast radius.
   `azurerm_static_web_app`. It goes once the module stops reading it
   (`api_key` ignored or the site through azapi).
 - A Tier-0 permission (Owner on a management group, Privileged Role
-  Administrator, `RoleManagement.ReadWrite.Directory`, `Directory.ReadWrite.All`)
-  only on an **apply** identity, federated only on its environment.
-- The description of the application in `iac-azure` says what it may do;
-  the inventory repeats it.
+  Administrator, `RoleManagement.ReadWrite.Directory`, `Directory.ReadWrite.All`,
+  `Application.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`)
+  only on an **apply** identity, federated only on its environment. In Entra
+  ID only `sp-tf-identity` holds Tier-0.
+- Graph permissions are **application permissions**, never delegated; an
+  Entra role only where the API knows no permission (Exchange, Purview,
+  the Entra diagnostic setting).
+- The description of the application says what it may do; the inventory
+  repeats it.
 
 ## Federated credentials
 
 | Type | Subject(s) | Never |
 |---|---|---|
 | plan | `<prefix>:pull_request` and `<prefix>:ref:refs/heads/main` (the drift runs on a schedule from `main`) | an environment |
-| apply | `<prefix>:environment:<prod environment>` only (`azure-prod`, `github-prod`, `home-prod`, `m365-prod`) | `ref:refs/heads/main`, `pull_request` |
+| apply | `<prefix>:environment:<prod environment>` only (`<subject>-prod`, [repo-types.md](https://github.com/bearclave/governance/blob/main/standards/repo-types.md#iac-terragrunt-terragrunt-home)) | `ref:refs/heads/main`, `pull_request` |
 | bot | `<prefix>:environment:<workflow environment>` of `ci` (`major-tag`, `deps`, `project-sync`) | a branch or `pull_request` |
 | deploy | `<prefix>:environment:prod` | a branch or `pull_request` |
 
@@ -95,33 +100,58 @@ federation is a smaller blast radius.
 Descriptions are English and say what the identity may do and what it may
 not.
 
+## The repositories of the Microsoft cloud
+
+Each repository has its own pair, `sp-tf-<subject>-plan` and
+`sp-tf-<subject>` (`sp-tf-identity`, `sp-tf-conditional-access`,
+`sp-tf-intune`, `sp-tf-exchange`, `sp-tf-purview`, `sp-tf-sentinel`), its
+state container `tfstate-<subject>` (plan Storage Blob Data Reader, apply
+Contributor, on that container only) and nothing of another domain: a
+repository more is a narrower identity, never the sum of two admin roles.
+Microsoft Graph application permissions unless another API is named:
+
+| Repository | plan | apply |
+|---|---|---|
+| `iac-identity` | `Application.Read.All`, `Directory.Read.All`, `RoleManagement.Read.Directory`, `Policy.Read.All`, `AccessReview.Read.All`; Key Vault Reader on the vault with the public certificates of the applications | `Application.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `RoleManagement.ReadWrite.Directory` (roles, role-assignable groups and their members), `Group.ReadWrite.All`, `GroupMember.ReadWrite.All`, `User.Read.All`, `Policy.Read.All`, `Policy.ReadWrite.ApplicationConfiguration`, `Policy.ReadWrite.ConsentRequest`, `Policy.ReadWrite.AuthenticationMethod`, `Policy.ReadWrite.Authorization`, `Policy.ReadWrite.CrossTenantAccess`, `Policy.ReadWrite.ExternalIdentities`, `Policy.ReadWrite.SecurityDefaults`, `Policy.ReadWrite.IdentityProtection`, `Policy.ReadWrite.DeviceConfiguration`, `AccessReview.ReadWrite.All`, `Directory.ReadWrite.All` (only the directory settings `/settings` need it); Key Vault Reader on the same vault |
+| `iac-conditional-access` | `Policy.Read.All`, `Application.Read.All`, `Group.Read.All`, `RoleManagement.Read.Directory` | the same and `Policy.ReadWrite.ConditionalAccess` (policies, named locations, authentication strengths and contexts) |
+| `iac-intune` | `DeviceManagementConfiguration.Read.All`, `DeviceManagementApps.Read.All`, `DeviceManagementServiceConfig.Read.All`, `DeviceManagementRBAC.Read.All`, `Group.Read.All` | `DeviceManagementConfiguration.ReadWrite.All`, `DeviceManagementApps.ReadWrite.All`, `DeviceManagementServiceConfig.ReadWrite.All`, `DeviceManagementRBAC.Read.All`, `Group.Read.All`; never `DeviceManagementManagedDevices.*`, `Device.ReadWrite.All` or Intune Administrator |
+| `iac-exchange` | Office 365 Exchange Online `Exchange.ManageAsApp` and the Entra role Global Reader; `Application.Read.All` (`sp:` of RBAC for Applications) | `Exchange.ManageAsApp` and the Entra role Exchange Administrator; `Application.Read.All` |
+| `iac-purview` | `Exchange.ManageAsApp` and Global Reader; `Group.Read.All` (rights of the labels) | `Exchange.ManageAsApp` and the Entra role Compliance Administrator (labels, label policies, DLP, retention, alert policies, the audit log); `Group.Read.All` |
+| `iac-sentinel` | Microsoft Sentinel Reader and Log Analytics Reader on the resource group of the workspace, Reader on the resource group of the playbooks; `Group.Read.All`, `User.Read.All`, `Application.Read.All` (watchlists made from groups, `sp:`); the Entra role Security Reader (the Entra diagnostic setting) | Microsoft Sentinel Contributor on the resource group of the workspace (rules, saved searches, workbooks, connectors), Logic App Contributor on the resource group of the playbooks, Role Based Access Control Administrator on both with a condition that allows only the Sentinel roles a playbook's identity needs; Security Reader on the subscriptions of the Defender for Cloud connector; the Entra role Security Administrator (the Entra diagnostic setting, the Entra ID and Office 365 connectors); the same Graph permissions as plan |
+
+- **Never in these identities:** a permission of another domain, a
+  `*.ReadWrite.All` on a plan identity, delegated permissions, a client
+  secret. The Graph permissions a playbook's managed identity needs are
+  granted in `iac-identity` (`sp:<Logic App>`), never by `iac-sentinel`.
+- **Exchange and Purview** read the same `ARM_*` variables as the other
+  providers and sign in with the federated token; that Global Reader is
+  enough for the plan of Exchange and Security & Compliance app-only, and
+  Compliance Administrator for `Set-AdminAuditLogConfig`, is checked in the
+  read-only proof of concept before the first import. A certificate, should
+  a workload refuse the federated token, only for the apply identity, in the
+  Key Vault of the pipeline.
+- **A Logic App Standard** (prepared, not deployed) adds to `sp-tf-sentinel`
+  what its first instance needs - the plan, the storage account, private
+  endpoints - in the pull request that deploys it.
+
 ## Where they are declared
 
 | What | Where |
 |---|---|
-| The application and its service principal | `iac-azure` `tenant/applications` |
-| Federated credentials | `iac-azure` `tenant/federated-credentials` |
+| The application, its service principal, federated credentials, certificate and API permissions | `iac-identity`: one `<application>.yaml` in `infrastructure/applications/app-registrations/` |
+| Entra roles | `iac-identity` `infrastructure/roles/directory-roles/` |
 | Azure RBAC, Key Vault and state access | the unit of the resource, `role_assignments` |
-| Entra roles, Graph permissions | `iac-azure` `tenant/directory-roles`, `tenant/graph-permissions` |
-| Client ID in GitHub | repository variable in `iac-github` (`infrastructure/repositories/<name>`) |
+| Client ID in GitHub | repository variable in `iac-github` (`infrastructure/repositories/<name>`), looked up by the application's name |
 | GitHub Apps | the know-how repository `tools/iac-github/github-apps.py` (`iac-github`, `bearclave-bot`; key in the Key Vault), procedure in `iac-github` `docs/setup.md` |
 | Inventory | `bearclave/ci` `docs/identities.md` |
 
-A new identity is one pull request in `iac-azure` (application, credential,
-role assignments) and then one in `iac-github` (the variable); the
-inventory row comes with the workflow change in `ci` or with the first
-pull request that uses it.
+Until `iac-identity` has imported them, the applications, credentials, Entra
+roles and Graph permissions are in `iac-azure` `tenant/`; the domain moves
+as one hand-over ([code/terragrunt.md](https://github.com/bearclave/governance/blob/main/standards/code/terragrunt.md#handing-a-unit-over-to-another-repository)).
 
-## Microsoft365DSC
-
-`iac-m365` is being retired and keeps `sp-dsc-m365` as it is. A future
-Microsoft365DSC pipeline follows the same split:
-
-- **plan** (`Export`/`Test-DscConfiguration`): an application with the
-  workloads' read permissions only (Global Reader, `*.Read.All`, Exchange
-  `View-Only Organization Management`), federated on `pull_request` and
-  `main`;
-- **apply** (`Start-DscConfiguration`): the admin roles and write
-  permissions, federated only on its production environment;
-- certificate sign-in, where a workload refuses OIDC, only for the apply
-  identity, the certificate in the Key Vault of the pipeline.
+A new repository's identities, in this order: `iac-github` creates the
+repository and its environment; `iac-identity` the two applications, their
+federated credentials (the repository ID is a literal, it never changes)
+and permissions; `iac-azure` the state container and its role assignments;
+`iac-github` the variables. The inventory row comes with the workflow change
+in `ci` or with the first pull request that uses it.
