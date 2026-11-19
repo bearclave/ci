@@ -8,6 +8,7 @@
 # when it holds what its `content` kind names:
 #   units    a Terragrunt unit (terragrunt.hcl) somewhere below it
 #   modules  a Terraform module (*.tf) somewhere below it
+# `forbidden` takes folders of `common` away from a group or pipeline.
 # Anything else needs an exception with a reason in .github/conventions.yaml:
 #   layout:
 #     exceptions:
@@ -60,6 +61,7 @@ common:
     - release.yml
     - tool-versions.env
     - conventions.yaml
+    - state-moves.yaml
     - sentinel-lint.yaml
     - trivyignore.yaml
     - pssa.psd1
@@ -71,12 +73,19 @@ groups:
     folders: [config, content, data, deploy, lib]
 
 pipelines:
+  # Every unit under infrastructure/. No tools/ and no deploy/: a script
+  # the pipeline runs lives in bearclave/ci, one a person runs in the
+  # know-how repository, the bootstrap is a procedure in docs/setup.md.
   terragrunt:
+    required: [root.hcl, account.hcl, infrastructure]
     files: [root.hcl, account.hcl]
-    content: units
+    folders: [infrastructure]
+    forbidden: [tools, deploy]
   terragrunt-home:
+    required: [root.hcl, account.hcl, infrastructure]
     files: [root.hcl, account.hcl]
-    content: units
+    folders: [infrastructure]
+    forbidden: [tools, deploy]
   terraform-modules:
     content: modules
   m365-dsc:

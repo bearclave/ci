@@ -97,6 +97,19 @@ RE_SIGN = re.compile(r"^( +)([-+~]) ")
 
 MAX = 60_000
 MAX_ERROR_LINES = 25
+# Units live under infrastructure/; their state key, and what the comment
+# shows, is the path without it.
+CONTENT = "infrastructure/"
+
+
+def state_key(unit: str) -> str:
+    return unit[len(CONTENT):] if unit.startswith(CONTENT) else unit
+
+
+def json_plan(directory: str, unit: str) -> pathlib.Path:
+    """<directory>/<unit>/tfplan.json, under the unit's full path where that exists."""
+    full = pathlib.Path(directory, CONTENT + unit, "tfplan.json")
+    return full if full.is_file() else pathlib.Path(directory, unit, "tfplan.json")
 
 
 def fenced(lines: list, lang: str = "") -> list:
@@ -190,7 +203,7 @@ def trivy_findings(reports: str) -> list:
     for report_path in sorted(pathlib.Path(reports).glob("*.json")):
         report = json.loads(report_path.read_text(encoding="utf-8") or "{}")
         for result in report.get("Results") or []:
-            unit = report.get("Unit") or os.path.dirname(result.get("Target", "")) or "?"
+            unit = state_key(report.get("Unit") or os.path.dirname(result.get("Target", "")) or "?")
             for m in result.get("Misconfigurations") or []:
                 if m.get("Status") != "FAIL":
                     continue
@@ -225,12 +238,12 @@ def read_output(path: str):
     for line in open(path, encoding="utf-8", errors="replace"):
         line = line.rstrip("\n")
         if in_queue and (m := RE_BRANCH.match(line)):
-            queued[m.group(1)] = None
+            queued[state_key(m.group(1))] = None
         elif line.strip() != ".":
             in_queue = bool(RE_QUEUE.search(line))
         m = RE_UNIT.search(line)
         if m:
-            unit = m.group(1)
+            unit = state_key(m.group(1))
             label = line[:m.start()].split()
             stream = label[-1] if label and re.fullmatch(r"[A-Z]+", label[-1]) else ""
             text = line[m.end():]
@@ -281,7 +294,7 @@ def main(path: str, opts: dict) -> int:
     shared, shared_outputs, shared_findings = shared_parts(opts.get("import"))
     entries, from_json, outputs = [], {}, {}
     for u, p in sorted(parsed.items()):
-        plan_json = pathlib.Path(opts.get("json-dir") or "", u, "tfplan.json")
+        plan_json = json_plan(opts.get("json-dir") or "", u)
         got = None
         if u in shared:
             got = shared[u]

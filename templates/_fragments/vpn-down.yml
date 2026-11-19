@@ -2,4 +2,5 @@
   if: always() && inputs.vpn-script != ''
   env:
     VPN: ${{ inputs.vpn-script }}
-  run: '"./$VPN" down'
+  run: |
+    if [ -x "$RUNNER_TEMP/ci/$VPN" ]; then "$RUNNER_TEMP/ci/$VPN" down; else "./$VPN" down; fi

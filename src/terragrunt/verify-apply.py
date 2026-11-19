@@ -45,6 +45,12 @@ RE_LINE = re.compile(r"\[(?P<unit>[^\]]+)\] (?:terraform|tofu): ?(?P<text>.*)$")
 RE_CHECK = re.compile(r'in check "(?P<name>[^"]+)"')
 NOOP = ({"no-op"}, {"read"})
 MAX_ERRORS = 20
+# A unit is reported by its state key, the path without infrastructure/.
+CONTENT = "infrastructure/"
+
+
+def state_key(unit: str) -> str:
+    return unit[len(CONTENT):] if unit.startswith(CONTENT) else unit
 
 
 def plans(json_dir: str):
@@ -57,7 +63,7 @@ def plans(json_dir: str):
             plan = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        yield str(f.parent.relative_to(root)), plan
+        yield state_key(str(f.parent.relative_to(root))), plan
 
 
 def subscriptions(json_dir: str) -> list:
@@ -121,7 +127,7 @@ def log_checks(path: str) -> list:
         m = RE_LINE.search(raw)
         if not m:
             continue
-        unit, text = m.group("unit"), m.group("text")
+        unit, text = state_key(m.group("unit")), m.group("text")
         if "Check block assertion failed" in text:
             open_by_unit[unit] = {"unit": unit, "check": None, "message": None, "source": "apply"}
             continue
@@ -160,7 +166,7 @@ def replan_errors(path: str) -> list:
     for raw in pathlib.Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
         m = RE_LINE.search(raw)
         if m and m.group("text").startswith("Error:"):
-            out.append(f"{m.group('unit')}: {m.group('text')[len('Error:'):].strip()}")
+            out.append(f"{state_key(m.group('unit'))}: {m.group('text')[len('Error:'):].strip()}")
     return out[:MAX_ERRORS]
 
 

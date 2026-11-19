@@ -156,23 +156,35 @@ select:
         BASE: ${{ steps.base.outputs.sha }}
       run: |
         set -euo pipefail
-        selection=$(select-units.py "$BASE")
+        # The moves of state the owner made for this change (format in
+        # docs/terragrunt.md#moving-a-unit).
+        moves=()
+        if [ -f .github/state-moves.yaml ]; then
+          yq -o=json '.' .github/state-moves.yaml >"$RUNNER_TEMP/state-moves.json"
+          moves=(--moves="$RUNNER_TEMP/state-moves.json")
+        fi
+        selection=$(select-units.py "$BASE" "${moves[@]}")
         if [ "$SCOPE" = "all" ]; then
           selection=$(jq -c '.all = true | .units = []' <<<"$selection")
         fi
         echo "selection=$selection" >>"$GITHUB_OUTPUT"
+        # Paths shown as their state keys, without infrastructure/.
         jq -r '
+          def key: sub("^infrastructure/"; "");
           (if .all then "Selected: the whole tree."
-           elif (.units | length) > 0 then "Selected: " + (.units | join(", ")) + "."
+           elif (.units | length) > 0 then "Selected: " + (.units | map(key) | join(", ")) + "."
            else "Selected: no unit to plan." end),
           (if (.deleted | length) > 0
-           then "Deleted, planned as a destroy: " + (.deleted | join(", ")) + "."
+           then "Deleted, planned as a destroy: " + (.deleted | map(key) | join(", ")) + "."
+           else empty end),
+          (if (.moved | length) > 0
+           then "Moved with their state: " + (.moved | map("\(.[0] | key) → \(.[1] | key)") | join(", ")) + "."
            else empty end)
         ' <<<"$selection" >>"$GITHUB_STEP_SUMMARY"
         # The state key is the unit's path: a moved directory would be a new
         # unit that creates everything again, next to the old resources.
         if [ "$(jq '.renamed | length' <<<"$selection")" -gt 0 ]; then
-          jq -r '.renamed[] | "::error::\(.[0]) moved to \(.[1]). Moving a unit changes its state key. Delete the unit in one pull request (it gets destroyed) and add it under the new path in the next, or move its state by hand first."' <<<"$selection"
+          jq -r '.renamed[] | "::error::\(.[0]) moved to \(.[1]). Moving a unit changes its state key. Move its state first and list the move in .github/state-moves.yaml, or delete the unit in one pull request (it gets destroyed) and add it under the new path in the next."' <<<"$selection"
           exit 1
         fi
 
@@ -338,7 +350,11 @@ validate:
         [ "$REQUIRE" = "true" ] || level=warning
         rc=0
         missing=0
+        # A unit its exclude block keeps out (a device not under Terraform
+        # yet) is never initialised and has no lock to hold.
+        mapfile -t excluded < <(jq -r '.excluded[]?' <<<"$SELECTION")
         for u in "${units[@]}"; do
+          if printf '%s\n' "${excluded[@]}" | grep -qxF -- "$u"; then continue; fi
           if ! git ls-files --error-unmatch -- "$u/.terraform.lock.hcl" >/dev/null 2>&1; then
             echo "::$level file=$u/terragrunt.hcl,title=Lock file::$u has no committed .terraform.lock.hcl. Run 'terragrunt run -- providers lock -platform=linux_amd64 -platform=darwin_arm64' in $u and commit the file."
             missing=$((missing + 1))
@@ -498,6 +514,18 @@ plan-shard:
           [ "$destroy_rc" -eq 0 ] || rc=$destroy_rc
         fi
         exit "$rc"
+
+    # A unit that moved with its state plans no create and no destroy;
+    # one would mean the state did not come along.
+    - name: Moved units keep their state
+      if: always()
+      env:
+        SELECTION: ${{ needs.select.outputs.selection }}
+        PLAN_JSON: ${{ runner.temp }}/plan-json
+      run: |
+        set -euo pipefail
+        printf '%s' "$SELECTION" >"$RUNNER_TEMP/selection.json"
+        check-moves.py "$RUNNER_TEMP/selection.json" "$PLAN_JSON"
 
     @@include templates/_fragments/vpn-down.yml@@
 

@@ -261,6 +261,149 @@ class Config(Base):
         self.assertIn("::error file=_envcommon/x.hcl,line=1,title=no-envcommon::", proc.stdout)
 
 
+def unit(module, extra=""):
+    """A unit of the standard: root and its _common/units/<module>.hcl."""
+    return ('include "root" {\n  path   = find_in_parent_folders("root.hcl")\n  expose = true\n}\n\n'
+            f'include "unit" {{\n  path           = "${{get_repo_root()}}/_common/units/{module}.hcl"\n'
+            '  merge_strategy = "deep"\n}\n\n' + extra + "inputs = {}\n")
+
+
+def common_unit(module):
+    return ('locals {\n  account = read_terragrunt_config(find_in_parent_folders("account.hcl")).locals\n}\n'
+            f'terraform {{\n  source = "${{local.account.modules}}//azure/{module}?ref=${{local.account.modules_ref}}"\n}}\n')
+
+
+I = "infrastructure/mg-corp"
+STANDARD = {
+    "units": ["infrastructure/**/terragrunt.hcl"],
+    "rules": {"module-source": {}, "unit-assets": {}, "scope-layout": {}, "folder-dictionary": {}},
+}
+STANDARD_TREE = {
+    **{f"_common/units/{m}.hcl": common_unit(m) for m in (
+        "management-group", "subscription", "resource-group", "policy-assignments",
+        "key-vault", "logic-app-workflow", "data-collection-rule")},
+    f"{I}/mg.hcl": "locals {}\n",
+    f"{I}/terragrunt.hcl": unit("management-group"),
+    f"{I}/.terraform.lock.hcl": "# lock\n",
+    f"{I}/global/policy-assignments/terragrunt.hcl": unit("policy-assignments"),
+    f"{I}/mg-corp-platform/mg.hcl": "locals {}\n",
+    f"{I}/mg-corp-platform/terragrunt.hcl": unit("management-group"),
+    f"{I}/mg-corp-platform/sub-a/subscription.hcl": "locals {}\n",
+    f"{I}/mg-corp-platform/sub-a/terragrunt.hcl": unit("subscription"),
+    f"{I}/mg-corp-platform/sub-a/weu/region.hcl": "locals {}\n",
+    f"{I}/mg-corp-platform/sub-a/weu/rg-web/rg.hcl": "locals {}\n",
+    f"{I}/mg-corp-platform/sub-a/weu/rg-web/terragrunt.hcl": unit("resource-group"),
+    f"{I}/mg-corp-platform/sub-a/weu/rg-web/key-vault/terragrunt.hcl": unit("key-vault"),
+    f"{I}/mg-corp-platform/sub-a/weu/rg-web/data-collection-rule-syslog/terragrunt.hcl":
+        unit("data-collection-rule"),
+    f"{I}/mg-corp-platform/sub-a/weu/rg-web/logic-app-workflow/terragrunt.hcl":
+        unit("logic-app-workflow", 'locals {\n  workflow = file("${get_terragrunt_dir()}/definition.json")\n}\n\n'),
+    f"{I}/mg-corp-platform/sub-a/weu/rg-web/logic-app-workflow/definition.json": "{}\n",
+}
+WEB = f"{I}/mg-corp-platform/sub-a/weu/rg-web"
+
+
+class Standard(Base):
+    """The live repository after code/terragrunt.md: infrastructure/, _common/units/, scopes."""
+
+    def hits(self, changes=None, drop=(), config=STANDARD):
+        tree = {k: v for k, v in {**STANDARD_TREE, **(changes or {})}.items() if k not in drop}
+        self.write(tree)
+        return self.rules_hit(config)
+
+    def test_standard_tree(self):
+        self.assertEqual(self.hits(), [])
+
+    def test_source_only_in_common_units(self):
+        self.assertEqual(self.hits({f"{WEB}/key-vault/terragrunt.hcl": "inputs = {}\n"}),
+                         [("module-source", f"{WEB}/key-vault/terragrunt.hcl", 1)])
+        self.assertEqual(self.hits({"_common/units/key-vault.hcl":
+                                    'terraform {\n  source = "../modules/key-vault"\n}\n'}),
+                         [("module-source", "_common/units/key-vault.hcl", 2)])
+
+    def test_unit_assets(self):
+        self.assertEqual(self.hits({
+            f"{WEB}/data-collection-rule-syslog/transform.kql": "Syslog\n",
+            f"{WEB}/key-vault/definition.json": "{}\n",
+            f"{I}/README.md": "# x\n",
+        }, config={**STANDARD, "rules": {"unit-assets": {}}}), [
+            ("unit-assets", f"{I}/README.md", 1),
+            ("unit-assets", f"{WEB}/data-collection-rule-syslog/transform.kql", 1),
+            ("unit-assets", f"{WEB}/key-vault/definition.json", 1),
+        ])
+
+    def test_dependency_in_a_common_unit_needs_its_mocks(self):
+        config = {**STANDARD, "rules": {"dependencies-in-common": {"dir": "_common/deps"},
+                                        "mock-outputs": {"dir": "_common/deps"}}}
+        self.assertEqual(self.hits({"_common/units/key-vault.hcl": common_unit("key-vault")
+                                    + 'dependency "rg" {\n  config_path = "../"\n}\n'}, config=config),
+                         [("mock-outputs", "_common/units/key-vault.hcl", 7),
+                          ("mock-outputs", "_common/units/key-vault.hcl", 7)])
+
+    def test_unit_assets_outside_the_infrastructure_folder(self):
+        self.assertEqual(self.hits({"tenant/apps/terragrunt.hcl": unit("key-vault"),
+                                    "tenant/apps/cert.pem": "x\n"}),
+                         [("unit-assets", "tenant/apps/cert.pem", 1)])
+
+    def test_unit_assets_allowlist(self):
+        config = {**STANDARD, "rules": {"unit-assets": {"allowed": ["definition.json", "ca.crt"]}}}
+        self.assertEqual(self.hits({f"{WEB}/key-vault/ca.crt": "x\n",
+                                    f"{WEB}/key-vault/terragrunt.hcl": unit("key-vault", '# ca.crt\n')},
+                                   config=config), [])
+
+    def test_scope_layout(self):
+        self.assertEqual(self.hits({
+            f"{I}/policy-assignments/terragrunt.hcl": unit("policy-assignments"),
+            f"{I}/mg-corp-platform/sub-a/weu/storage/terragrunt.hcl": unit("key-vault"),
+            f"{I}/mg-corp-platform/sub-a/global/notes.txt": "x\n",
+            f"{I}/mg-corp-platform/sub-a/neu/rg-x/rg.hcl": "locals {}\n",
+            f"{WEB}/key-vault/certificate/terragrunt.hcl": unit("key-vault"),
+        }, config={**STANDARD, "rules": {"scope-layout": {}}}), [
+            ("scope-layout", f"{I}/mg-corp-platform/sub-a/global/notes.txt", 1),
+            ("scope-layout", f"{I}/mg-corp-platform/sub-a/neu/", 1),
+            ("scope-layout", f"{WEB}/key-vault/", 1),
+            ("scope-layout", f"{I}/mg-corp-platform/sub-a/weu/storage/", 1),
+            ("scope-layout", f"{I}/policy-assignments/", 1),
+        ])
+
+    def test_scope_without_its_context_file(self):
+        self.assertEqual(self.hits(drop=(f"{WEB}/rg.hcl",), config={**STANDARD, "rules": {"scope-layout": {}}}),
+                         [("scope-layout", f"{WEB}/", 1)])
+
+    def test_device_folder(self):
+        tree = {"infrastructure/router/device.hcl": "locals {}\n",
+                "infrastructure/router/dns/terragrunt.hcl": unit("key-vault"),
+                "infrastructure/router/ca-bundle.crt": "x\n",
+                "infrastructure/router/dns/static/terragrunt.hcl": unit("key-vault")}
+        self.assertEqual(self.hits(tree, config={**STANDARD, "rules": {"scope-layout": {}}}), [
+            ("scope-layout", "infrastructure/router/ca-bundle.crt", 1),
+            ("scope-layout", "infrastructure/router/dns/", 1),
+        ])
+
+    def test_folder_dictionary(self):
+        self.assertEqual(self.hits({
+            f"{WEB}/kv/terragrunt.hcl": unit("key-vault"),
+            f"{WEB}/key-vault-apps/terragrunt.hcl": unit("key-vault"),
+            "_common/units/vault.hcl": common_unit("key-vault"),
+            f"{WEB}/key-vault-old/terragrunt.hcl": unit("vault"),
+        }, config={**STANDARD, "rules": {"folder-dictionary": {}}}), [
+            ("folder-dictionary", "_common/units/vault.hcl", 1),
+            ("folder-dictionary", f"{WEB}/kv/terragrunt.hcl", 1),
+        ])
+
+    def test_folder_dictionary_collection_folder(self):
+        config = {**STANDARD, "rules": {"folder-dictionary": {}}}
+        self.assertEqual(self.hits({"_common/units/repository.hcl": common_unit("repository"),
+                                    "infrastructure/repositories/iac-home/terragrunt.hcl": unit("repository"),
+                                    "infrastructure/repos/ci/terragrunt.hcl": unit("repository")},
+                                   config=config),
+                         [("folder-dictionary", "infrastructure/repos/ci/terragrunt.hcl", 1)])
+
+    def test_folder_dictionary_with_a_folder_of_its_own(self):
+        config = {**STANDARD, "rules": {"folder-dictionary": {"folders": {"key-vault": ["kv"]}}}}
+        self.assertEqual(self.hits({f"{WEB}/kv/terragrunt.hcl": unit("key-vault")}, config=config), [])
+
+
 TD = "TO" + "DO"
 
 
@@ -299,6 +442,10 @@ class EveryRepository(Base):
         self.assertEqual(self.hits("markdown-links"), [
             ("markdown-links", "README.md", 7), ("markdown-links", "README.md", 7),
             ("markdown-links", "README.md", 7), ("markdown-links", "README.md", 14)])
+
+    def test_anchor_of_a_heading_with_code(self):
+        self.write({"a.md": "# A\n\n## `_common/`\n\n[x](#_common)\n"})
+        self.assertEqual(self.hits("markdown-links"), [])
 
     def test_slug_of_a_heading(self):
         self.assertEqual(conventions.slug("Plan and apply comments"), "plan-and-apply-comments")

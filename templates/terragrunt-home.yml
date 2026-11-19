@@ -13,7 +13,7 @@
 #                           drift and fails the run
 # Manual run on main      -> as a push
 #
-# The runner joins the home network with the repository's own script
+# The runner joins the home network with src/terragrunt/home-vpn.sh
 # (vpn-script up|down), which signs in to Azure, reads its keys from the
 # vault and maps the router's internal name. One router, one WireGuard peer:
 # the plan runs as one job, and the caller's concurrency group never lets two
@@ -57,7 +57,7 @@ on:
       relevant-paths:
         description: Regular expression of the paths whose change needs a plan (grep -E over the changed files)
         type: string
-        default: '^(router-hap/|_common/|tools/|\.github/)|^(root|account)\.hcl$'
+        default: '^(infrastructure/|_common/|\.github/)|^(root|account)\.hcl$'
       environment:
         description: Environment of the apply job; its branch policy allows main only
         type: string
@@ -126,13 +126,13 @@ on:
         type: boolean
         default: true
       vpn-script:
-        description: Script of the repository that joins (up) and leaves (down) the home network
+        description: Script that joins (up) and leaves (down) the home network; a script of ci by its name, or a path in the repository
         type: string
-        default: tools/home-vpn.sh
+        default: home-vpn.sh
       renewal-unit:
         description: Unit a scheduled run applies when its plan proposes something (the certificate)
         type: string
-        default: router-hap/letsencrypt
+        default: infrastructure/router/letsencrypt
     secrets:
       modules-deploy-key:
         description: Read-only deploy key of bearclave/iac-modules

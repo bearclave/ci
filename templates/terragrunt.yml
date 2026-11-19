@@ -93,7 +93,7 @@ on:
       relevant-paths:
         description: Regular expression of the paths whose change needs a plan (grep -E over the changed files)
         type: string
-        default: '^(mg-corp/|tenant/|_common/|\.github/)|^(root|account)\.hcl$'
+        default: '^(infrastructure/|tenant/|_common/|\.github/)|^(root|account)\.hcl$'
       environment:
         description: Environment of the apply job; its branch policy allows main only
         type: string

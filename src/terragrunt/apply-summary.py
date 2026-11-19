@@ -53,6 +53,12 @@ RE_UNIT_DONE = re.compile(r"^(?:Apply|Destroy) complete! Resources:")
 RE_ERROR = re.compile(r"^\s*Error: (.+)$")
 RE_WARNING = re.compile(r"^\s*Warning: ")
 RE_WITH = re.compile(r"^\s*with (\S+?),\s*$")
+# The comment shows a unit by its state key, the path without infrastructure/.
+CONTENT = "infrastructure/"
+
+
+def state_key(unit: str) -> str:
+    return unit[len(CONTENT):] if unit.startswith(CONTENT) else unit
 
 
 def code(text) -> str:
@@ -99,7 +105,7 @@ def read_apply(paths: list) -> dict:
         m = RE_UNIT.search(line)
         if not m:
             continue
-        unit = m.group(1)
+        unit = state_key(m.group(1))
         label = line[:m.start()].split()
         stream = label[-1] if label and re.fullmatch(r"[A-Z]+", label[-1]) else ""
         text = line[m.end():]
@@ -167,7 +173,7 @@ def main(paths: list, opts: dict) -> int:
     commit = opts.get("commit") or os.environ.get("GITHUB_SHA", "")
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
-    planned = changes.get("units") or sorted(units)
+    planned = [state_key(u) for u in changes.get("units") or []] or sorted(units)
     applied = sorted({e["unit"] for e in entries} | set(units))
 
     line = []

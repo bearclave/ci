@@ -748,5 +748,35 @@ class ApplyComment(unittest.TestCase):
         self.assertIn("The apply job ended as `cancelled`", comment)
 
 
+class InfrastructureFolder(unittest.TestCase):
+    """Units under infrastructure/ show as their state key, the path without it."""
+
+    def test_plan_and_apply_show_the_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            json_dir = pathlib.Path(tmp, "json", "infrastructure", "mg", "rg-web")
+            json_dir.mkdir(parents=True)
+            json_dir.joinpath("tfplan.json").write_text(
+                (HERE / "readable" / "mg" / "rg-web" / "tfplan.json").read_text())
+            text = sample("readable.txt").replace("[mg/rg-web]", "[infrastructure/mg/rg-web]")
+            plan_path = pathlib.Path(tmp, "plan.txt")
+            plan_path.write_text(text)
+            changes = pathlib.Path(tmp, "changes.json")
+            plan = run(text, f"--json-dir={pathlib.Path(tmp, 'json')}", "--changes-out={changes}")
+            self.assertIn("📥 **Imported without a change:** 1 — `mg/rg-web` (1).", plan["comment"])
+            self.assertIn("| ✏️ | Resource group | `rg-web-app-weu-001` | tag `criticality` |",
+                          plan["comment"])
+            self.assertNotIn("infrastructure/", plan["comment"])
+            self.assertEqual(plan["changes"]["units"], ["mg/rg-web"])
+            subprocess.run([sys.executable, str(SCRIPT), str(plan_path),
+                            f"--json-dir={pathlib.Path(tmp, 'json')}", f"--changes-out={changes}"],
+                           capture_output=True, check=True, env={**os.environ, **ENV})
+            apply_text = (HERE / "apply" / "rg-web.txt").read_text().replace(
+                "[mg/rg-web]", "[infrastructure/mg/rg-web]")
+            comment = run(apply_text, f"--changes={changes}", "--outcome=failure",
+                          script=APPLY)["comment"]
+        self.assertIn("**`mg/rg-web`**", comment)
+        self.assertNotIn("infrastructure/", comment)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

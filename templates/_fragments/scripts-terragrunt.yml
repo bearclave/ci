@@ -6,8 +6,8 @@
     cat >"$d/select-units.py" <<'__CI_EOF__'
     @@include src/terragrunt/select-units.py@@
     __CI_EOF__
-    cat >"$d/expand-dependencies.py" <<'__CI_EOF__'
-    @@include src/terragrunt/expand-dependencies.py@@
+    cat >"$d/check-moves.py" <<'__CI_EOF__'
+    @@include src/terragrunt/check-moves.py@@
     __CI_EOF__
     cat >"$d/check-principal-refs.py" <<'__CI_EOF__'
     @@include src/terragrunt/check-principal-refs.py@@
@@ -20,6 +20,9 @@
     __CI_EOF__
     cat >"$d/trivy-plans.sh" <<'__CI_EOF__'
     @@include src/terragrunt/trivy-plans.sh@@
+    __CI_EOF__
+    cat >"$d/home-vpn.sh" <<'__CI_EOF__'
+    @@include src/terragrunt/home-vpn.sh@@
     __CI_EOF__
     chmod +x "$d"/*
 
