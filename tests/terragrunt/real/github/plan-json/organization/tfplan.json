@@ -1,0 +1,127 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.16.4",
+ "resource_changes": [
+  {
+   "address": "github_actions_organization_permissions.this",
+   "mode": "managed",
+   "type": "github_actions_organization_permissions",
+   "name": "this",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_actions_organization_variable.this[\"AZURE_TENANT_ID\"]",
+   "mode": "managed",
+   "type": "github_actions_organization_variable",
+   "name": "this",
+   "index": "AZURE_TENANT_ID",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_actions_organization_workflow_permissions.this",
+   "mode": "managed",
+   "type": "github_actions_organization_workflow_permissions",
+   "name": "this",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_organization_custom_properties.this[\"direct-commit\"]",
+   "mode": "managed",
+   "type": "github_organization_custom_properties",
+   "name": "this",
+   "index": "direct-commit",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_organization_custom_properties.this[\"entity\"]",
+   "mode": "managed",
+   "type": "github_organization_custom_properties",
+   "name": "this",
+   "index": "entity",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_organization_custom_properties.this[\"group\"]",
+   "mode": "managed",
+   "type": "github_organization_custom_properties",
+   "name": "this",
+   "index": "group",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_organization_custom_properties.this[\"pipeline\"]",
+   "mode": "managed",
+   "type": "github_organization_custom_properties",
+   "name": "this",
+   "index": "pipeline",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_organization_custom_properties.this[\"touches-production\"]",
+   "mode": "managed",
+   "type": "github_organization_custom_properties",
+   "name": "this",
+   "index": "touches-production",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "github_organization_settings.this",
+   "mode": "managed",
+   "type": "github_organization_settings",
+   "name": "this",
+   "provider_name": "registry.terraform.io/integrations/github",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "custom_properties": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

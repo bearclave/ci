@@ -1,0 +1,122 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azuread_user.this[\"bg.001\"]",
+   "mode": "managed",
+   "type": "azuread_user",
+   "name": "this",
+   "index": "bg.001",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_user.this[\"bg.002\"]",
+   "mode": "managed",
+   "type": "azuread_user",
+   "name": "this",
+   "index": "bg.002",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_user.this[\"ga.matej.hrabalek\"]",
+   "mode": "managed",
+   "type": "azuread_user",
+   "name": "this",
+   "index": "ga.matej.hrabalek",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_user.this[\"matej\"]",
+   "mode": "managed",
+   "type": "azuread_user",
+   "name": "this",
+   "index": "matej",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "random_password.initial[\"bg.001\"]",
+   "mode": "managed",
+   "type": "random_password",
+   "name": "initial",
+   "index": "bg.001",
+   "provider_name": "registry.terraform.io/hashicorp/random",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "random_password.initial[\"bg.002\"]",
+   "mode": "managed",
+   "type": "random_password",
+   "name": "initial",
+   "index": "bg.002",
+   "provider_name": "registry.terraform.io/hashicorp/random",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "random_password.initial[\"ga.matej.hrabalek\"]",
+   "mode": "managed",
+   "type": "random_password",
+   "name": "initial",
+   "index": "ga.matej.hrabalek",
+   "provider_name": "registry.terraform.io/hashicorp/random",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "random_password.initial[\"matej\"]",
+   "mode": "managed",
+   "type": "random_password",
+   "name": "initial",
+   "index": "matej",
+   "provider_name": "registry.terraform.io/hashicorp/random",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "user_ids": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "user_principal_names": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

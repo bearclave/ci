@@ -1,0 +1,142 @@
+{
+ "destroys": [
+  [
+   "🗑️",
+   "Role assignment",
+   "`Log Analytics Reader for group:sg-azure-security-responders on rg-security-mgmt-weu-001`",
+   "`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security`",
+   "its key is no longer in the `for_each`"
+  ]
+ ],
+ "changes": [
+  [
+   "✏️",
+   "Resource group",
+   "`rg-security-mgmt-weu-001`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Action group",
+   "`ag-security-mgmt-weu-001`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/action-group`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Data collection endpoint",
+   "`dce-security-mgmt-weu-001`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/data-collection-endpoints/syslog-home`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Data collection rule",
+   "`dcr-security-mgmt-weu-001`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/data-collection-rules/syslog-home`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Key Vault",
+   "`kv-security-mgmt-weu-001`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/key-vault`</sub>",
+   "setting `network_acls.ip_rules`: added `198.51.100.7`",
+   "—",
+   "—"
+  ],
+  [
+   "✏️",
+   "",
+   "",
+   "setting `soft_delete_retention_days`",
+   "`90`",
+   "`89`"
+  ],
+  [
+   "✏️",
+   "",
+   "",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Key Vault certificate",
+   "`dsc-m365`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/key-vault/certificate`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Key Vault certificate",
+   "`syslog-nas`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/key-vault/certificate`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Key Vault certificate",
+   "`teams-asistent`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/key-vault/certificate`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Log Analytics workspace",
+   "`law-security-mgmt-weu-001`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/log-analytics-workspace`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Workbook",
+   "`Azure Activity`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/microsoft-sentinel/content/workbooks`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Workbook",
+   "`Microsoft Entra ID Audit Logs`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/microsoft-sentinel/content/workbooks`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Workbook",
+   "`Microsoft Entra ID Sign-in Logs`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/microsoft-sentinel/content/workbooks`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Workbook",
+   "`Microsoft Sentinel Cost`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/microsoft-sentinel/content/workbooks`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ],
+  [
+   "✏️",
+   "Workbook",
+   "`Microsoft Sentinel Health`<br><sub>`mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/microsoft-sentinel/content/workbooks`</sub>",
+   "tag `criticality`",
+   "`high`",
+   "`medium`"
+  ]
+ ],
+ "github_output": "has_changes=true\nhas_errors=false\nhas_destroys=true\n"
+}

@@ -1,0 +1,130 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_consumption_budget_subscription.this[0]",
+   "mode": "managed",
+   "type": "azurerm_consumption_budget_subscription",
+   "name": "this",
+   "index": 0,
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.KeyVault\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.KeyVault",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.Logic\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.Logic",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.ManagedIdentity\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.ManagedIdentity",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.OperationalInsights\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.OperationalInsights",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.PolicyInsights\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.PolicyInsights",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.Security\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.Security",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"Microsoft.Web\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "Microsoft.Web",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azurerm_resource_provider_registration.this[\"microsoft.insights\"]",
+   "mode": "managed",
+   "type": "azurerm_resource_provider_registration",
+   "name": "this",
+   "index": "microsoft.insights",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

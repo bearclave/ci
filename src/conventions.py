@@ -9,7 +9,9 @@ needs nothing beyond the Python standard library. The config:
   rules:       <rule>: {level: error | warn | off, ...parameters}
   units:       globs of the unit files (terragrunt.hcl) for the terragrunt rules
   exceptions:  [{rule, path (a glob), match (optional text on the line),
-                 reason}] - an exception without a reason is itself an error
+                 reason, review (YYYY-MM-DD)}] - an exception without a reason
+                 is itself an error; the review date is checked by
+                 exception_review.py, which warns once it has passed
 
 Every violation becomes a GitHub annotation on its file and line, and a row
 in the job summary. The exit code is 1 when an error-level violation is not

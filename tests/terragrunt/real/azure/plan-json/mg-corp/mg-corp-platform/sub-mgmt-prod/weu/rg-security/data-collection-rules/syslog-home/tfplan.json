@@ -1,0 +1,275 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_monitor_data_collection_rule.this",
+   "mode": "managed",
+   "type": "azurerm_monitor_data_collection_rule",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "data_collection_endpoint_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.Insights/dataCollectionEndpoints/dce-security-mgmt-weu-001",
+     "data_flow": [
+      {
+       "built_in_transform": "",
+       "destinations": [
+        "workspace"
+       ],
+       "output_stream": "Microsoft-Syslog",
+       "streams": [
+        "Custom-HomeSyslog"
+       ],
+       "transform_kql": "source\n| extend HostIP = extract(@\"(\\d{1,3}(?:\\.\\d{1,3}){3})\", 1, tostring(sender))\n| extend Computer = case(\n    HostIP == \"172.16.10.1\", \"mikrotik\",\n    HostIP == \"172.16.10.10\", \"nas\",\n    tostring(sender) == \"collector\", \"collector\",\n    \"\")\n| where isnotempty(Computer)\n| extend raw = tostring(message)\n| extend pri = iff(isempty(tostring(pri)), extract(@\"^<(\\d{1,3})>\", 1, raw), tostring(pri))\n| extend line = extract(@\"^(?:<\\d{1,3}>)?([^\\r\\n]*)\", 1, raw)\n| extend body = extract(@\"^[A-Z][a-z]{2} +\\d{1,2} \\d{2}:\\d{2}:\\d{2} \\S+ (.*)$\", 1, line)\n| extend SyslogMessage = iff(isempty(body), line, body)\n| extend ProcessName = iff(Computer == \"mikrotik\", \"routeros\", extract(@\"^([^\\s:\\[]+)\", 1, SyslogMessage))\n| where not(Computer == \"nas\" and ProcessName == \"WinFileService\")\n| where not(SyslogMessage has \"Handshake for peer did not complete\")\n| where not(SyslogMessage matches regex @\"->(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.255|2(2[4-9]|3\\d)\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}):\")\n| extend p = toint(pri)\n| extend f = p / 8, s = p % 8\n| extend Facility = case(\n    f == 0, \"kern\", f == 1, \"user\", f == 2, \"mail\", f == 3, \"daemon\",\n    f == 4, \"auth\", f == 5, \"syslog\", f == 6, \"lpr\", f == 7, \"news\",\n    f == 8, \"uucp\", f == 9, \"cron\", f == 10, \"authpriv\", f == 11, \"ftp\",\n    f == 12, \"ntp\", f == 13, \"audit\", f == 14, \"alert\", f == 15, \"clock\",\n    f == 16, \"local0\", f == 17, \"local1\", f == 18, \"local2\", f == 19, \"local3\",\n    f == 20, \"local4\", f == 21, \"local5\", f == 22, \"local6\", f == 23, \"local7\",\n    tostring(f))\n| extend SeverityLevel = case(\n    s == 0, \"emerg\", s == 1, \"alert\", s == 2, \"crit\", s == 3, \"err\",\n    s == 4, \"warning\", s == 5, \"notice\", s == 6, \"info\", \"debug\")\n| project TimeGenerated, EventTime = TimeGenerated, Computer, HostName = Computer, HostIP, Facility, SeverityLevel, ProcessName, SyslogMessage\n"
+      }
+     ],
+     "data_sources": [],
+     "description": "Syslog domaci site (router, NAS) z Vectoru na NASu.",
+     "destinations": [
+      {
+       "azure_monitor_metrics": [],
+       "event_hub": [],
+       "event_hub_direct": [],
+       "log_analytics": [
+        {
+         "name": "workspace",
+         "workspace_resource_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.OperationalInsights/workspaces/law-security-mgmt-weu-001"
+        }
+       ],
+       "monitor_account": [],
+       "storage_blob": [],
+       "storage_blob_direct": [],
+       "storage_table_direct": []
+      }
+     ],
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.Insights/dataCollectionRules/dcr-security-mgmt-weu-001",
+     "identity": [],
+     "immutable_id": "dcr-d786356cfef8498db85f5f2b4b78228b",
+     "kind": "",
+     "location": "westeurope",
+     "name": "dcr-security-mgmt-weu-001",
+     "resource_group_name": "rg-security-mgmt-weu-001",
+     "stream_declaration": [
+      {
+       "column": [
+        {
+         "name": "TimeGenerated",
+         "type": "datetime"
+        },
+        {
+         "name": "message",
+         "type": "string"
+        },
+        {
+         "name": "pri",
+         "type": "string"
+        },
+        {
+         "name": "sender",
+         "type": "string"
+        }
+       ],
+       "stream_name": "Custom-HomeSyslog"
+      }
+     ],
+     "tags": {
+      "criticality": "high",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null
+    },
+    "after": {
+     "data_collection_endpoint_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.Insights/dataCollectionEndpoints/dce-security-mgmt-weu-001",
+     "data_flow": [
+      {
+       "built_in_transform": "",
+       "destinations": [
+        "workspace"
+       ],
+       "output_stream": "Microsoft-Syslog",
+       "streams": [
+        "Custom-HomeSyslog"
+       ],
+       "transform_kql": "source\n| extend HostIP = extract(@\"(\\d{1,3}(?:\\.\\d{1,3}){3})\", 1, tostring(sender))\n| extend Computer = case(\n    HostIP == \"172.16.10.1\", \"mikrotik\",\n    HostIP == \"172.16.10.10\", \"nas\",\n    tostring(sender) == \"collector\", \"collector\",\n    \"\")\n| where isnotempty(Computer)\n| extend raw = tostring(message)\n| extend pri = iff(isempty(tostring(pri)), extract(@\"^<(\\d{1,3})>\", 1, raw), tostring(pri))\n| extend line = extract(@\"^(?:<\\d{1,3}>)?([^\\r\\n]*)\", 1, raw)\n| extend body = extract(@\"^[A-Z][a-z]{2} +\\d{1,2} \\d{2}:\\d{2}:\\d{2} \\S+ (.*)$\", 1, line)\n| extend SyslogMessage = iff(isempty(body), line, body)\n| extend ProcessName = iff(Computer == \"mikrotik\", \"routeros\", extract(@\"^([^\\s:\\[]+)\", 1, SyslogMessage))\n| where not(Computer == \"nas\" and ProcessName == \"WinFileService\")\n| where not(SyslogMessage has \"Handshake for peer did not complete\")\n| where not(SyslogMessage matches regex @\"->(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.255|2(2[4-9]|3\\d)\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}):\")\n| extend p = toint(pri)\n| extend f = p / 8, s = p % 8\n| extend Facility = case(\n    f == 0, \"kern\", f == 1, \"user\", f == 2, \"mail\", f == 3, \"daemon\",\n    f == 4, \"auth\", f == 5, \"syslog\", f == 6, \"lpr\", f == 7, \"news\",\n    f == 8, \"uucp\", f == 9, \"cron\", f == 10, \"authpriv\", f == 11, \"ftp\",\n    f == 12, \"ntp\", f == 13, \"audit\", f == 14, \"alert\", f == 15, \"clock\",\n    f == 16, \"local0\", f == 17, \"local1\", f == 18, \"local2\", f == 19, \"local3\",\n    f == 20, \"local4\", f == 21, \"local5\", f == 22, \"local6\", f == 23, \"local7\",\n    tostring(f))\n| extend SeverityLevel = case(\n    s == 0, \"emerg\", s == 1, \"alert\", s == 2, \"crit\", s == 3, \"err\",\n    s == 4, \"warning\", s == 5, \"notice\", s == 6, \"info\", \"debug\")\n| project TimeGenerated, EventTime = TimeGenerated, Computer, HostName = Computer, HostIP, Facility, SeverityLevel, ProcessName, SyslogMessage\n"
+      }
+     ],
+     "data_sources": [],
+     "description": "Syslog domaci site (router, NAS) z Vectoru na NASu.",
+     "destinations": [
+      {
+       "azure_monitor_metrics": [],
+       "event_hub": [],
+       "event_hub_direct": [],
+       "log_analytics": [
+        {
+         "name": "workspace",
+         "workspace_resource_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.OperationalInsights/workspaces/law-security-mgmt-weu-001"
+        }
+       ],
+       "monitor_account": [],
+       "storage_blob": [],
+       "storage_blob_direct": [],
+       "storage_table_direct": []
+      }
+     ],
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.Insights/dataCollectionRules/dcr-security-mgmt-weu-001",
+     "identity": [],
+     "immutable_id": "dcr-d786356cfef8498db85f5f2b4b78228b",
+     "kind": "",
+     "location": "westeurope",
+     "name": "dcr-security-mgmt-weu-001",
+     "resource_group_name": "rg-security-mgmt-weu-001",
+     "stream_declaration": [
+      {
+       "column": [
+        {
+         "name": "TimeGenerated",
+         "type": "datetime"
+        },
+        {
+         "name": "message",
+         "type": "string"
+        },
+        {
+         "name": "pri",
+         "type": "string"
+        },
+        {
+         "name": "sender",
+         "type": "string"
+        }
+       ],
+       "stream_name": "Custom-HomeSyslog"
+      }
+     ],
+     "tags": {
+      "criticality": "medium",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "data_flow": [
+      {
+       "destinations": [
+        false
+       ],
+       "streams": [
+        false
+       ]
+      }
+     ],
+     "data_sources": [],
+     "destinations": [
+      {
+       "azure_monitor_metrics": [],
+       "event_hub": [],
+       "event_hub_direct": [],
+       "log_analytics": [
+        {}
+       ],
+       "monitor_account": [],
+       "storage_blob": [],
+       "storage_blob_direct": [],
+       "storage_table_direct": []
+      }
+     ],
+     "identity": [],
+     "stream_declaration": [
+      {
+       "column": [
+        {},
+        {},
+        {},
+        {}
+       ]
+      }
+     ],
+     "tags": {}
+    },
+    "after_sensitive": {
+     "data_flow": [
+      {
+       "destinations": [
+        false
+       ],
+       "streams": [
+        false
+       ]
+      }
+     ],
+     "data_sources": [],
+     "destinations": [
+      {
+       "azure_monitor_metrics": [],
+       "event_hub": [],
+       "event_hub_direct": [],
+       "log_analytics": [
+        {}
+       ],
+       "monitor_account": [],
+       "storage_blob": [],
+       "storage_blob_direct": [],
+       "storage_table_direct": []
+      }
+     ],
+     "identity": [],
+     "stream_declaration": [
+      {
+       "column": [
+        {},
+        {},
+        {},
+        {}
+       ]
+      }
+     ],
+     "tags": {}
+    }
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Monitoring Metrics Publisher/id:00000000-0000-0000-0000-000000000002\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Monitoring Metrics Publisher/id:00000000-0000-0000-0000-000000000002",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "immutable_id": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

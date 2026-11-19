@@ -63,7 +63,9 @@ jobs:
             watchlists:  files that define watchlists; an alias is `alias = "X"` (HCL)
                          or "watchlistAlias": "X" (ARM)
             checks:      {<check>: error | warn | off}, error when not listed
-            exceptions:  [{check, rule (a glob of the file), reason}]
+            exceptions:  [{rule (the check), path (a glob of the rule file), reason,
+                          review (YYYY-MM-DD)}]; the older {check, rule (the glob)}
+                          is read as well
 
           What a deploy would only reject after the merge, or would accept and then
           quietly do the wrong thing with, is caught here: a broken {{column}} in the
@@ -346,12 +348,12 @@ jobs:
                       errors.append(f"unknown check {name!r}; known: {', '.join(CHECKS)}")
                   elif level not in LEVELS:
                       errors.append(f"check {name}: level must be one of {', '.join(LEVELS)}")
-              exceptions = config.get("exceptions") or []
+              exceptions = [normalised(e) for e in config.get("exceptions") or []]
               for k, e in enumerate(exceptions):
                   if not str(e.get("reason", "")).strip():
-                      errors.append(f"exception {k + 1} ({e.get('check')}, {e.get('rule')}) has no reason")
-                  if e.get("check") not in CHECKS:
-                      errors.append(f"exception {k + 1} names an unknown check {e.get('check')!r}")
+                      errors.append(f"exception {k + 1} ({e.get('rule')}, {e.get('path')}) has no reason")
+                  if e.get("rule") not in CHECKS:
+                      errors.append(f"exception {k + 1} names an unknown check {e.get('rule')!r}")
               if not config.get("rules"):
                   errors.append("rules: no path to analytic rules given")
               if errors:
@@ -383,10 +385,20 @@ jobs:
                   if v["level"] == "off":
                       continue
                   v["exception"] = next((e["reason"] for e in exceptions
-                                         if e["check"] == v["check"] and glob_re(e.get("rule", "**")).match(v["path"])),
+                                         if e["rule"] == v["check"] and glob_re(e.get("path") or "**").match(v["path"])),
                                         None)
                   out.append(v)
               return out, errors, len(rules)
+
+
+          def normalised(e: dict) -> dict:
+              """An exception in the organisation's format: rule (the check), path, reason, review.
+
+              The first format named the check `check` and the file glob `rule`."""
+              if "check" in e:
+                  e = {**e, "rule": e["check"], "path": e.get("rule")}
+                  del e["check"]
+              return e
 
 
           def escape(text):

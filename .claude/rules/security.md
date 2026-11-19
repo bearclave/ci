@@ -15,7 +15,8 @@
   of `iac-modules`).
 - Identifiers that are not secret (tenant, client and subscription IDs) are
   repository variables, never hard-coded in a workflow.
-- A false positive of gitleaks goes into `.gitleaks.toml` with the reason;
+- A false positive of gitleaks goes into `.gitleaks.toml` with the reason
+  and a review date ([pipelines.md](https://github.com/bearclave/governance/blob/main/standards/pipelines.md#checks-and-their-exceptions));
   the step is never switched off.
 - A secret that reached a commit is **rotated**, not only removed: history
   is public to everyone with read access.
