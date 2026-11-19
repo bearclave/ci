@@ -52,3 +52,11 @@ jobs:
       contents: read
     with:
       config: tests/fixtures/sentinel-selftest.yaml
+
+  # TEMPORARY: trial run of housekeeping.yml on this pull request; removed before review.
+  housekeeping:
+    uses: ./.github/workflows/housekeeping.yml
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
