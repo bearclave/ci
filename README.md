@@ -547,6 +547,15 @@ GH_TOKEN=$(gh auth token) python3 src/deps.py --dry-run --scope tools --repo iac
    for a release with `gh workflow run major-tag.yml -f release=v2.1.0`
    (a no-op when `v2` is already there).
 
+   Publishing also runs `ci-pins.yml` (`src/ci_pins.py`, as `bearclave-bot`,
+   same sign-in): every repository whose `.github/workflows/` pins
+   `bearclave/ci/...@vX.Y.Z` to an older release of the same major gets a
+   pull request from `deps/ci` (labelled `type:deps`, assigned to the owner),
+   or its open one is moved to the new release. The owner merges it after its
+   plan. `@v2` callers, other majors and `iac-m365` are left alone. Dry run:
+   `gh workflow run ci-pins.yml -f release=v2.1.0` (the default), or locally
+   `GH_TOKEN=$(gh auth token) python3 src/ci_pins.py --dry-run v2.1.0`.
+
    Manual fallback, and the first tag of a new major (`v3`), which the
    workflow does not create: `tools/move-major-tag.sh v2.1.0`. It is the
    one force push an agent may run (allowed for this script alone).
