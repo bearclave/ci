@@ -59,6 +59,31 @@ section that does not apply is left out, not left empty.
 - A document that describes behaviour is updated in the same pull request
   that changes the behaviour.
 
+## Markdown
+
+| Rule | Limit |
+|---|---|
+| `README.md` | at most ~300 lines; anything longer moves to `docs/` and is linked |
+| `.claude/CLAUDE.md` | at most 30 lines (`tools/sync.py` warns) |
+| A file in `docs/` | one topic; split it past ~400 lines |
+| Headings | one `#` per file (the title), then `##` and `###`; no level skipped; sentence case; no trailing punctuation; unique among siblings |
+| Lists | `-` for bullets, `1.` for steps |
+| Code blocks | fenced, with a language (none = plain text) |
+| Links | relative inside the repository, full URL to another; every link resolves |
+| HTML | only `<details>`, `<summary>`, `<br>`, anchors and comments (review; the lint allows placeholders in `<angle brackets>`) |
+
+**Enforced** by `pr / check` of `bearclave/ci` in every repository:
+
+- **`markdownlint-cli2`** with the rules of `ci` `src/markdownlint.yaml`:
+  headings, lists, code fences, blank lines. A repository that needs another
+  setting writes only that rule into its own `.github/markdownlint.yaml`
+  (it replaces the rule, the rest stays), with a comment why; one place gets
+  `<!-- markdownlint-disable-next-line MDxxx -->` and a reason.
+- **`markdown-links`**: relative links and anchors in `*.md` resolve to a
+  file and a heading in the repository.
+
+`.claude/` is not linted: the copies there are linted in `governance`.
+
 ## Comments in code
 
 The code stays as clean as possible; what it needs to be understood goes into
@@ -76,3 +101,8 @@ the README or `docs/`, not into comments.
 - No `TODO` without an issue: `# TODO(#42): drop once the provider supports X`.
 
 The language rules in `code/` follow this and do not repeat it.
+
+| Rule | Enforced by |
+|---|---|
+| `TODO`/`FIXME` carries an issue number (`TODO(#42)`) | the check **`todo-issue`** of the conventions in `bearclave/ci` |
+| no commented-out code, English only, no banners, never restating the code | review (`/code-review`); no linter tells these apart reliably |

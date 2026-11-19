@@ -8,6 +8,7 @@ paths:
 <!-- Standard of bearclave/governance (standards/code/terragrunt.md). In other repositories this is a managed copy - change it in governance. -->
 
 Applies to `iac-azure`, `iac-home`, `iac-github` and `template-iac-terragrunt`.
+What such a repository must have: [repo-types.md](https://github.com/bearclave/governance/blob/main/standards/repo-types.md).
 Unit skeleton: [../templates/terragrunt/](https://github.com/bearclave/governance/tree/main/standards/templates/terragrunt/).
 
 ## Layout
@@ -42,11 +43,16 @@ Unit skeleton: [../templates/terragrunt/](https://github.com/bearclave/governanc
 
 ## State
 
-- One state per unit; the key is the unit's path. **Moving a unit directory
+- One state per unit; the key is the unit's path. `.terraform.lock.hcl` is
+  committed next to `terragrunt.hcl`, with hashes for `linux_amd64` and
+  `darwin_arm64` ([toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md#terraform-providers)). **Moving a unit directory
   is refused** by the pipeline: delete it in one pull request, add it under
   the new path in the next (or move the state by hand first).
-- Deleting a unit destroys its resources; the plan shows it, the apply waits
-  for a manual run with `allow_destroy`.
+- Deleting a unit destroys its resources. The plan of the pull request shows
+  it, `destroy / approved` passes only with the owner's approval given after
+  that plan, and the push of the merge then applies the destroy by itself;
+  the manual run with `allow_destroy` is only the fallback
+  ([workflow.md](https://github.com/bearclave/governance/blob/main/standards/workflow.md#review)).
 - `import` blocks bring existing resources under code; they are removed in a
   follow-up pull request once applied.
 

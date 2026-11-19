@@ -332,8 +332,8 @@ jobs:
           # Anything else needs an exception with a reason in .github/conventions.yaml:
           #   layout:
           #     exceptions:
-          #       - path: ISSUE_TEMPLATE
-          #         reason: GitHub reads the issue forms from the root of this repository.
+          #       - path: extensions
+          #         reason: One folder per VS Code extension, each a package of its own.
 
           common:
             # Root entries every repository has.
@@ -350,6 +350,8 @@ jobs:
               - .gitattributes
               - .editorconfig
               - .gitleaks.toml
+              - .mcp.json
+              - LICENSE
               - .tflint.hcl
               - eslint.config.mjs
               - .dockerignore
@@ -370,6 +372,11 @@ jobs:
             # What .github/ may hold: GitHub, CI, and the configs only the pipeline reads.
             github:
               - workflows
+              - CODEOWNERS
+              - SECURITY.md
+              - ISSUE_TEMPLATE
+              - pull_request_template.md
+              - markdownlint.yaml
               - dependabot.yml
               - release.yml
               - tool-versions.env
