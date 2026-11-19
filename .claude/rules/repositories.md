@@ -107,7 +107,7 @@ links there.
 
 ## A new repository
 
-1. Add it to `iac-github` (`repositories/<name>/terragrunt.hcl`) with its
+1. Add it to `iac-github` (`infrastructure/repositories/<name>/terragrunt.hcl`) with its
    group, pipeline, properties, metadata, team access and - where it applies
    or deploys - its environment and variables; the merge creates it with
    labels, rulesets and settings.

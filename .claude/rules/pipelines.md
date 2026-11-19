@@ -40,10 +40,10 @@ else. Templates for each pipeline: [templates/workflows/](https://github.com/bea
 | `terragrunt-home.yml` | `iac-home` | plan and apply of the router through WireGuard, certificate renewal, drift |
 | `terraform-modules.yml` | `iac-modules` | fmt, validate, tflint, trivy config, conventions |
 | `m365-dsc.yml` / `m365-drift.yml` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of affected types, apply, tombstones |
-| `static-web-app.yml` | `app-web-*` | common site checks, ESLint, the site's own checks, deploy to the Static Web App from `main` in the environment `prod` |
-| `container.yml` | `app-home` | lint and tests in the image, push to GHCR from `main` |
+| `static-web-app.yml` | `app-web-*` | common site checks (with SEO), ESLint, the site's own checks, deploy to the Static Web App from `main` in the environment `prod`, smoke test of the site's `url` |
+| `container.yml` | `app-home` | ESLint, lint and tests in the image, push to GHCR from `main` and from a release |
 | `content-sentinel.yml` | `content-sentinel` | Sentinel lint, generated views up to date |
-| `conventions.yml`, `sentinel-lint.yml` | inside the pipelines above | rule checks driven by the repository's YAML, `todo-issue` |
+| conventions, Sentinel lint (fragments) | inside the pipelines above | rule checks driven by the repository's YAML |
 | `release.yml` | versioned repositories, on demand | dry run: the next version and the release notes ([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md#releasing)) |
 | `housekeeping.yml` | the organisation, weekly | stale branches and pull requests, one issue per repository ([workflow.md](https://github.com/bearclave/governance/blob/main/standards/workflow.md#housekeeping)) |
 
@@ -64,10 +64,10 @@ after each release ([toolchain.md](https://github.com/bearclave/governance/blob/
 change to an apply pipeline reaches production only through a pull request
 with a plan. See [versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md).
 
-Templates of the organisation (`template-iac-*`) cannot reach the private
-`bearclave/ci`: they carry local copies of the shared workflows, written by
-`ci/tools/export-for-templates.py`, and call them with `uses: ./.github/workflows/...`.
-Their check names are the same.
+A repository in another organisation (a customer's, [customers.md](https://github.com/bearclave/governance/blob/main/standards/customers.md))
+cannot reach the private `bearclave/ci`: it carries local copies of the
+shared workflows and calls them with `uses: ./.github/workflows/...`, with
+the same check names.
 
 ## Checks and their exceptions
 
@@ -94,7 +94,7 @@ table; a new check comes with its row.
 | `terraform fmt` / `validate` | `terraform-modules` (`terraform`) | - | none |
 | tflint | `terraform-modules` (`terraform`) | `.tflint.hcl` (managed, below) | a rule switched off in the repository section of `.tflint.hcl`, or `# tflint-ignore: <rule> # reason, review YYYY-MM-DD` above the block |
 | trivy config | `terraform-modules` (`terraform`) | HIGH, CRITICAL | `.github/trivyignore.yaml` |
-| ESLint | `static-web-app`, `checks` (`eslint`) | `eslint.config.mjs` (managed, below) | the repository section of `eslint.config.mjs`, each entry with a comment why |
+| ESLint | `static-web-app`, `container`, `checks` (`eslint`) | `eslint.config.mjs` (managed, below) | the repository section of `eslint.config.mjs`, each entry with a comment why |
 | common site checks | `static-web-app` (`site`) | `src/staticwebapp.config.json` | none: fix the site |
 | site checks of the repository | `static-web-app` (`site`) | `site-checks` input | in the repository's script |
 | PSScriptAnalyzer, Pester | `m365-dsc` | `.github/pssa.psd1` | `.github/pssa.psd1` (`iac-m365` is being retired) |
@@ -113,14 +113,14 @@ fix the finding and remove the exception.
 # .github/conventions.yaml (sentinel-lint.yaml: rule = the check, path = the rule file)
 exceptions:
   - rule: no-hardcoded-location
-    path: mg-corp/policy-assignments/terragrunt.hcl
+    path: infrastructure/mg-corp/global/policy-assignments/terragrunt.hcl
     reason: The allowed-locations policy lists the regions it allows.
     review: 2027-05-19
 
 # .github/trivyignore.yaml
 misconfigurations:
   - id: AVD-AZU-0013
-    paths: [mg-corp/.../key-vault/tfplan.json]
+    paths: [infrastructure/mg-corp/.../key-vault/tfplan.json]
     statement: Why the finding is accepted.
     review: 2027-05-19
 ```
@@ -251,4 +251,3 @@ post-apply checks.
 2. Merge, release (`v2.x.y`, move `v2`).
 3. Repositories on `@v2` get it at once; pinned repositories get a
    `bearclave-bot` pull request (`ci-pins.yml`) with a plan.
-4. `tools/export-for-templates.py` for the templates, a pull request each.

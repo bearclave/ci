@@ -61,16 +61,13 @@ A repository's plan therefore runs exactly the versions in its own
 | Microsoft365DSC | `Install-Module -RequiredVersion` | `m365-*` |
 | Pester, PSScriptAnalyzer | `Install-Module -RequiredVersion` | `m365-*` |
 | Static Web Apps CLI | `npx` at a pinned version | `static-web-app` |
-| ESLint, `@eslint/js`, `globals` | `npx` at a pinned version, or the repository's `package.json` | `static-web-app`, `checks` |
+| ESLint, `@eslint/js`, `globals` | `npx` at a pinned version, or the repository's `package.json` | `static-web-app`, `container`, `checks` |
 
 **One version across the organisation.** Every `tool-versions.env` that
 pins a tool pins the same version: today **Terraform 1.16.4** and
 **Terragrunt 1.1.6**. `deps.yml` bumps them in all repositories in the same
 month; a repository that falls behind is a `Debt` issue.
 
-- `template-iac-*` carry their own `tool-versions.env` like every other
-  repository; `ci/tools/export-for-templates.py` keeps it equal to the live
-  one.
 - **Bumps:** Dependabot does not read `tool-versions.env`; `deps.yml` in
   `bearclave/ci` does, monthly (see [Dependency updates](#dependency-updates)).
 - **New tool:** only when no existing tool or the image can do the job; it

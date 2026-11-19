@@ -28,7 +28,9 @@ section that does not apply is left out, not left empty.
 1. **`# <repository>`** and one sentence: what it manages and for whom.
 2. **How it fits** - what it depends on and what depends on it, a small
    diagram if more than two repositories are involved.
-3. **Layout** - the directory tree to the depth that explains the code.
+3. **Layout** - the directory tree to the depth that explains the code. A
+   repository whose content is documents (`handbook`) indexes them here,
+   one subsection per folder.
 4. **How to make a change** - the commands to run locally (format, validate,
    plan, tests), and what a pull request gets checked for.
 5. **Pipeline** - a table: trigger, what runs, identity. Which shared
@@ -39,7 +41,7 @@ section that does not apply is left out, not left empty.
 8. **Repository settings** - one fixed line:
    > Branch protection, required checks, merge settings and labels are
    > defined in [`bearclave/iac-github`](https://github.com/bearclave/iac-github)
-   > (`repositories/<name>`). Engineering standards:
+   > (`infrastructure/repositories/<name>`). Engineering standards:
    > [`bearclave/governance`](https://github.com/bearclave/governance/tree/main/standards).
 
 ## Writing
