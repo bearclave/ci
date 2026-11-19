@@ -27,4 +27,7 @@
     cat >"$d/trivy-plans.sh" <<'__CI_EOF__'
     @@include src/terragrunt/trivy-plans.sh@@
     __CI_EOF__
+    cat >"$d/verify-apply.py" <<'__CI_EOF__'
+    @@include src/terragrunt/verify-apply.py@@
+    __CI_EOF__
     chmod +x "$d"/*

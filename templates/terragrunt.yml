@@ -1,13 +1,17 @@
 # The pipeline of a Terragrunt repository with Azure state (iac-azure,
 # iac-github):
 #
-# Pull request into main -> plan over the affected units, under the read-only
-#                           identity, summarised into the pull request; one
-#                           that touches none of the relevant paths skips the
-#                           plan; conventions and Sentinel lint
-# Push to main            -> plan again under the full identity, then apply,
-#                           but only if the plan proposes something and
-#                           destroys or replaces nothing
+# Pull request into main -> validate (fmt, HCL, terraform validate, lock
+#                           files), then plan over the affected units, under
+#                           the read-only identity, summarised into the pull
+#                           request; one that touches none of the relevant
+#                           paths skips both; conventions and Sentinel lint
+# Push to main            -> validate and plan again under the full identity,
+#                           then apply, but only if the plan proposes
+#                           something and destroys or replaces nothing; then
+#                           verify the apply (second plan, Activity Log,
+#                           check blocks) - a failure is red and opens an
+#                           issue and a draft revert, nothing rolls back
 # Manual run on main      -> the same; with allow-destroy it also applies what
 #                           destroys or replaces, which a push leaves waiting
 #
@@ -25,9 +29,10 @@
 #     pipeline:
 #       uses: bearclave/ci/.github/workflows/terragrunt.yml@v2
 #       permissions:
-#         contents: read
+#         contents: write        # verify: the revert branch
 #         id-token: write
 #         pull-requests: write
+#         issues: write          # verify: the issue
 #         actions: read
 #       with:
 #         client-id-plan: ${{ vars.AZURE_CLIENT_ID_PLAN }}
@@ -181,52 +186,28 @@ jobs:
             echo "Nothing to plan: the change touches no unit, context file or workflow." >>"$GITHUB_STEP_SUMMARY"
           fi
 
-  plan:
+  # Everything that needs no sign-in to Azure, before a plan starts:
+  # formatting, the HCL, the unit selection, terraform validate of the
+  # selected units and the committed lock files. A mistake shows up here
+  # within a minute or two, not after the plan has waited for the state.
+  validate:
     needs: changes
-    # !cancelled() so that a failed changes job still plans instead of skipping.
+    # !cancelled() so that a failed changes job still validates and plans.
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     permissions:
       contents: read
-      id-token: write
-      pull-requests: write
       # The base commit is the head of the last successful run on main.
       actions: read
     outputs:
-      has_changes: ${{ steps.summary.outputs.has_changes }}
-      has_destroys: ${{ steps.summary.outputs.has_destroys }}
       selection: ${{ steps.units.outputs.selection }}
-    env:
-      # A plan on a pull request may be queued from any branch, so it runs as
-      # the identity that can only read. A plan on main is the one the apply is
-      # decided from and runs as the identity the apply will use, so that the
-      # two cannot see different things.
-      ARM_CLIENT_ID: >-
-        ${{ github.event_name == 'pull_request'
-            && inputs.client-id-plan
-            || inputs.client-id-apply }}
-      GITHUB_APP_VAULT: >-
-        ${{ github.event_name == 'pull_request'
-            && inputs.github-app-vault-plan
-            || inputs.github-app-vault-apply }}
-      TG_READONLY_PLAN: ${{ github.event_name == 'pull_request' }}
-      # A plan on a pull request is only a preview, so it does not lock the
-      # state. Every new push cancels the run before it, and a cancelled
-      # terraform leaves its lock behind: the lease on the state blob never
-      # expires and blocks the unit until someone runs force-unlock. The plan
-      # on main, the one the apply is decided from, still locks.
-      TF_CLI_ARGS_plan: ${{ github.event_name == 'pull_request' && '-lock=false' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      # Terragrunt cannot authenticate its own git against a private
-      # repository, so the modules are put on disk and the source is redirected
-      # there with TG_SOURCE_MAP. The deploy key is read-only and valid for
-      # iac-modules alone.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bearclave/iac-modules
@@ -251,8 +232,6 @@ jobs:
           path: ${{ env.TOOLS_DIR }}
           key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
 
-      # Without a shared cache each of the fifty units downloads its own copies
-      # of the providers and the runner runs out of both disk and time.
       - name: Restore provider cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -260,16 +239,22 @@ jobs:
           key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
           restore-keys: providers-${{ runner.os }}-
 
-      - name: Install terragrunt and trivy
-        run: install-tools.sh terragrunt trivy
+      - name: Install terragrunt
+        run: install-tools.sh terragrunt
 
-      # HCL formatting and validation take about ten seconds, so they share the
-      # job with the plan rather than paying for a checkout of their own.
       - name: HCL formatting
-        run: terragrunt hcl fmt --check --diff
+        run: |
+          terragrunt hcl fmt --check --diff || {
+            echo "::error title=HCL formatting::An .hcl file is not formatted (diff above). Run 'terragrunt hcl fmt' and commit the result."
+            exit 1
+          }
 
       - name: HCL validation
-        run: terragrunt hcl validate
+        run: |
+          terragrunt hcl validate || {
+            echo "::error title=HCL validation::An .hcl file does not parse or refers to something that does not exist (errors above)."
+            exit 1
+          }
 
       # A pull request is compared with its base branch. On main the base is
       # the head of the last successful run - its apply went through or had
@@ -338,6 +323,148 @@ jobs:
             jq -r '.renamed[] | "::error::\(.[0]) moved to \(.[1]). Moving a unit changes its state key. Delete the unit in one pull request (it gets destroyed) and add it under the new path in the next, or move its state by hand first."' <<<"$selection"
             exit 1
           fi
+      # terraform validate needs the providers and the modules, so each unit
+      # is initialised without its backend: nothing signs in to Azure. A
+      # dependency's outputs would come from its state; here every dependency
+      # answers with its mock outputs (the mock-outputs convention).
+      - name: Terraform validate
+        env:
+          TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tgproviders
+          TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "true"
+          TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+          TG_EXPERIMENT: optional-dependency-outputs
+          SELECTION: ${{ steps.units.outputs.selection }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
+          if [ "$(jq -r .all <<<"$SELECTION")" != "true" ] && [ "${#units[@]}" -eq 0 ]; then
+            echo "No unit to validate."
+            exit 0
+          fi
+          args=(--queue-ignore-dag-order --no-dependency-outputs --non-interactive --no-color)
+          for u in "${units[@]}"; do args+=(--queue-include-dir "$u"); done
+          # One annotation per unit and error, so the reason is on the run page.
+          annotate() {
+            sed -n "s/.*\[\([^]]*\)\] terraform: Error: \(.*\)/::error title=terraform $1::\1: \2/p" "$2" | sort -u
+          }
+          rc=0
+          terragrunt run --all "${args[@]}" -- init -backend=false -input=false >init.txt 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            cat init.txt
+            annotate init init.txt
+            echo "::error title=terraform init::A unit could not be initialised without its backend (log above): a module source, a provider version, or a dependency without mock outputs."
+            exit "$rc"
+          fi
+          terragrunt run --all "${args[@]}" --no-auto-init -- validate >validate.txt 2>&1 || rc=$?
+          cat validate.txt
+          if [ "$rc" -ne 0 ]; then
+            annotate validate validate.txt
+            echo "::error title=terraform validate::A unit's configuration is invalid (log above)."
+            exit "$rc"
+          fi
+
+      # A lock file is optional; where one is committed, init must not have
+      # had to change it. A change means the lock lacks a provider, holds a
+      # version the constraints no longer allow, or lacks the linux checksums.
+      - name: Lock files
+        run: |
+          set -euo pipefail
+          if [ -z "$(git ls-files -- '*.terraform.lock.hcl')" ]; then
+            echo "No .terraform.lock.hcl is committed; nothing to check."
+            exit 0
+          fi
+          changed=$(git diff --name-only -- '*.terraform.lock.hcl')
+          if [ -z "$changed" ]; then
+            echo "The committed lock files match the providers."
+            exit 0
+          fi
+          git diff -- '*.terraform.lock.hcl'
+          while IFS= read -r f; do
+            echo "::error file=$f,title=Lock file::$f does not match the providers terraform init chose (diff above). Run 'terragrunt run -- providers lock -platform=linux_amd64 -platform=darwin_arm64' in $(dirname "$f") and commit the file."
+          done <<<"$changed"
+          exit 1
+
+
+  plan:
+    needs: [changes, validate]
+    # Only after validate has passed; it is skipped where nothing is relevant.
+    if: ${{ !cancelled() && needs.validate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    outputs:
+      has_changes: ${{ steps.summary.outputs.has_changes }}
+      has_destroys: ${{ steps.summary.outputs.has_destroys }}
+      selection: ${{ needs.validate.outputs.selection }}
+    env:
+      # A plan on a pull request may be queued from any branch, so it runs as
+      # the identity that can only read. A plan on main is the one the apply is
+      # decided from and runs as the identity the apply will use, so that the
+      # two cannot see different things.
+      ARM_CLIENT_ID: >-
+        ${{ github.event_name == 'pull_request'
+            && inputs.client-id-plan
+            || inputs.client-id-apply }}
+      GITHUB_APP_VAULT: >-
+        ${{ github.event_name == 'pull_request'
+            && inputs.github-app-vault-plan
+            || inputs.github-app-vault-apply }}
+      TG_READONLY_PLAN: ${{ github.event_name == 'pull_request' }}
+      # A plan on a pull request is only a preview, so it does not lock the
+      # state. Every new push cancels the run before it, and a cancelled
+      # terraform leaves its lock behind: the lease on the state blob never
+      # expires and blocks the unit until someone runs force-unlock. The plan
+      # on main, the one the apply is decided from, still locks.
+      TF_CLI_ARGS_plan: ${{ github.event_name == 'pull_request' && '-lock=false' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Terragrunt cannot authenticate its own git against a private
+      # repository, so the modules are put on disk and the source is redirected
+      # there with TG_SOURCE_MAP. The deploy key is read-only and valid for
+      # iac-modules alone.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bearclave/iac-modules
+          path: iac-modules
+          ssh-key: ${{ secrets.modules-deploy-key }}
+          persist-credentials: false
+
+      @@include templates/_fragments/scripts-terragrunt.yml@@
+
+      - name: Tool versions
+        id: versions
+        run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.versions.outputs.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Restore tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOLS_DIR }}
+          key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
+
+      # Without a shared cache each of the fifty units downloads its own copies
+      # of the providers and the runner runs out of both disk and time.
+      - name: Restore provider cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.tgproviders
+          key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+          restore-keys: providers-${{ runner.os }}-
+
+      - name: Install terragrunt and trivy
+        run: install-tools.sh terragrunt trivy
 
       # A job killed while terraform holds a state lock leaves the lock behind
       # for good. Locks a runner took more than 70 minutes ago are released
@@ -368,7 +495,7 @@ jobs:
           TG_PROVIDER_CACHE: "1"
           TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
-          SELECTION: ${{ steps.units.outputs.selection }}
+          SELECTION: ${{ needs.validate.outputs.selection }}
           PLAN_JSON: ${{ runner.temp }}/plan-json
         run: |
           set -euo pipefail
@@ -490,6 +617,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    outputs:
+      verification: ${{ steps.verify.outputs.result }}
     env:
       ARM_CLIENT_ID: ${{ inputs.client-id-apply }}
       GITHUB_APP_VAULT: ${{ inputs.github-app-vault-apply }}
@@ -506,7 +635,7 @@ jobs:
           ssh-key: ${{ secrets.modules-deploy-key }}
           persist-credentials: false
 
-      @@include templates/_fragments/scripts-common.yml@@
+      @@include templates/_fragments/scripts-terragrunt.yml@@
 
       - name: Tool versions
         id: versions
@@ -535,6 +664,12 @@ jobs:
 
       @@include templates/_fragments/github-app.yml@@
 
+      # A minute of slack: the Activity Log stamps an operation when Azure
+      # received it, the runner's clock may differ.
+      - name: Start of the apply
+        id: window
+        run: echo "start=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
+
       # The selection is the one the plan job made, not worked out again.
       # Deleted units go first: what replaces them under a new path may need
       # their names.
@@ -559,6 +694,7 @@ jobs:
           terragrunt run --all destroy "${args[@]}" --non-interactive --no-color
 
       - name: Apply
+        id: apply
         env:
           TG_PROVIDER_CACHE: "1"
           TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
@@ -574,14 +710,181 @@ jobs:
           mkdir -p "$TG_PROVIDER_CACHE_DIR"
           args=()
           for u in "${units[@]}"; do args+=(--queue-include-dir "$u"); done
-          terragrunt run --all apply "${args[@]}" --non-interactive --no-color
+          # apply.txt is read by the verification (check blocks).
+          terragrunt run --all apply "${args[@]}" --non-interactive --no-color 2>&1 | tee apply.txt
+
+      # Verification of what the apply did. It takes a minute or two: one more
+      # plan of the applied units, at once, and a read of the Activity Log. It
+      # never rolls anything back: a failure turns the run red and the verify
+      # job opens an issue and a draft revert for the owner to decide.
+      #
+      # 1. The second plan has to propose nothing (-detailed-exitcode 0). The
+      #    apply may have not converged (a provider that sets a value of its
+      #    own, a resource that something changed at once). The plan JSON
+      #    also carries the results of the check blocks and the subscriptions
+      #    the units deploy to.
+      - name: Plan again
+        id: replan
+        if: ${{ !cancelled() && steps.window.outcome == 'success' }}
+        env:
+          TG_PROVIDER_CACHE: "1"
+          TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
+          TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+          SELECTION: ${{ needs.plan.outputs.selection }}
+          VERIFY_JSON: ${{ runner.temp }}/verify-json
+        run: |
+          set -euo pipefail
+          mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
+          if [ "$(jq -r .all <<<"$SELECTION")" != "true" ] && [ "${#units[@]}" -eq 0 ]; then
+            echo "rc=skipped" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p "$TG_PROVIDER_CACHE_DIR"
+          args=()
+          for u in "${units[@]}"; do args+=(--queue-include-dir "$u"); done
+          set +e
+          # The state is there now, so the units need not wait for each other.
+          terragrunt run --all plan "${args[@]}" --queue-ignore-dag-order --json-out-dir "$VERIFY_JSON" \
+            --non-interactive --no-color -- -detailed-exitcode 2>&1 | tee replan.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >>"$GITHUB_OUTPUT"
+
+      # 2. Failed operations of the apply identity in the subscriptions the
+      #    applied units deploy to, from the start of the apply until now. A
+      #    repository without an azurerm provider (iac-github) skips this. The
+      #    Activity Log lags behind by a minute or more: an operation that
+      #    failed in the last moments may not be there yet.
+      - name: Failed Azure operations
+        if: ${{ !cancelled() && steps.window.outcome == 'success' }}
+        # A log that cannot be read shows as unreadable, not as a failed apply.
+        continue-on-error: true
+        env:
+          VERIFY_JSON: ${{ runner.temp }}/verify-json
+          START: ${{ steps.window.outputs.start }}
+        run: |
+          set -euo pipefail
+          mapfile -t subs < <({ verify-apply.py subscriptions "$VERIFY_JSON"; echo "$ARM_SUBSCRIPTION_ID"; } | grep . | sort -u)
+          if [ "${#subs[@]}" -eq 0 ]; then
+            jq -n '{skipped: "no applied unit deploys to an Azure subscription"}' >activity.json
+            exit 0
+          fi
+          end=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$ARM_CLIENT_ID" --tenant "$ARM_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
+          # The caller of an operation is the application ID or the object ID
+          # of the service principal, depending on the provider.
+          object_id=$(az ad sp show --id "$ARM_CLIENT_ID" --query id -o tsv 2>/dev/null || true)
+          events='[]'
+          errors='[]'
+          for s in "${subs[@]}"; do
+            if out=$(az monitor activity-log list --subscription "$s" --start-time "$START" \
+              --end-time "$end" --status Failed --max-events 500 -o json 2>err.txt); then
+              events=$(jq -c --argjson all "$events" --arg app "$ARM_CLIENT_ID" --arg obj "$object_id" '
+                $all + [.[] | select(.caller == $app or (.caller == $obj and $obj != "")
+                  or (.claims.appid // "") == $app)]' <<<"$out")
+            else
+              errors=$(jq -c --arg e "$s: $(tail -1 err.txt)" '. + [$e]' <<<"$errors")
+            fi
+          done
+          jq -n --argjson events "$events" --argjson errors "$errors" --arg start "$START" --arg end "$end" \
+            --args '{subscriptions: $ARGS.positional, start: $start, end: $end, events: $events, errors: $errors}' \
+            "${subs[@]}" >activity.json
+          echo "$(jq '.events | length' activity.json) failed operation(s) in ${subs[*]}."
+
+      # 3. The check blocks, from the second plan and from the warnings of
+      #    the apply. Then verification.json and its Markdown (### Verification)
+      #    for the summary and for the apply comment.
+      - name: Verification
+        id: verify
+        if: ${{ !cancelled() && steps.window.outcome == 'success' }}
+        env:
+          RC: ${{ steps.replan.outputs.rc || 'skipped' }}
+          VERIFY_JSON: ${{ runner.temp }}/verify-json
+        run: |
+          set -euo pipefail
+          verify-apply.py report --replan-rc "$RC" --json-dir "$VERIFY_JSON" \
+            --replan-log replan.txt --apply-log apply.txt --activity activity.json \
+            --out verification.json | tee verification.md >>"$GITHUB_STEP_SUMMARY"
+          result=$(jq -r .result verification.json)
+          echo "result=$result" >>"$GITHUB_OUTPUT"
+          [ "$result" = "passed" ] || echo "::error title=Verification::The apply did not verify (summary of this job). The verify job opens an issue and a draft revert."
+
+      - name: Upload the verification
+        if: ${{ !cancelled() && steps.verify.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verification-${{ github.run_id }}
+          path: |
+            verification.json
+            verification.md
+          retention-days: 30
+
+  # The result of the verification as a check of its own. When it failed: a
+  # Bug issue (prio:high, source:drift) and a draft pull request that reverts
+  # the commit. The only job that may write to the repository.
+  verify:
+    needs: apply
+    if: ${{ !cancelled() && needs.apply.outputs.verification != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Download the verification
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verification-${{ github.run_id }}
+
+      - name: Result
+        env:
+          RESULT: ${{ needs.apply.outputs.verification }}
+        run: |
+          cat verification.md >>"$GITHUB_STEP_SUMMARY"
+          echo "Verification $RESULT."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.apply.outputs.verification == 'failed'
+        with:
+          ref: main
+          path: repo
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scripts
+        if: needs.apply.outputs.verification == 'failed'
+        run: |
+          d="$RUNNER_TEMP/ci"
+          mkdir -p "$d"
+          cat >"$d/verify-failed.sh" <<'__CI_EOF__'
+          @@include src/terragrunt/verify-failed.sh@@
+          __CI_EOF__
+          chmod +x "$d"/*
+          echo "$d" >>"$GITHUB_PATH"
+
+      - name: Issue and draft revert
+        if: needs.apply.outputs.verification == 'failed'
+        working-directory: repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: verify-failed.sh ../verification.json ../verification.md
+
+      - name: The verification has to pass
+        if: needs.apply.outputs.verification == 'failed'
+        run: |
+          echo "::error::The apply went through but did not verify. See the summary, the issue and the draft revert; nothing was rolled back."
+          exit 1
 
   # The required check. On a pull request: every check passed (or was
   # skipped). On main: in Azure DevOps a skipped apply stage left the run
   # green, so eight applies in a row never happened and nothing said so. An
   # apply that was due and did not succeed has to be red.
   gate:
-    needs: [conventions, sentinel, changes, plan, apply]
+    needs: [conventions, sentinel, changes, validate, plan, apply, verify]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -606,7 +909,14 @@ jobs:
           PLAN_HAS_DESTROYS: ${{ needs.plan.outputs.has_destroys }}
           ALLOW_DESTROY: ${{ inputs.allow-destroy }}
           APPLY_RESULT: ${{ needs.apply.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          VERIFICATION: ${{ needs.apply.outputs.verification }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
         run: |
+          if [ "$VALIDATE_RESULT" != "success" ]; then
+            echo "::error::validate ended as '$VALIDATE_RESULT', so nothing was planned"
+            exit 1
+          fi
           if [ "$PLAN_RESULT" != "success" ]; then
             echo "::error::plan ended as '$PLAN_RESULT'"
             exit 1
@@ -628,4 +938,8 @@ jobs:
             echo "::error::the plan proposed a change but apply ended as '$APPLY_RESULT'"
             exit 1
           fi
-          echo "Apply went through." >>"$GITHUB_STEP_SUMMARY"
+          if [ "$VERIFICATION" != "passed" ] || [ "$VERIFY_RESULT" != "success" ]; then
+            echo "::error::the apply went through but its verification is '${VERIFICATION:-missing}' (verify: $VERIFY_RESULT)"
+            exit 1
+          fi
+          echo "Apply went through and verified." >>"$GITHUB_STEP_SUMMARY"
