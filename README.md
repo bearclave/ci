@@ -35,6 +35,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `static-web-app.yml` | `pipeline` | `app-web-*` | the common site checks, ESLint, the site's own checks (optional), deploy to the Static Web App when the content changed |
 | `container.yml` | `pipeline` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
+| `housekeeping.yml` | `housekeeping` | repositories that opt in | weekly: branches without a pull request over 30 days and pull requests without an update over 14 days, in one issue of the repository that is updated in place and closes itself (`src/housekeeping.py`); deletes nothing |
 | `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows; v2 pipelines carry them as jobs |
 
 The organisation rulesets (in `bearclave/iac-github`) require three checks on
