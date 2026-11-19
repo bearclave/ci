@@ -62,7 +62,9 @@ jobs:
 
           bearclave/governance standards/workflow.md is the rule this enforces:
 
-          - the title is a Conventional Commit (it becomes the commit on main);
+          - the title is a Conventional Commit (it becomes the commit on main); a bot
+            title over 72 characters only warns, since the bot writes it itself
+            (Dependabot: "... in the actions group");
           - the branch is <type>/<slug> (bot branches excepted);
           - the description keeps the sections of the template (people only);
 
@@ -100,14 +102,19 @@ jobs:
           NOT_COUNTED = ("*package-lock.json", "*.lock", "*.terraform.lock.hcl", "*uv.lock", "*poetry.lock")
 
 
+          def title_too_long(title: str) -> list:
+              if len(title) > 72:
+                  return [f"The title is {len(title)} characters; at most 72 (it becomes the commit subject)."]
+              return []
+
+
           def title_problems(title: str) -> list:
+              """Format of the title; its length is title_too_long()."""
               m = TITLE.match(title)
               if not m:
                   return [f"The title '{title}' is not '<type>(<scope>)!: <summary>' with type one of "
                           f"{', '.join(TYPES)}."]
               problems = []
-              if len(title) > 72:
-                  problems.append(f"The title is {len(title)} characters; at most 72 (it becomes the commit subject).")
               summary = m.group("summary")
               if summary[0].isupper() and not summary.split()[0].isupper():
                   problems.append("The summary starts with a lowercase letter (imperative: 'add ...', not 'Add ...').")
@@ -185,8 +192,12 @@ jobs:
               bot = author.endswith("[bot]")
 
               problems = title_problems(title) + branch_problems(os.environ.get("PR_BRANCH", ""))
-              if not bot:
-                  problems += body_problems(os.environ.get("PR_BODY", ""))
+              warnings = []
+              if bot:
+                  # Shorten the title before the merge; the squash commit takes it.
+                  warnings += title_too_long(title)
+              else:
+                  problems += title_too_long(title) + body_problems(os.environ.get("PR_BODY", ""))
 
               patterns = []
               try:
@@ -227,10 +238,14 @@ jobs:
                           # A label iac-github has not created yet must not fail the check.
                           print(f"::warning::Could not update labels or assignee: {e}")
 
+              for w in warnings:
+                  print(f"::warning::{w}")
               for p in problems:
                   print(f"::error::{p}")
               summary += ["", "### Problems" if problems else "Title, branch and description follow the standard."]
               summary += [f"- {p}" for p in problems]
+              if warnings:
+                  summary += ["", "### Warnings"] + [f"- {w}" for w in warnings]
               if os.environ.get("GITHUB_STEP_SUMMARY"):
                   with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
                       f.write("\n".join(summary) + "\n")
@@ -247,6 +262,8 @@ jobs:
               assert title_problems("feature: x")
               assert title_problems("feat: Block it")
               assert title_problems("feat: block it.")
+              long = "deps: bump actions/upload-artifact from 7.0.1 to 7.0.2 in the actions group"
+              assert not title_problems(long) and title_too_long(long) and not title_too_long("fix: x")
               assert not branch_problems("feat/42-ca-block-legacy")
               assert not branch_problems("dependabot/github_actions/actions-123")
               assert not branch_problems("chore/tombstones")

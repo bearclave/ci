@@ -22,7 +22,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | Workflow | Caller job | Used by | What it does |
 |---|---|---|---|
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck |
-| `pr.yml` | `pr` | every repository | Conventional Commit title, `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`); the root layout (`src/layout_check.py`, below) |
+| `pr.yml` | `pr` | every repository | Conventional Commit title (a bot's title over 72 characters only warns), `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`); the root layout (`src/layout_check.py`, below) |
 | `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `.github` | an optional command of the repository, then the gate |
 | `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, plan of the affected units with trivy and a PR comment, apply from `main`, destroys held back, gate |
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, analytic rules outside the code |
