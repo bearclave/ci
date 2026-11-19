@@ -790,8 +790,9 @@ jobs:
           echo "$(jq '.events | length' activity.json) failed operation(s) in ${subs[*]}."
 
       # 3. The check blocks, from the second plan and from the warnings of
-      #    the apply. Then verification.json and its Markdown (### Verification)
-      #    for the summary and for the apply comment.
+      #    the apply. Then verification.json and verification.md, the body of
+      #    the apply comment's ### Verification section: the report job takes
+      #    the artifact verification-<run id> (README, Apply comment).
       - name: Verification
         id: verify
         if: ${{ !cancelled() && steps.window.outcome == 'success' }}
@@ -802,7 +803,9 @@ jobs:
           set -euo pipefail
           verify-apply.py report --replan-rc "$RC" --json-dir "$VERIFY_JSON" \
             --replan-log replan.txt --apply-log apply.txt --activity activity.json \
-            --out verification.json | tee verification.md >>"$GITHUB_STEP_SUMMARY"
+            --out verification.json >verification.md
+          printf '### Verification\n\n' >>"$GITHUB_STEP_SUMMARY"
+          cat verification.md >>"$GITHUB_STEP_SUMMARY"
           result=$(jq -r .result verification.json)
           echo "result=$result" >>"$GITHUB_OUTPUT"
           [ "$result" = "passed" ] || echo "::error title=Verification::The apply did not verify (summary of this job). The verify job opens an issue and a draft revert."
@@ -839,7 +842,7 @@ jobs:
         env:
           RESULT: ${{ needs.apply.outputs.verification }}
         run: |
-          cat verification.md >>"$GITHUB_STEP_SUMMARY"
+          { printf '### Verification\n\n'; cat verification.md; } >>"$GITHUB_STEP_SUMMARY"
           echo "Verification $RESULT."
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

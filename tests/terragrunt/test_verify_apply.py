@@ -84,7 +84,8 @@ class VerifyApply(unittest.TestCase):
         self.assertEqual(v["replan"]["result"], "no-changes")
         self.assertEqual(v["activity_log"]["result"], "passed")
         self.assertEqual(v["checks"], {"result": "passed", "failed": [], "passed": 1, "unknown": 0})
-        self.assertTrue(md.startswith("### Verification\n"))
+        self.assertTrue(md.startswith("✅ The apply passed"))
+        self.assertIn("| Plan again | ✅ no-changes |", md)
 
     def test_remaining_change_fails(self):
         self.write_plan("web/db", plan([("terraform_data.a", ["update"])]))

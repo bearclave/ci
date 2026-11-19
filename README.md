@@ -250,9 +250,11 @@ minute or two rather than a job of its own:
 3. *Check blocks* - every `check {}` that failed, from the second plan's JSON
    and from the warnings in the apply log.
 
-The result is `verification.json` and `verification.md` (a `### Verification`
-section), in the job summary and in the artifact `verification-<run id>`,
-for the apply comment to embed. `verification.json`, version 1:
+The result is `verification.md` (a `| Check | Result | Detail |` table, the
+body of the apply comment's `### Verification` section) and
+`verification.json`, in the job summary and in the artifact
+`verification-<run id>` that the apply comment picks up. `verification.json`,
+version 1:
 
 ```json
 {

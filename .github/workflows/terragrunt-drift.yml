@@ -1485,7 +1485,8 @@ jobs:
             verify-apply.py report --replan-rc <n|skipped> --json-dir <dir>
                                    --replan-log <file> --apply-log <file>
                                    --activity <file> --out <verification.json>
-                Writes verification.json and prints its Markdown (### Verification).
+                Writes verification.json and prints the Markdown of the apply comment's
+                ### Verification section (without the heading).
 
           The second plan runs right after the apply, over the units it applied, with
           -detailed-exitcode: 0 means the code and the real state agree, 2 that a
@@ -1720,10 +1721,16 @@ jobs:
               return f"{server}/{repo}/actions/runs/{run}" if server and repo and run else None
 
 
+          ICON = {"passed": "✅", "no-changes": "✅", "none": "✅", "skipped": "⏭️",
+                  "unreadable": "⚠️", "failed": "❌", "changes": "❌", "error": "❌"}
+
+
           def markdown(v: dict) -> str:
+              """The body of the apply comment's ### Verification section (the comment
+              and the job summary add the heading): a | Check | Result | Detail | table."""
               mark = {"passed": "passed", "failed": "**failed**"}
-              lines = ["### Verification", "",
-                       f"Result: {mark[v['result']]}. Nothing is rolled back by itself.", "",
+              lines = [f"{ICON[v['result']]} The apply {mark[v['result']]} its verification. "
+                       "Nothing is rolled back by itself.", "",
                        "| Check | Result | Detail |", "|---|---|---|"]
               r = v["replan"]
               detail = {
@@ -1732,7 +1739,7 @@ jobs:
                   "error": "the second plan failed",
                   "skipped": "no unit was applied",
               }[r["result"]]
-              lines.append(f"| Plan again | {r['result']} | {detail} |")
+              lines.append(f"| Plan again | {ICON[r['result']]} {r['result']} | {detail} |")
               a = v["activity_log"]
               if a["result"] == "skipped":
                   detail = a["reason"]
@@ -1741,11 +1748,11 @@ jobs:
               else:
                   detail = (f"{len(a['failures'])} failed operation(s) of the apply identity in "
                             f"{', '.join(f'`{s}`' for s in a['subscriptions'])}")
-              lines.append(f"| Azure Activity Log | {a['result']} | {detail.replace('|', '/')} |")
+              lines.append(f"| Azure Activity Log | {ICON[a['result']]} {a['result']} | {detail.replace('|', '/')} |")
               c = v["checks"]
               detail = (f"{len(c['failed'])} failed, {c['passed']} passed, {c['unknown']} unknown"
                         if c["result"] != "none" else "no check block in the applied units")
-              lines.append(f"| Check blocks | {c['result']} | {detail} |")
+              lines.append(f"| Check blocks | {ICON[c['result']]} {c['result']} | {detail} |")
 
               if r["errors"]:
                   lines += ["", "Second plan errors:", ""] + [f"- {e}" for e in r["errors"]]
