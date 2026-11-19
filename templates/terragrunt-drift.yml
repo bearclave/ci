@@ -187,7 +187,7 @@ jobs:
         run: |
           set -euo pipefail
           [ -s plan.txt ] || { echo "::error::no plan produced"; exit 1; }
-          plan-summary.py plan.txt --fail-on-change \
+          plan-summary.py plan.txt --fail-on-change --drift \
             --json-dir="$RUNNER_TEMP/plan-json" --trivy=trivy \
             --artifact="drift-$GITHUB_RUN_ID" >>"$GITHUB_STEP_SUMMARY"
 

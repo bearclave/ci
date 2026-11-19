@@ -18,6 +18,9 @@
     cat >"$d/plan-summary.py" <<'__CI_EOF__'
     @@include src/terragrunt/plan-summary.py@@
     __CI_EOF__
+    cat >"$d/apply-summary.py" <<'__CI_EOF__'
+    @@include src/terragrunt/apply-summary.py@@
+    __CI_EOF__
     cat >"$d/plan_details.py" <<'__CI_EOF__'
     @@include src/terragrunt/plan_details.py@@
     __CI_EOF__

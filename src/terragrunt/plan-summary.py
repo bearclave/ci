@@ -1,45 +1,60 @@
 #!/usr/bin/env python3
-"""Turns raw terragrunt output into a markdown plan summary.
+"""Turns the output of a terragrunt plan into the plan comment of a pull request.
+
+Usage: plan-summary.py <plan.txt> [options]
+
+The comment, top to bottom:
+
+  ## 📋 Plan complete            (## ❌ Plan failed on an error, a unit without
+                                  a result or a failed check)
+  repo · commit · units · ➕ created · ✏️ updated · 🗑️ destroyed · ♻️ replaced
+  ### ⚠️ Destroys and replaces   icon | Resource | Name | Unit | Why
+  ### Changes                    icon | Resource | Name | What changes | From | To
+  imports that change nothing, as one count line
+  ### ❌ Errors, ### 🛡️ Security findings   when there are any
+  **Status:** security findings, formatting and validation
+  **Needed:** what has to happen next (an approval of a destroy, a fix, a merge)
+  <details> per unit: what terraform printed, as a diff </details>
+
+The tables come from the plans in JSON (--json-dir, plan_details.py): one row
+per change that matters, in standard wording. A unit without a JSON plan gets
+one row per resource from the text. The raw plan stays in the run artifact.
+
+A comment on GitHub holds at most 65 536 characters. When the comment does not
+fit into MAX, the details are shortened (the largest unit first), then left
+out; the tables are never cut while anything else can be. What was cut is said
+at the end.
 
 The output of run --all is interleaved across units, every line prefixed with
-"[<unit>] terraform:". The lines are grouped back by unit and the prefix is
-dropped, so a pull request shows per unit what terraform itself printed: each
-resource with its action and, folded away, its attribute diff.
+"[<unit>] terraform:"; the lines are grouped back by unit and the prefix is
+dropped.
 
-A comment on GitHub holds at most 65 536 characters. When the plan does not fit
-into MAX, the attribute diffs are shortened, the largest unit first. The
-totals, the errors and the list of resources always stay whole; the full
-output is in the plan artifact.
-
-With --fail-on-change it returns a non-zero code when the plan proposes
-anything at all or when any unit ended in an error. That makes it usable as the
-gate of the weekly drift job, since terragrunt itself returns zero even when
-there are changes.
-
-With --github-output the same verdict is written to $GITHUB_OUTPUT as
-has_changes and has_errors, which is what decides whether apply runs at all,
-and has_destroys, true when anything is destroyed or replaced: such an apply
-does not run by itself after a merge, it waits for a manual run.
+Options:
+  --fail-on-change   exit non-zero when the plan proposes anything at all or a
+                     unit ended in an error (the gate of the weekly drift job;
+                     terragrunt itself returns zero even when there are changes)
+  --github-output    write has_changes, has_errors and has_destroys to
+                     $GITHUB_OUTPUT; a plan that destroys or replaces is not
+                     applied by a push, it waits for a manual run
+  --json-dir=<dir>   the plans in JSON, <dir>/<unit>/tfplan.json
+  --trivy=<dir>      trivy's JSON reports over those plans, one per unit
+  --checks=<list>    results of the checks of the same job, as
+                     name=outcome,name=outcome (formatting=success,...)
+  --changes-out=<f>  write the entries of the tables as JSON, for the apply
+                     comment (apply-summary.py); text only, nothing sensitive
+  --artifact=<name>  the artifact the raw plan is in (default plan-$GITHUB_RUN_ID)
+  --repo=, --commit= what the heading line names (default $GITHUB_REPOSITORY,
+                     $GITHUB_SHA)
+  --drift            the weekly drift check: "Drift check" in the heading and
+                     no "Needed" line
+  --nothing-selected the change selects no unit; plan.txt may be missing
+  --no-plan          no plan was produced; plan.txt may be missing
 
 An import, a move, a forget (a removed block with destroy = false) and a change
-of outputs alone count as a change too. None of them touches Azure and
-terraform leaves them out of its "Plan:" line or prints none at all, yet each
-reaches the state only through apply; dependent units read outputs from there.
-
-A unit terragrunt queued that printed neither a plan nor an error counts as an
-error: the run was cancelled, or terragrunt failed before terraform started.
-Without that, a cut-off run would read as a clean one.
-
---artifact=<name> names the artifact the full output is uploaded to; it
-defaults to plan-$GITHUB_RUN_ID.
-
---json-dir=<dir> points to the plans in JSON, one <dir>/<unit>/tfplan.json per
-unit (terragrunt's --json-out-dir). A unit that has one is listed as a table
-from plan_details.py - what each resource is, its name, what changes from what
-to what - instead of the bare resource addresses.
-
---trivy=<dir> adds the findings of trivy over those plans (a directory of its
-JSON reports, one per unit) as a section of their own.
+of outputs alone count as a change too: each reaches the state only through
+apply, and dependent units read outputs from there. A unit terragrunt queued
+that printed neither a plan nor an error counts as an error: the run was
+cancelled, or terragrunt failed before terraform started.
 """
 import json
 import os
@@ -48,6 +63,7 @@ import re
 import sys
 
 import plan_details
+from plan_details import NONE, code
 
 RE_UNIT = re.compile(r"\[([^\]]+)\] terraform:")
 RE_PLAN = re.compile(
@@ -74,25 +90,8 @@ RE_IMPORTED = re.compile(r"^ {0,2}# \(imported from ")
 # in, so a symbol anywhere else is part of a value.
 RE_SIGN = re.compile(r"^( +)([-+~]) ")
 
-ACTIONS = {
-    "will be created": "create",
-    "will be updated in-place": "update in-place",
-    "will be destroyed": "destroy",
-    "must be replaced": "replace",
-    "is tainted, so must be replaced": "replace (tainted)",
-    "will be replaced, as requested": "replace (as requested)",
-    "will be read during apply": "read",
-    "will be imported": "import",
-}
-
 MAX = 60_000
-
-
-def code(text: str) -> str:
-    """An inline code span that survives backticks in the text."""
-    tick = "``" if "`" in text else "`"
-    pad = " " if tick == "``" else ""
-    return f"{tick}{pad}{text}{pad}{tick}"
+MAX_ERROR_LINES = 25
 
 
 def fenced(lines: list, lang: str = "") -> list:
@@ -100,14 +99,6 @@ def fenced(lines: list, lang: str = "") -> list:
     longest = max((len(r) for line in lines for r in re.findall(r"`+", line)), default=0)
     fence = "`" * max(3, longest + 1)
     return [fence + lang, *lines, fence]
-
-
-def action(what: str) -> str:
-    if what.startswith("has moved to "):
-        return "move to " + code(what[len("has moved to "):])
-    if what.startswith("will no longer be managed"):
-        return "forget"
-    return ACTIONS[what]
 
 
 def highlight(line: str) -> str:
@@ -203,11 +194,12 @@ def trivy_findings(reports: str) -> list:
     return sorted(found)
 
 
-def main(path: str, fail_on_change: bool = False, github_output: bool = False,
-         artifact: str = None, json_dir: str = None, trivy: str = None) -> int:
-    units, errors = {}, []
-    streams, loose, queued = {}, [], {}
+def read_output(path: str):
+    """units {unit: (add, chg, dst, imp)}, parsed per unit, loose lines, queue, errors."""
+    units, errors, streams, loose, queued = {}, [], {}, [], {}
     unit, in_queue = "?", False
+    if not path or not os.path.isfile(path):
+        return units, {}, loose, queued, errors
     for line in open(path, encoding="utf-8", errors="replace"):
         line = line.rstrip("\n")
         if in_queue and (m := RE_BRANCH.match(line)):
@@ -231,33 +223,80 @@ def main(path: str, fail_on_change: bool = False, github_output: bool = False,
             units.setdefault(unit, (0, 0, 0, 0))
         if m := RE_ERROR.match(line.split("terraform:")[-1]):
             errors.append(m.group(1).strip())
-
     parsed = {u: parse(s) for u, s in streams.items()}
     # Terraform prints no "Plan:" line when only outputs change.
     for u, p in parsed.items():
         if p["outputs"]:
             units.setdefault(u, (0, 0, 0, 0))
+    return units, parsed, loose, queued, errors
 
-    add = sum(u[0] for u in units.values())
-    chg = sum(u[1] for u in units.values())
-    dst = sum(u[2] for u in units.values())
-    imp = sum(u[3] for u in units.values())
+
+def plural(n: int, word: str) -> str:
+    return f"{n} {word}{'s' * (n != 1)}"
+
+
+def cell(text: str) -> str:
+    """Text for a table cell; code spans have their pipes escaped already."""
+    text = str(text).replace("\n", " ")
+    return text if "`" in text else text.replace("|", "\\|")
+
+
+def checks_of(spec: str) -> list:
+    """[(name, outcome)] from name=outcome,name=outcome."""
+    out = []
+    for part in (spec or "").split(","):
+        if "=" in part:
+            name, outcome = part.split("=", 1)
+            out.append((name.strip(), outcome.strip() or "skipped"))
+    return out
+
+
+def main(path: str, opts: dict) -> int:
+    drift = "drift" in opts
+    units, parsed, loose, queued, errors = read_output(path)
+
+    # Every resource the plan touches, from JSON where there is one.
+    entries, from_json, outputs = [], set(), {}
+    for u, p in sorted(parsed.items()):
+        plan_json = pathlib.Path(opts.get("json-dir") or "", u, "tfplan.json")
+        got = None
+        if opts.get("json-dir") and plan_json.is_file():
+            try:
+                plan = plan_details.load(plan_json)
+                got = plan_details.entries(plan, u)
+                outs = [k for k, v in (plan.get("output_changes") or {}).items()
+                        if (v or {}).get("actions") not in (["no-op"], None)]
+                if outs:
+                    outputs[u] = outs
+                from_json.add(u)
+            except (ValueError, KeyError, TypeError, AttributeError) as e:
+                print(f"::warning::{u}: the JSON plan could not be read ({e})", file=sys.stderr)
+        if got is None:
+            got = []
+            for r in p["resources"]:
+                imported = any(RE_IMPORTED.match(x) for x in r["lines"])
+                if e := plan_details.text_entry(r["address"], r["what"], u, imported):
+                    got.append(e)
+            if p["outputs"]:
+                outputs[u] = ["(see the details)"]
+        entries += got
+    entries.sort(key=lambda e: (plan_details.ORDER.get(e["action"], 9), e["unit"],
+                                plan_details.natural(e["address"])))
+
+    count = {a: sum(e["action"] == a for e in entries) for a in plan_details.ICONS}
+    count["import"] = sum(e["action"] == "import" or e["imported"] for e in entries)
+    destructive = [e for e in entries if e["action"] in ("destroy", "replace")]
+    listed = [e for e in entries if e["action"] not in ("destroy", "replace") and not e["noop_import"]]
+    noop_imports = {}
+    for e in entries:
+        if e["noop_import"]:
+            noop_imports[e["unit"]] = noop_imports.get(e["unit"], 0) + 1
+
+    # Text totals still decide: they count what the JSON might not have.
     whats = [r["what"] for p in parsed.values() for r in p["resources"]]
-    mov = sum(w.startswith("has moved to ") for w in whats)
-    fgt = sum(w.startswith("will no longer be managed") for w in whats)
-    outs = sum(bool(p["outputs"]) for p in parsed.values())
-    changes = any((add, chg, dst, imp, mov, fgt, outs))
-    totals = ((f"{imp} to import, " if imp else "")
-              + f"{add} to add, {chg} to change, {dst} to destroy"
-              + (f", {mov} to move" if mov else "")
-              + (f", {fgt} to forget" if fgt else "")
-              + (f", outputs change in {outs} unit{'s' * (outs != 1)}" if outs else ""))
-    changed = sorted(
-        (u for u, p in parsed.items()
-         if p["resources"] or p["outputs"] or any(units.get(u, (0, 0, 0, 0)))),
-        key=lambda u: (-sum(units.get(u, (0, 0, 0, 0))), u),
-    )
-    unchanged = sorted(u for u in units if u not in changed and u in parsed)
+    text_changes = any(any(t) for t in units.values()) or any(
+        w.startswith(("has moved to ", "will no longer be managed")) for w in whats)
+    changes = bool(text_changes or entries or outputs)
 
     # The same failure (an expired login, say) tends to hit many units at once.
     failed = {}
@@ -267,116 +306,199 @@ def main(path: str, fail_on_change: bool = False, github_output: bool = False,
     known = {RE_ERROR.match(b[0]).group(1).strip() for b in failed}
     for block in loose_errors(loose, known):
         failed.setdefault(tuple(block), {})[None] = None
-    missing = [u for u in queued
-               if u not in units and not parsed.get(u, {}).get("errors")]
+    missing = [u for u in queued if u not in units and not parsed.get(u, {}).get("errors")]
+    checks = checks_of(opts.get("checks", ""))
+    bad_checks = [n for n, o in checks if o not in ("success", "skipped")]
+    no_plan = "no-plan" in opts or (not parsed and not units and "nothing-selected" not in opts
+                                    and not (path and os.path.isfile(path) and os.path.getsize(path)))
+    is_failed = bool(failed or missing or bad_checks or no_plan)
+
+    all_units = sorted(set(units) | set(parsed) | set(missing))
+    changed_units = sorted({e["unit"] for e in entries} | set(outputs)
+                           | {u for u, t in units.items() if any(t)})
+    unchanged = [u for u in all_units if u not in changed_units and u in units]
+    many = len({e["unit"] for e in listed}) > 1
+    findings = trivy_findings(opts.get("trivy"))
 
     diffs = {}
-    for u in changed:
-        blocks = [r["lines"] for r in parsed[u]["resources"]]
-        if parsed[u]["outputs"]:
-            blocks.append(parsed[u]["outputs"])
+    for u in changed_units:
+        p = parsed.get(u)
+        if not p:
+            continue
+        blocks = [r["lines"] for r in p["resources"]]
+        if p["outputs"]:
+            blocks.append(p["outputs"])
         diffs[u] = [line for i, b in enumerate(blocks)
                     for line in ([""] if i else []) + [highlight(x) for x in b]]
 
-    destructive = [f"{u}: {r['address']} {r['what']}"
-                   for u in changed for r in parsed[u]["resources"]
-                   if r["what"] == "will be destroyed" or "replaced" in r["what"]]
-
-    tables = {}
-    for u in changed:
-        plan_json = pathlib.Path(json_dir or "", u, "tfplan.json")
-        if json_dir and plan_json.is_file():
-            try:
-                tables[u] = plan_details.table(plan_details.load(plan_json))
-            except (ValueError, KeyError, TypeError, AttributeError) as e:
-                print(f"::warning::{u}: the JSON plan could not be read ({e})", file=sys.stderr)
-    findings = trivy_findings(trivy)
-
+    artifact = opts.get("artifact")
     if artifact is None and os.environ.get("GITHUB_RUN_ID"):
         artifact = f"plan-{os.environ['GITHUB_RUN_ID']}"
     where = f"artifact {code(artifact)} (plan.txt)" if artifact else "plan.txt"
+    repo = opts.get("repo") or os.environ.get("GITHUB_REPOSITORY", "")
+    commit = opts.get("commit") or os.environ.get("GITHUB_SHA", "")
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
 
-    def render(shown: dict) -> str:
-        out = ["## Terragrunt plan\n",
-               f"**{totals}** across {len(units)} unit{'s' * (len(units) != 1)}.\n"]
+    title = "Drift check" if drift else "Plan"
+    heading = f"## ❌ {title} failed" if is_failed else f"## 📋 {title} complete"
+    line = []
+    if repo:
+        line.append(code(repo))
+    if commit:
+        line.append(f"[{code(commit[:7])}]({server}/{repo}/commit/{commit})" if repo else code(commit[:7]))
+    line.append(plural(len(all_units), "unit"))
+    line += [f"➕ {count['create']}", f"✏️ {count['update']}", f"🗑️ {count['destroy']}",
+             f"♻️ {count['replace']}"]
+    line += [f"{plan_details.ICONS[a]} {count[a]} {w}" for a, w in
+             (("import", "imported"), ("move", "moved"), ("forget", "forgotten")) if count[a]]
 
-        if failed or missing:
-            out.append("### Errors\n")
-        if missing:
-            out.append("#### Without a result\n")
-            out.append(", ".join(code(u) for u in missing) + "\n")
-            out.append("Queued, but neither a plan nor an error came out: the run was "
-                       "cancelled, or terragrunt failed before terraform started. "
-                       f"The rest is in {where}.\n")
-        if failed:
+    status = []
+    if opts.get("trivy") is not None:
+        status.append(f"🛡️ {plural(len(findings), 'security finding')} (below)" if findings
+                      else "🛡️ no security findings")
+    if checks:
+        ok = [n for n, o in checks if o == "success"]
+        if ok:
+            status.append("✅ " + " and ".join(ok) + " passed")
+        status += [f"❌ {n} failed" for n in bad_checks]
+    if failed or missing:
+        status.append("❌ " + plural(len({u for s in failed.values() for u in s if u} | set(missing))
+                                     or 1, "unit") + " without a plan")
+
+    needed = []
+    if failed or missing or no_plan:
+        needed.append("fix the errors above; the plan runs again on the next push")
+    if bad_checks:
+        needed.append("fix " + " and ".join(bad_checks))
+    if findings:
+        needed.append("fix the security findings or accept them in "
+                      "`.github/trivyignore.yaml` with the reason")
+    if destructive:
+        needed.append("approval of the destroy: after the merge the apply waits, run the "
+                      "workflow on `main` by hand with `allow_destroy`")
+    if not needed:
+        needed.append("review and merge; the apply on `main` runs by itself" if changes
+                      else "nothing; merging applies nothing")
+
+    def render(shown: dict, details: bool = True, compact: bool = False, cap=None,
+               error_lines=None) -> str:
+        out = [heading, "", " · ".join(line), ""]
+
+        if destructive:
+            out += ["### ⚠️ Destroys and replaces", "",
+                    "| | Resource | Name | Unit | Why |", "|---|---|---|---|---|"]
+            out += [f"| {e['icon']} | {e['kind']} | {code(e['name'])} | {code(e['unit'])} "
+                    f"| {cell(e['why']) or NONE} |" for e in destructive]
+            out.append("")
+
+        rows = []
+        for e in listed:
+            name = code(e["name"]) + (f"<br><sub>{code(e['unit'])}</sub>" if many else "")
+            those = e["rows"]
+            if compact and len(those) > 1:
+                those = [(f"{plural(len(those), 'change')}, see the details", NONE, NONE)]
+            for what, frm, to in those:
+                rows.append(f"| {e['icon']} | {e['kind']} | {name} | {cell(what)} | {frm} | {to} |")
+        if rows or not destructive:
+            out += ["### Changes", ""]
+        if rows:
+            out += ["| | Resource | Name | What changes | From | To |",
+                    "|---|---|---|---|---|---|"]
+            out += rows[:cap] if cap is not None else rows
+            if cap is not None and cap < len(rows):
+                out.append(f"| | | | _{len(rows) - cap} more rows, see {where}_ | | |")
+            out.append("")
+        elif not destructive and not noop_imports:
+            if outputs:
+                out += ["Only output values change, in " + ", ".join(code(u) for u in outputs)
+                        + ".", ""]
+            elif "nothing-selected" in opts:
+                out += ["Nothing to plan: the change selects no unit.", ""]
+            elif not is_failed:
+                out += ["None: the plan matches what is deployed.", ""]
+            else:
+                out += ["No plan to show.", ""]
+        if noop_imports:
+            n = sum(noop_imports.values())
+            out += [f"📥 **Imported without a change:** {n} — "
+                    + ", ".join(f"{code(u)} ({c})" for u, c in sorted(noop_imports.items())) + ".", ""]
+
+        if is_failed and (failed or missing or no_plan):
+            out += ["### ❌ Errors", ""]
+            if no_plan and not failed and not missing:
+                out += [f"No plan was produced, see the run log and {where}.", ""]
+            if missing:
+                out += ["**Without a result:** " + ", ".join(code(u) for u in missing), "",
+                        "Queued, but neither a plan nor an error came out: the run was "
+                        "cancelled, or terragrunt failed before terraform started.", ""]
             for block, sources in failed.items():
                 names = [code(u) for u in sources if u is not None]
                 if None in sources:
                     names.append("outside a unit")
-                out.append(f"#### {', '.join(names)}\n")
-                out += fenced(list(block))
-                out.append("")
+                body = list(block)
+                if error_lines is not None and len(body) > error_lines:
+                    body = body[:error_lines] + [f"... {len(block) - error_lines} more lines"]
+                out += [f"**{', '.join(names)}**", ""] + fenced(body) + [""]
 
         if findings:
-            out.append("### Security findings\n")
-            out.append("trivy over the plan, HIGH and CRITICAL. A finding that is accepted "
-                       "goes into `.github/trivyignore.yaml` with the reason.\n")
-            out += ["| Unit | Severity | Check | Resource |", "|---|---|---|---|"]
-            out += [f"| {code(u)} | {sev} | {cid}: {title} | {code(res) if res else ''} |"
-                    for u, sev, cid, title, res in findings]
+            out += ["### 🛡️ Security findings", "",
+                    "trivy over the plan, HIGH and CRITICAL. A finding that is accepted "
+                    "goes into `.github/trivyignore.yaml` with the reason.", "",
+                    "| Unit | Severity | Check | Resource |", "|---|---|---|---|"]
+            out += [f"| {code(u)} | {sev} | {cell(cid)}: {cell(title_)} | {code(res) if res else ''} |"
+                    for u, sev, cid, title_, res in findings]
             out.append("")
 
-        if destructive:
-            out.append("### Destroys or replaces\n")
-            out.append("After a merge the apply does not run these by itself: it waits "
-                       "for a manual run of the workflow with `allow_destroy`.\n")
-            out += [f"- {code(d)}" for d in destructive]
-            out.append("")
+        if status:
+            out += ["**Status:** " + " · ".join(status), ""]
+        if not drift:
+            out += ["**Needed:** " + "; ".join(needed) + ".", ""]
 
-        if changed:
-            out.append("### Units with a change\n")
-        for u in changed:
-            p = parsed[u]
-            out.append(f"#### {code(u)}" + (f" ({p['plan']})" if p["plan"] else "") + "\n")
-            if u in tables:
-                out += tables[u]
-            else:
-                for r in p["resources"]:
-                    label = action(r["what"])
-                    if any(RE_IMPORTED.match(x) for x in r["lines"]):
-                        label += " (imported)"
-                    out.append(f"- {code(r['address'])}: {label}")
-                if p["outputs"]:
-                    out.append("- output values change")
-            out.append("")
-
-            lines = diffs[u]
-            n = shown.get(u, len(lines))
+        cut_notes = []
+        body = []
+        for u in changed_units:
+            lines = diffs.get(u) or []
             if not lines:
                 continue
+            p = parsed[u]
+            n = shown.get(u, len(lines))
+            body.append(f"#### {code(u)}" + (f" ({p['plan']})" if p["plan"] else ""))
+            body.append("")
             if n == 0:
-                out.append("_Attribute diff left out, the comment would be too long._\n")
+                body += ["_Left out, the comment would be too long._", ""]
+                cut_notes.append(code(u))
                 continue
-            title = "Attribute diff" + (", shortened" if n < len(lines) else "")
-            out += [f"<details><summary>{title}</summary>", ""]
-            body = lines[:n]
-            while body and not body[-1]:
-                body.pop()
-            out += fenced(body, "diff")
+            text = lines[:n]
+            while text and not text[-1]:
+                text.pop()
+            body += fenced(text, "diff")
             if n < len(lines):
-                out += ["", f"_{len(lines) - n} of {len(lines)} lines left out._"]
-            out += ["", "</details>", ""]
-
+                body += ["", f"_{len(lines) - n} of {len(lines)} lines left out._"]
+                cut_notes.append(code(u))
+            body.append("")
         if unchanged:
-            noun = "unit" if len(unchanged) == 1 else "units"
-            out.append(f"**{len(unchanged)} {noun} without a change:** "
-                       + ", ".join(code(u) for u in unchanged))
+            body.append(f"**{plural(len(unchanged), 'unit')} without a change:** "
+                        + ", ".join(code(u) for u in unchanged))
+            body.append("")
+        if body and details:
+            out += ["<details><summary>Details per unit</summary>", ""] + body + ["</details>", ""]
 
-        if shown:
-            out += ["", f"_Shortened to fit a comment; the full output is in {where}._"]
+        notes = []
+        if not details and body:
+            notes.append("the details per unit are left out")
+        elif cut_notes:
+            notes.append("the details of " + ", ".join(cut_notes) + " are shortened")
+        if compact:
+            notes.append("resources with several changes are one row each")
+        if error_lines is not None and any(len(b) > error_lines for b in failed):
+            notes.append("long error messages are shortened")
+        if notes:
+            out.append(f"_Cut to fit a comment: {'; '.join(notes)}. The full plan is in {where}._")
+        else:
+            out.append(f"_The raw plan is in {where}._")
         return "\n".join(out)
 
-    # Diffs are shortened from the largest unit down: first as much of the
+    # The details go first, from the largest unit down: as much of the
     # largest as the overflow needs, then the next one if that was not enough.
     shown = {}
     text = render(shown)
@@ -389,31 +511,62 @@ def main(path: str, fail_on_change: bool = False, github_output: bool = False,
                 over -= len(diffs[u][n]) + 1
             shown[u] = n
             text = render(shown)
+    attempts = [dict(details=False), dict(details=False, error_lines=MAX_ERROR_LINES),
+                dict(details=False, error_lines=MAX_ERROR_LINES, compact=True)]
+    for kwargs in attempts:
+        if len(text) <= MAX:
+            break
+        text = render(shown, **kwargs)
+    if len(text) > MAX:
+        # Last of all the rows of the changes table; the destroys stay whole.
+        lo, hi = 0, len(listed) * 50
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if len(render(shown, details=False, error_lines=MAX_ERROR_LINES, compact=True,
+                          cap=mid)) <= MAX:
+                lo = mid
+            else:
+                hi = mid - 1
+        text = render(shown, details=False, error_lines=MAX_ERROR_LINES, compact=True, cap=lo)
     if len(text) > MAX:
         text = cut(text, MAX, where)
     print(text)
 
-    if github_output and (path_out := os.environ.get("GITHUB_OUTPUT")):
+    if out_path := opts.get("changes-out"):
+        pathlib.Path(out_path).write_text(json.dumps({
+            "repo": repo, "commit": commit, "units": all_units, "entries": entries,
+            "noop_imports": noop_imports, "failed": is_failed,
+        }, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+
+    if "github-output" in opts and (path_out := os.environ.get("GITHUB_OUTPUT")):
         with open(path_out, "a", encoding="utf-8") as fh:
             fh.write(f"has_changes={str(changes).lower()}\n")
             fh.write(f"has_errors={str(bool(errors or missing)).lower()}\n")
-            fh.write(f"has_destroys={str(bool(destructive)).lower()}\n")
+            has_destroys = bool(destructive) or any(
+                r["what"] == "will be destroyed" or "replaced" in r["what"]
+                for p in parsed.values() for r in p["resources"])
+            fh.write(f"has_destroys={str(has_destroys).lower()}\n")
 
-    if fail_on_change and (changes or errors or missing):
-        print(f"\nDRIFT: {totals}, {len(errors)} errors"
-              + (f", {len(missing)} unit{'s' * (len(missing) != 1)} without a result"
-                 if missing else "") + ".",
+    if "fail-on-change" in opts and (changes or errors or missing):
+        totals = ", ".join(f"{count[a]} {w}" for a, w in (
+            ("create", "to create"), ("update", "to update"), ("destroy", "to destroy"),
+            ("replace", "to replace"), ("import", "to import"), ("move", "to move"),
+            ("forget", "to forget")) if count[a] or a in ("create", "update", "destroy"))
+        if outputs:
+            totals += f", outputs change in {plural(len(outputs), 'unit')}"
+        print(f"\nDRIFT: {totals}, {plural(len(errors), 'error')}"
+              + (f", {plural(len(missing), 'unit')} without a result" if missing else "") + ".",
               file=sys.stderr)
         return 1
     return 0
 
 
 def cut(text: str, limit: int, where: str) -> str:
-    """Last resort when even without the diffs the summary is too long.
+    """Last resort when even the shortest form is too long.
 
     Cuts whole lines from the end and closes a code block left open.
     """
-    note = f"\n\n_Cut off to fit a comment; the full output is in {where}._"
+    note = f"\n\n_Cut off to fit a comment; the full plan is in {where}._"
     kept, size, fence = [], 0, None
     for line in text.split("\n"):
         after = fence
@@ -435,6 +588,9 @@ def cut(text: str, limit: int, where: str) -> str:
 if __name__ == "__main__":
     args = sys.argv[1:]
     paths = [a for a in args if not a.startswith("--")]
-    named = dict(a[2:].split("=", 1) for a in args if a.startswith("--") and "=" in a)
-    sys.exit(main(paths[0], "--fail-on-change" in args, "--github-output" in args,
-                  named.get("artifact"), named.get("json-dir"), named.get("trivy")))
+    opts = {}
+    for a in args:
+        if a.startswith("--"):
+            key, _, value = a[2:].partition("=")
+            opts[key] = value
+    sys.exit(main(paths[0] if paths else "", opts))
