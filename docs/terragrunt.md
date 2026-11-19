@@ -93,8 +93,10 @@ Each `from` once, `to` a unit of the head commit; an entry whose `from` is no
 unit gone in the change is ignored (it is stale after the merge and goes in a
 later pull request). The plan of every moved unit may create, destroy or
 replace nothing (`src/terragrunt/check-moves.py`): a create means the state
-did not come along, and the plan job fails before anything is applied. The
-old blob stays until the owner deletes it after the apply.
+did not come along, and the plan job fails before anything is applied.
+Several units may move into one (`from` differs, `to` the same). The old
+blobs stay; the run summary lists them for the owner to delete after the
+apply.
 
 ## validate
 

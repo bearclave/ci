@@ -384,6 +384,19 @@ class SelectUnits(unittest.TestCase):
         self.assertEqual(r["deleted"], [])
         self.assertEqual(r["units"], ["mg-corp/sub-a/weu/rg-x/key-vault"])
 
+    def test_two_units_into_one_new_unit(self):
+        # A rule's state is copied, the endpoint imported: neither is destroyed.
+        self.remove("mg-corp/sub-a/weu/rg-x/key-vault/certificate")
+        self.remove("mg-corp/sub-a/weu/rg-x/sentinel")
+        self.write("infrastructure/mg-corp/sub-a/weu/rg-x/data-collection/terragrunt.hcl")
+        self.commit()
+        r = self.select(None, "--no-expand", moves={"moves": [
+            {"from": "mg-corp/sub-a/weu/rg-x/key-vault/certificate", "to": "mg-corp/sub-a/weu/rg-x/data-collection"},
+            {"from": "mg-corp/sub-a/weu/rg-x/sentinel", "to": "mg-corp/sub-a/weu/rg-x/data-collection"}]})
+        self.assertEqual(r["deleted"], [])
+        self.assertEqual(len(r["moved"]), 2)
+        self.assertEqual(r["units"], ["infrastructure/mg-corp/sub-a/weu/rg-x/data-collection"])
+
     def test_stale_move_entries_are_ignored(self):
         self.write("tenant/groups/terragrunt.hcl")
         self.commit()

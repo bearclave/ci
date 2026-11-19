@@ -179,7 +179,12 @@ select:
            else empty end),
           (if (.moved | length) > 0
            then "Moved with their state: " + (.moved | map("\(.[0] | key) → \(.[1] | key)") | join(", ")) + "."
-           else empty end)
+           else empty end),
+          (.moved | map(select((.[0] | key) != (.[1] | key)) | .[0] | key) | unique
+           | if length > 0
+             then "Not destroyed; their old state blobs stay until the owner deletes them after the apply: "
+                  + join(", ") + "."
+             else empty end)
         ' <<<"$selection" >>"$GITHUB_STEP_SUMMARY"
         # The state key is the unit's path: a moved directory would be a new
         # unit that creates everything again, next to the old resources.

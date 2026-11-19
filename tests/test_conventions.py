@@ -195,6 +195,9 @@ class Terragrunt(Base):
         self.assertEqual(hits, [("tags-required", "mg-corp/sub-a/weu/rg-x/rg.hcl", 1),
                                 ("tags-required", "mg-corp/sub-a/weu/rg-x/rg.hcl", 2)])
 
+    def test_tags_skip_a_common_unit_of_the_same_name(self):
+        self.assertEqual(self.with_changes({"_common/units/subscription.hcl": "inputs = {}\n"}), [])
+
     def test_hardcoded_ids(self):
         hits = self.with_changes({"tenant/groups/terragrunt.hcl": SOURCE +
                                   f'inputs = {{\n  a = "{SUB}"\n'
