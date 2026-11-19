@@ -87,6 +87,8 @@ pipelines:
     folders: [infrastructure]
     forbidden: [tools, deploy]
   terraform-modules:
+    # The settings of the README tables of terraform-docs.
+    files: [.terraform-docs.yml]
     content: modules
   m365-dsc:
     # tenant.psd1 is the tenant context of the configuration, as account.hcl

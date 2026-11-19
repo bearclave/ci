@@ -1,8 +1,10 @@
 # The pipeline of a repository of Terraform modules (iac-modules). Nothing
 # reaches a cloud: no credentials, no backend, no apply.
 #
-#   formatting, init -backend=false + validate per module, tflint, trivy
-#   config over the modules, and the conventions in conventions.yaml
+#   formatting, init -backend=false + validate per module, terraform test
+#   where a module has tests/, tflint, trivy config over the modules, the
+#   README tables (terraform-docs, where .terraform-docs.yml is), the catalog
+#   (docs/catalog.md, where it is), and the conventions in conventions.yaml
 #
 #   jobs:
 #     pipeline:
@@ -10,7 +12,7 @@
 #       permissions:
 #         contents: read
 #
-# Versions: TERRAFORM_VERSION, TFLINT_*, TRIVY_* in the caller's
+# Versions: TERRAFORM_VERSION, TFLINT_*, TRIVY_*, TERRAFORM_DOCS_* in the caller's
 # .github/tool-versions.env. The required check is "pipeline / gate".
 name: terraform-modules
 
@@ -72,7 +74,9 @@ jobs:
       - name: Install tools
         run: |
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
-          install-tools.sh tflint trivy
+          tools=(tflint trivy)
+          if [ -f .terraform-docs.yml ]; then tools+=(terraform-docs); fi
+          install-tools.sh "${tools[@]}"
 
       - name: Formatting
         run: terraform fmt -check -recursive -diff
@@ -96,6 +100,48 @@ jobs:
             echo "::endgroup::"
           done < <(find . -name '*.tf' -not -path '*/.terraform/*' -not -path './.tools/*' -exec dirname {} \; | sort -u)
           exit $fail
+
+      # Offline: the tests plan against mock_provider; the modules are
+      # initialised by the step above.
+      - name: Module tests
+        run: |
+          set -uo pipefail
+          fail=0
+          while read -r dir; do
+            echo "::group::$dir"
+            if ! terraform -chdir="$dir" test -no-color; then
+              echo "::error file=$dir::terraform test failed"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done < <(find . -path '*/tests/*.tftest.hcl' -not -path './.tools/*' | sed 's|/tests/[^/]*$||' | sort -u)
+          exit $fail
+
+      # The generated tables of every module README match the module.
+      - name: README tables
+        if: hashFiles('.terraform-docs.yml') != ''
+        run: |
+          set -uo pipefail
+          fail=0
+          while read -r dir; do
+            if ! terraform-docs --config .terraform-docs.yml --output-check "$dir" >/dev/null; then
+              echo "::error file=$dir/README.md::the terraform-docs part is not up to date; run 'terraform-docs --config .terraform-docs.yml $dir'"
+              fail=1
+            fi
+          done < <(find . -name '*.tf' -not -path './.*' -not -path '*/.terraform/*' -exec dirname {} \; | sort -u |
+            while read -r d; do [ -f "$d/README.md" ] && echo "$d"; done)
+          exit $fail
+
+      - name: Catalog
+        if: hashFiles('docs/catalog.md') != ''
+        run: |
+          cat >"$RUNNER_TEMP/catalog.py" <<'__CI_EOF__'
+          @@include src/terraform/catalog.py@@
+          __CI_EOF__
+          python3 "$RUNNER_TEMP/catalog.py" . --check || {
+            echo "::error file=docs/catalog.md::not up to date; run python3 <ci>/src/terraform/catalog.py ."
+            exit 1
+          }
 
       - name: tflint
         env:

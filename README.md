@@ -26,7 +26,7 @@ name, never `secrets: inherit`). The header of each workflow shows its caller.
 | `terragrunt-home.yml` | `pipeline` | `iac-home` | the jobs of `terragrunt.yml` through WireGuard, with the certificate renewal on schedule |
 | `destroy-review.yml` | `review` | `iac-azure`, `iac-github`, `iac-home` | on a submitted approval, re-runs the failed `destroy / approved` check |
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree as the read-only identity, trivy, failed check blocks, analytic rules outside the code |
-| `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
+| `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, `terraform test`, tflint, trivy config, README tables (terraform-docs `--output-check`), `docs/catalog.md` (`src/terraform/catalog.py --check`), conventions |
 | `m365-dsc.yml`, `m365-drift.yml` | `pipeline`, `drift` | `iac-m365` | Microsoft365DSC: plan, apply, weekly drift (to be retired) |
 | `static-web-app.yml` | `pipeline` | `app-web-*` | site checks (with SEO), ESLint, the site's own checks, deploy in the `environment` when the content changed, smoke test of `url` |
 | `container.yml` | `pipeline` | `app-home` | ESLint, lint and tests in the image; push to GHCR from `main` (`:main`) and from a release (`:vX.Y.Z`) |
@@ -56,7 +56,7 @@ templates/            the workflows, with @@include markers; _fragments/ shared 
 .github/workflows/    generated from templates/ by tools/build.py (do not edit), and
                       this repository's own: ci, pr-check, deps, ci-pins, major-tag,
                       project-sync, housekeeping
-src/                  the scripts the workflows carry or run; terragrunt/, m365/;
+src/                  the scripts the workflows carry or run; terragrunt/, terraform/, m365/;
                       layout.yaml (managed copy from governance), markdownlint.yaml
 tests/                unit tests of src/, mirroring it
 tools/                build.py, sanitise-plan.py, move-major-tag.sh, bot-gh.py

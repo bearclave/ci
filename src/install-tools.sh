@@ -4,7 +4,7 @@
 # download is checked against the sha256 in the calling repository's
 # tool-versions.env.
 #
-# Usage: install-tools.sh terragrunt trivy tflint
+# Usage: install-tools.sh terragrunt trivy tflint terraform-docs
 #
 # TOOL_VERSIONS  the versions file (default .github/tool-versions.env)
 # TOOLS_DIR      where the binaries go (default ~/.cache/iac-tools/bin)
@@ -44,8 +44,16 @@ install_tflint() {
   unzip -q "$t/a.zip" -d "$t" tflint && mv "$t/tflint" "$BIN/"
 }
 
+install_terraform_docs() {
+  [ -x "$BIN/terraform-docs" ] && return 0
+  local t; t=$(mktemp -d)
+  fetch "https://github.com/terraform-docs/terraform-docs/releases/download/v${TERRAFORM_DOCS_VERSION}/terraform-docs-v${TERRAFORM_DOCS_VERSION}-linux-amd64.tar.gz" \
+        "$TERRAFORM_DOCS_SHA256" "$t/a.tgz"
+  tar -xzf "$t/a.tgz" -C "$t" terraform-docs && mv "$t/terraform-docs" "$BIN/"
+}
+
 for tool in "$@"; do
-  "install_$tool"
+  "install_${tool//-/_}"
   chmod +x "$BIN/$tool"
   echo "$tool $("$BIN/$tool" --version 2>&1 | head -1)"
 done
