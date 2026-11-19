@@ -247,7 +247,7 @@ one.
   then proposes the bump as a pull request with its plan.
 - `v1` stays where it is for anything that still calls it; it gets no changes.
 - The `release-tags` ruleset refuses to update or delete a `v*.*.*` tag; only
-  an organisation owner may move `v2`.
+  an organisation owner may move `v2`, with `tools/move-major-tag.sh`.
 - Everything the workflows themselves use is pinned to a commit; the
   organisation enforces that (`sha_pinning_required`).
 
@@ -278,8 +278,11 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
    git switch main && git pull --ff-only
    git tag -s v2.1.0 -m v2.1.0 && git push origin v2.1.0
    gh release create v2.1.0 --verify-tag --generate-notes
-   git tag -fs v2 -m "v2 -> v2.1.0" "v2.1.0^{}" && git push -f origin v2
+   tools/move-major-tag.sh v2.1.0
    ```
+
+   The script moves `v2` only to a published, signed release; it is the one
+   force push an agent may run (allowed for this script alone).
 
 4. Rerun the pipeline in one caller to see it there too.
 
