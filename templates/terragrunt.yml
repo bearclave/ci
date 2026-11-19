@@ -200,9 +200,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {variant: shard0of3, env: "SHARD=0", flags: "", pre: "shard"}
-          - {variant: shard1of3, env: "SHARD=1", flags: "", pre: "shard"}
-          - {variant: shard2of3, env: "SHARD=2", flags: "", pre: "shard"}
+          - {variant: dag, env: "", flags: "", pre: ""}
+          - {variant: dag-p4, env: "TG_PARALLELISM=4", flags: "", pre: ""}
     permissions:
       contents: read
       id-token: write
@@ -397,7 +396,7 @@ jobs:
           vmstat -n 5 >"$RUNNER_TEMP/vmstat.txt" &
           VMSTAT=$!
           ( while :; do
-              ps -eLo stat=,comm=,args= | awk '$1 ~ /^R/ { c=$2
+              ps -eo stat=,comm=,args= | awk '$1 ~ /^R/ { c=$2
                 if (c ~ /^terraform-prov/) { n=split($3,a,"/"); k="provider " a[n] }
                 else if (c == "terraform") { k="terraform " $4 } else k=c
                 print k }' >>"$RUNNER_TEMP/cpu.txt"
@@ -411,16 +410,7 @@ jobs:
           }
           trap perf_end EXIT
           PERF_T0=$(date +%s)
-          if [ "$PERF_PRE" = shard ]; then
-            mapfile -t all < <(find . -name terragrunt.hcl -not -path '*/.terragrunt-cache/*' \
-              -not -path './iac-modules/*' -not -path './_common/*' | sed 's|^\./||; s|/terragrunt.hcl$||' | sort)
-            i=0
-            for u in "${all[@]}"; do
-              [ $((i % 3)) -ne "$SHARD" ] || PERF_FLAGS="$PERF_FLAGS --queue-include-dir $u"
-              i=$((i + 1))
-            done
-            echo "PERF shard $SHARD units=$(grep -o -- --queue-include-dir <<<"$PERF_FLAGS" | wc -l) of ${#all[@]}"
-          fi
+          [ -z "$PERF_PRE" ] || eval "$PERF_PRE"
           echo "PERF pre seconds=$(( $(date +%s) - PERF_T0 ))"
           mkdir -p "$TG_PROVIDER_CACHE_DIR"
           : >plan.txt
