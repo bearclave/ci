@@ -1,0 +1,26 @@
+# Every exception of the repository (conventions, Sentinel lint, trivy) has a
+# reason and a review date; a date that has passed is a warning.
+- name: Exception reviews
+  if: ${{ !cancelled() }}
+  run: |
+    script="$RUNNER_TEMP/exception_review.py"
+    cat >"$script" <<'__CI_EOF__'
+    @@include src/exception_review.py@@
+    __CI_EOF__
+    args=()
+    for pair in conventions:.github/conventions.yaml conventions:conventions.yaml \
+        sentinel:.github/sentinel-lint.yaml sentinel:sentinel-lint.yaml \
+        trivy:.github/trivyignore.yaml trivy:.trivyignore.yaml; do
+      kind=${pair%%:*} file=${pair#*:}
+      # The first of the two paths of a kind wins (.github/ before the root).
+      case " ${args[*]} " in *" $kind="*) continue ;; esac
+      [ -f "$file" ] || continue
+      json="$RUNNER_TEMP/review-$kind.json"
+      yq -o=json '.' "$file" >"$json"
+      args+=("$kind=$file:$json")
+    done
+    if [ "${#args[@]}" -eq 0 ]; then
+      echo "No exception files."
+      exit 0
+    fi
+    python3 "$script" "${args[@]}"

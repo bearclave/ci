@@ -21,9 +21,9 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 
 | Workflow | Caller job | Used by | What it does |
 |---|---|---|---|
-| `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck |
+| `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck; review dates of the gitleaks allowlists |
 | `pr.yml` | `pr` | every repository | Conventional Commit title, `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`); the root layout (`src/layout_check.py`, below) |
-| `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `.github` | an optional command of the repository, then the gate |
+| `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `vs-code-extensions`, `.github` | ESLint where there is JavaScript, an optional command of the repository, then the gate |
 | `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, validate, plan of the affected units with trivy and a PR comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, verification of the apply, gate |
 | `destroy-review.yml` | `review` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` check of the last pull request run |
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, failed check blocks, analytic rules outside the code |
@@ -31,7 +31,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
 | `m365-dsc.yml` | `pipeline` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of the affected types, apply |
 | `m365-drift.yml` | `drift` | `iac-m365` | weekly plan of the whole tenant, tombstones into a pull request |
-| `static-web-app.yml` | `pipeline` | `app-web-*` | the site's checks, deploy to the Static Web App when the content changed |
+| `static-web-app.yml` | `pipeline` | `app-web-*` | the common site checks, ESLint, the site's own checks (optional), deploy to the Static Web App when the content changed |
 | `container.yml` | `pipeline` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
 | `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows; v2 pipelines carry them as jobs |
@@ -112,6 +112,9 @@ layout:
       reason: GitHub reads the issue forms from the root of this repository.
 ```
 
+A layout exception may carry a `review` date too; it is optional there (the
+layout is structure), and a date that has passed only warns.
+
 ## Paths the workflows read in the caller
 
 The configs moved from the root into `.github/` (governance `layout.md`); the
@@ -148,6 +151,7 @@ exceptions:
     path: mg-corp/policy-assignments/terragrunt.hcl
     match: westeurope        # optional: text on the line or in the message
     reason: The allowed-locations policy lists the regions it allows.
+    review: 2027-05-19       # when to look again (below)
 ```
 
 | Rule | What it holds | Parameters |
@@ -165,6 +169,51 @@ exceptions:
 
 Each violation is an annotation on its line and a row in the job summary. An
 exception without a `reason`, an unknown rule or level fail the check.
+
+## Exceptions and their review
+
+Every exception file of ours has the same entry: what (`rule`, or `id` for
+trivy), where (`path`), why (`reason`; `statement` for trivy, the
+`description` for gitleaks) and `review`, the date (YYYY-MM-DD) by which it is
+looked at again. `src/exception_review.py` reads them all - in the
+conventions job (`conventions.yaml`, `sentinel-lint.yaml`, `trivyignore.yaml`),
+in `content-sentinel.yml` and, for `.gitleaks.toml`, in `security.yml`. A
+missing reason or a malformed date fails; a review date that has passed, or
+one that is missing, is a warning - the finding stays accepted until someone
+decides. The table with every check and its config:
+[`standards/pipelines.md`](https://github.com/bearclave/governance/blob/main/standards/pipelines.md#checks-and-their-exceptions)
+of governance.
+
+```toml
+[[allowlists]]
+description = """
+Why this is not a secret.
+review: 2027-05-19
+"""
+regexes = ['''...''']
+```
+
+## Site checks
+
+`static-web-app.yml` runs `src/site_checks.py` over the app location of every
+site: `staticwebapp.config.json` (valid, no route twice, rewrite targets
+exist), its `globalHeaders` (a CSP without `'unsafe-inline'`/`'unsafe-eval'`
+for scripts, framing forbidden, HSTS, `nosniff`, `Referrer-Policy`), the pages
+against that CSP (inline scripts, handlers, styles, `data:`), well-formed HTML
+(doctype, `lang`, charset, title, end tags, unique ids) and the internal links
+and anchors. What only one site checks (its sitemap, hreflang, the tests of
+its API) stays in its `site-checks` input.
+
+## ESLint
+
+`checks.yml` and `static-web-app.yml` run ESLint over the JavaScript git
+tracks, with the repository's `eslint.config.mjs` - a managed file of
+governance `tools/sync.py` (the recommended rules; the repository's own
+globals, ignores and rule levels below its marker). A repository whose
+`package.json` pins `eslint` in `devDependencies` runs that version from its
+lock file; any other runs the versions pinned in
+`templates/_fragments/eslint-steps.yml` through `npx`. Errors fail, warnings
+are annotations.
 
 The script reads HCL with a small parser of its own (blocks, attributes,
 strings, heredocs, comments) and needs only the Python standard library; the
@@ -188,10 +237,13 @@ watchlists:                       # where `alias = "X"` or "watchlistAlias" is d
 checks:                           # error unless listed
   watchlist-exists: warn
 exceptions:
-  - check: tactics
-    rule: ARM/**/an-mdca-*.json   # a glob of the file
+  - rule: tactics                 # the check
+    path: ARM/**/an-mdca-*.json   # a glob of the file
     reason: why it is accepted
+    review: 2027-05-19
 ```
+
+The first format (`check:` for the check, `rule:` for the glob) is still read.
 
 | Check | What it catches |
 |---|---|
@@ -322,7 +374,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `exception_review.py`, `site_checks.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
 | `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 

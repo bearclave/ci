@@ -1,6 +1,7 @@
 # The pipeline of a repository that builds and deploys nothing (governance,
-# handbook, ops-tools, app-office-templates, .github): an optional command of
-# the repository's own, then the gate the ruleset requires.
+# handbook, ops-tools, app-office-templates, vs-code-extensions, .github):
+# ESLint where the repository has JavaScript, an optional command of the
+# repository's own, then the gate the ruleset requires.
 #
 #   jobs:
 #     pipeline:
@@ -43,17 +44,20 @@ jobs:
           COMMAND: ${{ inputs.command }}
         run: bash -euo pipefail -c "$COMMAND"
 
+  eslint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      @@include templates/_fragments/eslint-steps.yml@@
+
   gate:
-    needs: [checks]
+    needs: [checks, eslint]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Everything needed passed
-        env:
-          CHECKS: ${{ needs.checks.result }}
-        run: |
-          case "$CHECKS" in
-            success|skipped) echo "checks: $CHECKS" ;;
-            *) echo "::error::checks ended as '$CHECKS'"; exit 1 ;;
-          esac
+      @@include templates/_fragments/gate-step.yml@@

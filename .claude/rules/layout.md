@@ -16,7 +16,7 @@ Only what something reads from the root by itself:
 | Git and GitHub | `README.md`, `.gitignore`, `.gitattributes`, `.editorconfig` |
 | Ecosystem manifests | `package.json` + lock, `pyproject.toml` + `uv.lock`, `Dockerfile`, `.dockerignore` |
 | Terragrunt context | `root.hcl`, `account.hcl` (terragrunt pipelines); `tenant.psd1` (`iac-m365`) |
-| Tools that look in the root | `.gitleaks.toml`, `.tflint.hcl` |
+| Tools that look in the root | `.gitleaks.toml`, `.tflint.hcl`, `eslint.config.mjs` |
 | Folders | the vocabulary below and the content folders of the pipeline |
 
 Everything else goes into a folder. A config that only the pipeline reads
@@ -32,7 +32,7 @@ belongs in `.github/`, a script in `tools/`, a document in `docs/`.
 | `.github/dependabot.yml`, `.github/release.yml`, `.github/tool-versions.env` | GitHub and CI |
 | `.github/conventions.yaml` | conventions check, and the exceptions to this layout |
 | `.github/sentinel-lint.yaml` | Sentinel lint |
-| `.github/trivyignore.yaml` | accepted trivy findings, each with a reason |
+| `.github/trivyignore.yaml` | accepted trivy findings, each with a reason and a review date |
 | `.github/pssa.psd1` | PSScriptAnalyzer settings |
 
 No scripts in `.github/`. The exception are the `template-*` repositories,

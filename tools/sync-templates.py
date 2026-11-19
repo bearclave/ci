@@ -76,6 +76,9 @@ TEMPLATES = {
         # The live description names the tenant's own domains.
         "keep": ["identity/entra-users/variables.tf"],
         "replace": [SHARED_CALL,
+                    # The managed .tflint.hcl of governance; the template keeps the base as it is.
+                    ("# Managed by bearclave/governance (tools/sync.py) - edit only below the marker.\n",
+                     "# Edit only below the marker.\n"),
                     ("(job conventions in validate.yml, rules in bearclave/ci). level: error\n"
                      "# fails the check, warn only reports, off skips the rule. An exception needs\n"
                      "# its reason; what the rules mean is in the README of bearclave/ci.",

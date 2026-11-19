@@ -20,3 +20,5 @@
     fi
     yq -o=json '.' "$CONFIG" >"$RUNNER_TEMP/conventions.json"
     python3 "$script" "$RUNNER_TEMP/conventions.json" .
+
+@@include templates/_fragments/exception-review-step.yml@@
