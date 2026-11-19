@@ -182,6 +182,14 @@ class Lint(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual([(v["check"], bool(v["exception"])) for v in violations], [("tactics", True)])
 
+    def test_exceptions_in_the_common_format(self):
+        self.rule(change=lambda p: p.update(tactics=["Evasion"]))
+        config = {**CONFIG, "exceptions": [{"rule": "tactics", "path": "rules/*.json", "reason": "decided later",
+                                            "review": "2027-05-19"}]}
+        violations, errors, _ = sentinel_lint.check(config, str(self.root))
+        self.assertEqual(errors, [])
+        self.assertEqual([(v["check"], bool(v["exception"])) for v in violations], [("tactics", True)])
+
     def test_config_errors(self):
         _, errors, _ = sentinel_lint.check({"rules": [], "checks": {"nope": "error"},
                                             "exceptions": [{"check": "tactics"}]}, str(self.root))

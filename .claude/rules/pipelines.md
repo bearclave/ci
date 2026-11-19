@@ -34,12 +34,12 @@ else. Templates for each pipeline: [templates/workflows/](https://github.com/bea
 |---|---|---|
 | `security.yml` | every repository | gitleaks over the history, actionlint, zizmor, shellcheck |
 | `pr.yml` | every repository | title and branch format, labels, assignee, description sections |
-| `checks.yml` | `checks` | optional extra command, then `gate` |
+| `checks.yml` | `checks` | ESLint where there is JavaScript, optional extra command, then `gate` |
 | `terragrunt.yml` / `terragrunt-drift.yml` | `iac-azure`, `iac-github` | fmt, validate, conventions, Sentinel lint, plan of affected units with trivy, PR comment, apply from `main`, destroy held back, gate |
 | `terragrunt-home.yml` | `iac-home` | plan and apply of the router through WireGuard, certificate renewal, drift |
-| `terraform-modules.yml` | `iac-modules` | fmt, validate, tflint, trivy, conventions |
+| `terraform-modules.yml` | `iac-modules` | fmt, validate, tflint, trivy config, conventions |
 | `m365-dsc.yml` / `m365-drift.yml` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of affected types, apply, tombstones |
-| `static-web-app.yml` | `app-web-*` | the site's checks, deploy to the Static Web App from `main` |
+| `static-web-app.yml` | `app-web-*` | common site checks, ESLint, the site's own checks, deploy to the Static Web App from `main` |
 | `container.yml` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `content-sentinel` | Sentinel lint, generated views up to date |
 | `conventions.yml`, `sentinel-lint.yml` | inside the pipelines above | rule checks driven by the repository's YAML |
@@ -53,6 +53,90 @@ Templates of the organisation (`template-iac-*`) cannot reach the private
 `bearclave/ci`: they carry local copies of the shared workflows, written by
 `ci/tools/export-for-templates.py`, and call them with `uses: ./.github/workflows/...`.
 Their check names are the same.
+
+## Checks and their exceptions
+
+Every check of the organisation, the pipeline that runs it, where it is
+configured and where an exception goes. Nothing is checked outside this
+table; a new check comes with its row.
+
+| Check | Pipeline (job) | Config | Exceptions |
+|---|---|---|---|
+| gitleaks | `security` (`scan`) | `.gitleaks.toml` (default rules + allowlists) | `[[allowlists]]` in `.gitleaks.toml`, `description` = reason + `review:` line |
+| actionlint | `security` (`scan`) | - | none: fix the workflow |
+| zizmor | `security` (`scan`) | in `security.yml` | none in a repository |
+| shellcheck | `security` (`scan`), and inside `run:` through actionlint | `--severity=warning` | `# shellcheck disable=SCxxxx # reason` on the line |
+| title, branch, description, labels | `pr` (`check`) | `src/pr_check.py` of ci | none |
+| root layout | `pr` (`check`) | `standards/layout.yaml` | `layout.exceptions` in `.github/conventions.yaml` (`review` optional) |
+| conventions | `terragrunt`, `terragrunt-home`, `terraform-modules` (`conventions`) | `.github/conventions.yaml` `rules` | `exceptions` in `.github/conventions.yaml` |
+| Sentinel lint | `terragrunt`, `content-sentinel` (`sentinel`) | `.github/sentinel-lint.yaml` | `exceptions` in `.github/sentinel-lint.yaml` |
+| exception reviews | the conventions and Sentinel jobs, `security` for gitleaks | the files of this column | - |
+| `terragrunt hcl fmt` / `hcl validate` | `terragrunt`, `terragrunt-home` | - | none |
+| trivy over the plans | `terragrunt`, `terragrunt-drift` (`plan`) | HIGH, CRITICAL | `.github/trivyignore.yaml`, `paths` = `<unit>/tfplan.json` |
+| `terraform fmt` / `validate` | `terraform-modules` (`terraform`) | - | none |
+| tflint | `terraform-modules` (`terraform`) | `.tflint.hcl` (managed, below) | a rule switched off in the repository section of `.tflint.hcl`, or `# tflint-ignore: <rule> # reason, review YYYY-MM-DD` above the block |
+| trivy config | `terraform-modules` (`terraform`) | HIGH, CRITICAL | `.github/trivyignore.yaml` |
+| ESLint | `static-web-app`, `checks` (`eslint`) | `eslint.config.mjs` (managed, below) | the repository section of `eslint.config.mjs`, each entry with a comment why |
+| common site checks | `static-web-app` (`site`) | `src/staticwebapp.config.json` | none: fix the site |
+| site checks of the repository | `static-web-app` (`site`) | `site-checks` input | in the repository's script |
+| PSScriptAnalyzer, Pester | `m365-dsc` | `.github/pssa.psd1` | `.github/pssa.psd1` (`iac-m365` is being retired) |
+| ruff, tests | `container` (in the `Dockerfile`) | `[tool.ruff]` in `pyproject.toml` | `[tool.ruff.lint]` of the repository |
+
+**One exception format.** Wherever the format is ours, an exception names
+what (`rule`; `id` in trivy), where (`path`; `paths` in trivy), why
+(`reason`; `statement` in trivy) and when it is looked at again: `review`,
+a date (YYYY-MM-DD), six months ahead when it is written. A missing reason
+or a date that is not a date fails the check; a review date that has
+passed, or a missing one, is a warning, and the exception stays in force until
+someone decides: renew the date with a sentence on why it still holds, or
+fix the finding and remove the exception.
+
+```yaml
+# .github/conventions.yaml (sentinel-lint.yaml: rule = the check, path = the rule file)
+exceptions:
+  - rule: no-hardcoded-location
+    path: mg-corp/policy-assignments/terragrunt.hcl
+    reason: The allowed-locations policy lists the regions it allows.
+    review: 2027-05-19
+
+# .github/trivyignore.yaml
+misconfigurations:
+  - id: AVD-AZU-0013
+    paths: [mg-corp/.../key-vault/tfplan.json]
+    statement: Why the finding is accepted.
+    review: 2027-05-19
+```
+
+```toml
+# .gitleaks.toml
+[[allowlists]]
+description = """
+Why this is not a secret.
+review: 2027-05-19
+"""
+regexes = ['''...''']
+```
+
+**tflint** runs where the Terraform is: in `terraform-modules`. A
+Terragrunt repository holds units (`terragrunt.hcl`) and no `.tf` of its
+own - its units take every module from `iac-modules` at `modules_ref`, and
+that module was linted there, with the same base config, before the ref
+existed. So tflint does not run in `terragrunt*`; what reaches the units is
+covered by `hcl validate`, the plan and trivy over it.
+
+**Managed lint configs**, written by `tools/sync.py <repository>` like
+`.gitattributes`: the base above the marker is the same everywhere, the
+section below it belongs to the repository and is kept.
+
+| File | Written for | Base |
+|---|---|---|
+| `.tflint.hcl` | repositories with `*.tf` (not templates) | the `terraform` preset `recommended`, the `azurerm` ruleset at a pinned version, `azurerm_resources_missing_prevent_destroy` on |
+| `eslint.config.mjs` | repositories with `*.js`/`*.mjs`/`*.cjs` (not templates) | `@eslint/js` recommended, browser and Node globals |
+
+ESLint runs the version pinned in the repository's `package.json`
+`devDependencies` where there is one, otherwise the version pinned in
+`bearclave/ci` through `npx`. Lint errors that are real bugs are fixed;
+everything else is configured in the repository section, not rewritten.
 
 ## Rules for every workflow
 
