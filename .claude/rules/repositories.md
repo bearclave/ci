@@ -21,6 +21,16 @@ subject says what the repository manages (`iac-azure`, `app-web-bearclave`,
 `content-sentinel`). No `-repo`, no `-new`, no year. Repositories of a
 customer: [customers.md](https://github.com/bearclave/governance/blob/main/standards/customers.md).
 
+An IaC repository of the Microsoft cloud is named after the product or
+security domain it manages, in the singular, the way an administrator looks
+for it: `iac-identity`, `iac-conditional-access`, `iac-intune`,
+`iac-exchange`, `iac-purview`, `iac-sentinel`. The subject is also the
+`<subject>` of its environment, identities and state container
+(`intune-prod`, `sp-tf-intune`, `tfstate-intune`). A product it covers
+alongside (Defender for Endpoint in `iac-intune`, Defender for Office 365 in
+`iac-exchange`) does not get its own repository while it has one admin role
+and one provider with it.
+
 ## Custom properties
 
 Set on every repository in `bearclave/iac-github`; the rulesets target them.
@@ -28,7 +38,7 @@ Set on every repository in `bearclave/iac-github`; the rulesets target them.
 | Property | Values | Drives |
 |---|---|---|
 | `group` | `iac`, `app`, `template`, `platform` | grouping, Project, topic |
-| `pipeline` | `terragrunt`, `terragrunt-home`, `terraform-modules`, `m365-dsc`, `static-web-app`, `container`, `content-sentinel`, `checks`, `ci`, `template` | which shared workflow `ci.yml` calls, which checks are required |
+| `pipeline` | `terragrunt`, `terragrunt-home`, `terraform-modules`, `static-web-app`, `container`, `content-sentinel`, `checks`, `ci`, `template`; `m365-dsc` only on `iac-m365` until it is archived | which shared workflow `ci.yml` calls, which checks are required |
 | `entity` | `sro`, `osvc`, `shared` | whose the repository is (Bearclave s.r.o., the sole trader, both) |
 | `touches-production` | `true`, `false` | branch up to date before merge, `/security-review` |
 | `direct-commit` | `true`, `false` | `true` only for repositories written straight to `main` (no pull request) |
@@ -111,9 +121,11 @@ links there.
    group, pipeline, properties, metadata, team access and - where it applies
    or deploys - its environment and variables; the merge creates it with
    labels, rulesets and settings.
-2. Identities, where its pipeline signs in: a pull request in `iac-azure`
-   first ([identities.md](https://github.com/bearclave/governance/blob/main/standards/identities.md)), then the variables in
-   `iac-github`.
+2. Identities, where its pipeline signs in: a pull request in
+   `iac-identity` (applications, credentials, permissions) and in
+   `iac-azure` (state container and roles) first
+   ([identities.md](https://github.com/bearclave/governance/blob/main/standards/identities.md#where-they-are-declared)), then the
+   variables in `iac-github`.
 3. Clone it into the folder of its group, `git novy feat/skeleton`.
 4. Run `governance/tools/sync.py <name>` for it, add `README.md`,
    `.claude/CLAUDE.md`, `.github/workflows/ci.yml` (and `dependabot.yml`

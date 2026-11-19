@@ -29,8 +29,8 @@ where its pipeline reads it.
 | Tool | Used for |
 |---|---|
 | `bash`, coreutils, `curl`, `tar`, `unzip`, `jq`, `git` | scripts and downloads |
-| `python3` (standard library only) | the conventions and Sentinel lint scripts |
-| `pwsh` | the Microsoft365DSC pipelines |
+| `python3` (standard library only) | the conventions, schema and Sentinel lint scripts |
+| `yq` | YAML to JSON for those scripts (the configs, the objects of collections) |
 | `az` | sign-in by OIDC and Azure calls (through `azure/login`) |
 | `gh` | pull request comments and labels |
 | `node` / `npx` | the Static Web Apps CLI and site builds, at a pinned package version |
@@ -45,7 +45,7 @@ Two places, nothing else:
 | File | Holds | Read by |
 |---|---|---|
 | `security.yml` and `pr.yml` of `bearclave/ci` (`env`) | gitleaks, actionlint, zizmor, shellcheck; markdownlint-cli2 (image version and digest): version and sha256 | the `security` and `pr` jobs of every repository |
-| **`.github/tool-versions.env` of each repository** | the tools its own pipeline installs: Terraform, Terragrunt, TFLint, Trivy, Microsoft365DSC, ... with sha256 | the shared workflow it calls, from the caller's checkout |
+| **`.github/tool-versions.env` of each repository** | the tools its own pipeline installs: Terraform, Terragrunt, TFLint, Trivy, ... with sha256 | the shared workflow it calls, from the caller's checkout |
 
 A repository's plan therefore runs exactly the versions in its own
 `tool-versions.env`, whatever release of `ci` it calls.
@@ -58,8 +58,6 @@ A repository's plan therefore runs exactly the versions in its own
 | Trivy | release binary + sha256 | `terragrunt*`, `terraform-modules` |
 | gitleaks, actionlint, zizmor, shellcheck | release binary + sha256 | `security` |
 | markdownlint-cli2 | container image pinned by digest | `pr` |
-| Microsoft365DSC | `Install-Module -RequiredVersion` | `m365-*` |
-| Pester, PSScriptAnalyzer | `Install-Module -RequiredVersion` | `m365-*` |
 | Static Web Apps CLI | `npx` at a pinned version | `static-web-app` |
 | ESLint, `@eslint/js`, `globals` | `npx` at a pinned version, or the repository's `package.json` | `static-web-app`, `container`, `checks` |
 
@@ -89,7 +87,7 @@ month; a repository that falls behind is a `Debt` issue.
 | Where | What is pinned | Why |
 |---|---|---|
 | Modules (`iac-modules`, `template-iac-modules`) | a lower bound only: `>= 5.0` | a module works with any newer provider the configuration chooses |
-| Configuration (`iac-azure`, `iac-home`, `iac-github`, `template-iac-terragrunt`) | the exact version, once, in `root.hcl` (`locals.versions`), generated into every unit | one place per repository; every unit runs the same provider |
+| Configuration (every Terragrunt repository, `template-iac-terragrunt`) | the exact version, once, in `account.hcl` (`versions`), generated into every unit from `_common/templates/versions.tf.tmpl` | one place per repository; every unit runs the same provider |
 | `.terraform.lock.hcl` | committed in every unit, with hashes for `linux_amd64` and `darwin_arm64` | the provider binary is verified, not only its version |
 
 - Lock files are refreshed with
@@ -109,7 +107,7 @@ month; a repository that falls behind is a `Debt` issue.
 |---|---|---|
 | Actions in the shared workflows (`ci` `templates/`, its own workflows) | `deps.yml` in `ci`: new SHA and tag comment, then `tools/build.py` | weekly |
 | Tools in `.github/tool-versions.env` of every repository and `templates/security.yml` of `ci` | `deps.yml` in `ci`: version and sha256 (the release asset's `digest`), one pull request per repository | monthly |
-| Providers pinned in `root.hcl`/`account.hcl` | `deps.yml` in `ci` | monthly |
+| Providers pinned in `account.hcl` | `deps.yml` in `ci` | monthly |
 | Provider lower bounds of the modules (`*-modules`) | not bumped; `deps.yml` lists them next to the latest release in its run summary | monthly |
 | `bearclave/ci@vX.Y.Z` pins | `ci-pins.yml` in `ci`, one pull request per pinned repository | after each `ci` release |
 | npm, Python (uv), Docker of applications | Dependabot, one grouped pull request per ecosystem ([templates/dependabot.yml](https://github.com/bearclave/governance/blob/main/standards/templates/dependabot.yml)) | monthly |
@@ -149,7 +147,7 @@ pipeline does not use.
 |---|---|
 | These rules | this file |
 | Versions and sha256 | `.github/tool-versions.env` of each repository; the security tools in `security.yml` of `bearclave/ci` |
-| Exact provider versions | `root.hcl` of each configuration repository |
+| Exact provider versions | `account.hcl` of each configuration repository |
 | What a pipeline runs | its row in [pipelines.md](https://github.com/bearclave/governance/blob/main/standards/pipelines.md) and the README of `bearclave/ci` |
 
 A README of a repository does not list tool versions; its Pipeline section

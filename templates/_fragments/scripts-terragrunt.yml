@@ -6,6 +6,9 @@
     cat >"$d/select-units.py" <<'__CI_EOF__'
     @@include src/terragrunt/select-units.py@@
     __CI_EOF__
+    cat >"$d/base-commit.py" <<'__CI_EOF__'
+    @@include src/terragrunt/base-commit.py@@
+    __CI_EOF__
     cat >"$d/check-moves.py" <<'__CI_EOF__'
     @@include src/terragrunt/check-moves.py@@
     __CI_EOF__

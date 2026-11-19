@@ -11,7 +11,11 @@ import subprocess
 import tempfile
 import sys
 
-PLATFORMS = ["azure", "entra", "github", "routeros"]
+# The platform folders, in the order of the catalog (governance
+# code/terraform.md). A folder outside them - the root module _empty/, which
+# a unit handed over to another repository runs - is no public module and
+# stays out, as does a platform's _common/.
+PLATFORMS = ["azure", "entra", "intune", "exchange", "purview", "github", "routeros"]
 
 
 def what_it_manages(readme: pathlib.Path) -> str:
@@ -40,7 +44,7 @@ def render(root: pathlib.Path) -> str:
         "",
     ]
     for platform in PLATFORMS:
-        mods = sorted(p.parent for p in (root / platform).glob("*/README.md") if p.parent.name != "_common")
+        mods = sorted(p.parent for p in (root / platform).glob("*/README.md") if not p.parent.name.startswith("_"))
         if not mods:
             continue
         lines += [f"## {platform}/", "", "| Module | What it manages | Inputs | Outputs |", "|---|---|---|---|"]

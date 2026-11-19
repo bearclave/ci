@@ -49,6 +49,8 @@ common:
     - tools
     - docs
     - _common
+    # settings.json only: the yaml.schemas of the collections.
+    - .vscode
   # What .github/ may hold: GitHub, CI, and the configs only the pipeline reads.
   github:
     - workflows
@@ -62,6 +64,8 @@ common:
     - tool-versions.env
     - conventions.yaml
     - state-moves.yaml
+    # The JSON Schemas of the collections, copied from their modules.
+    - schemas
     - sentinel-lint.yaml
     - trivyignore.yaml
     - pssa.psd1
@@ -71,6 +75,9 @@ common:
 groups:
   app:
     folders: [config, content, data, deploy, lib]
+  template:
+    # content-sentinel: the catalogue, in the collection folders of iac-sentinel.
+    folders: [content]
 
 pipelines:
   # Every unit under infrastructure/. No tools/ and no deploy/: a script
@@ -91,8 +98,8 @@ pipelines:
     files: [.terraform-docs.yml]
     content: modules
   m365-dsc:
-    # tenant.psd1 is the tenant context of the configuration, as account.hcl
-    # is for Terragrunt.
+    # Retired: iac-m365 alone, until it is archived. tenant.psd1 is the
+    # tenant context of the configuration, as account.hcl is for Terragrunt.
     files: [tenant.psd1]
     folders: [config, content, data, deploy, lib]
   static-web-app:
@@ -100,7 +107,8 @@ pipelines:
     folders: [api]
   container: {}
   content-sentinel:
-    # The content and its generated Terragrunt view.
+    # The content and its generated Terragrunt view, until the catalogue is
+    # converted to the YAML of iac-sentinel (content/, pipeline checks).
     folders: [ARM, terragrunt]
   checks: {}
   ci:

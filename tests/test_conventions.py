@@ -9,6 +9,7 @@ Run: python3 -m unittest discover -s tests
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -167,6 +168,17 @@ class Terragrunt(Base):
     def test_module_source_from_a_local_path(self):
         self.assertEqual(self.with_changes({
             "tenant/groups/terragrunt.hcl": 'terraform {\n  source = "../../modules/x"\n}\n'}),
+            [("module-source", "tenant/groups/terragrunt.hcl", 2)])
+
+    def test_module_source_from_the_context(self):
+        for ctx in ("include.root.locals.ctx", "local.ctx"):
+            self.assertEqual(self.with_changes({
+                "tenant/groups/terragrunt.hcl":
+                    f'terraform {{\n  source = "${{{ctx}.modules}}//entra/groups?ref=${{{ctx}.modules_ref}}"\n}}\n'}),
+                [], ctx)
+        self.assertEqual(self.with_changes({
+            "tenant/groups/terragrunt.hcl":
+                'terraform {\n  source = "${local.other.modules}//entra/groups?ref=${local.other.modules_ref}"\n}\n'}),
             [("module-source", "tenant/groups/terragrunt.hcl", 2)])
 
     def test_dependency_in_a_unit(self):
@@ -405,6 +417,162 @@ class Standard(Base):
     def test_folder_dictionary_with_a_folder_of_its_own(self):
         config = {**STANDARD, "rules": {"folder-dictionary": {"folders": {"key-vault": ["kv"]}}}}
         self.assertEqual(self.hits({f"{WEB}/kv/terragrunt.hcl": unit("key-vault")}, config=config), [])
+
+
+def collection_unit(module):
+    return (common_unit(module).replace("//azure/", "//azure/")
+            + 'locals {\n  items = { for f in fileset(get_terragrunt_dir(), "**/*.yaml") :\n'
+              '    trimsuffix(basename(f), ".yaml") => yamldecode(file("${get_terragrunt_dir()}/${f}")) }\n}\n')
+
+
+RULE_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["name", "severity", "query"],
+    "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["Informational", "Low", "Medium", "High"]},
+        "enabled": {"type": "boolean"},
+        "query": {"type": "string"},
+        "tactics": {"type": "array", "items": {"type": "string"}, "uniqueItems": True},
+        "entityMappings": {"type": "array", "maxItems": 10, "items": {"$ref": "#/$defs/mapping"}},
+    },
+    "$defs": {"mapping": {"type": "object", "additionalProperties": False, "required": ["entityType"],
+                          "properties": {"entityType": {"type": "string"}}}},
+}
+WS = "infrastructure/law-security"
+RULE = "name: Break glass sign-in\nseverity: High\nenabled: true\nquery: |\n  SigninLogs\n  | take 1\n"
+COLLECTION_TREE = {
+    "_common/units/sentinel-analytic-rules.hcl": collection_unit("sentinel-analytic-rules"),
+    "_common/units/logic-app-standard.hcl": common_unit("logic-app-standard")
+    + 'locals {\n  workflows = fileset(get_terragrunt_dir(), "workflows/*/workflow.json")\n}\n',
+    ".github/schemas/sentinel-analytic-rules.schema.json": json.dumps(RULE_SCHEMA),
+    f"{WS}/analytic-rules/terragrunt.hcl": unit("sentinel-analytic-rules"),
+    f"{WS}/analytic-rules/entra-id/break-glass-sign-in.yaml": RULE,
+    f"{WS}/analytic-rules/home-network/nas-login-failures.yaml": RULE.replace("High", "Medium"),
+    f"{WS}/logic-apps-standard/la-soar/terragrunt.hcl": unit("logic-app-standard"),
+    f"{WS}/logic-apps-standard/la-soar/workflows/revoke-sessions/workflow.json": "{}\n",
+}
+COLLECTIONS = {"units": ["infrastructure/**/terragrunt.hcl"],
+               "rules": {"unit-assets": {}, "collection-schema": {}}}
+
+
+@unittest.skipUnless(shutil.which("yq"), "yq reads the YAML, as on the runner")
+class Collections(Base):
+    """One object per <key>.yaml, checked against the schema of the module (code/terragrunt.md)."""
+
+    def hits(self, changes=None, drop=(), config=COLLECTIONS):
+        tree = {k: v for k, v in {**COLLECTION_TREE, **(changes or {})}.items() if k not in drop}
+        self.write(tree)
+        return self.rules_hit(config)
+
+    def messages(self, changes=None, config=COLLECTIONS):
+        self.write({**COLLECTION_TREE, **(changes or {})})
+        violations, errors = self.check(config)
+        self.assertEqual(errors, [])
+        return [v["message"] for v in violations]
+
+    def test_collection_tree(self):
+        self.assertEqual(self.hits(), [])
+
+    def test_unknown_key_is_reported_on_its_line(self):
+        path = f"{WS}/analytic-rules/entra-id/break-glass-sign-in.yaml"
+        self.assertEqual(self.hits({path: RULE + "severty: Low\n"}), [("collection-schema", path, 7)])
+        self.assertIn("/: unknown key 'severty' (allowed: enabled, entityMappings, name, query, "
+                      "severity, tactics)", self.messages({path: RULE + "severty: Low\n"}))
+
+    def test_values_against_the_schema(self):
+        path = f"{WS}/analytic-rules/entra-id/break-glass-sign-in.yaml"
+        bad = RULE.replace("High", "Critical").replace("enabled: true", "enabled: maybe") \
+            + "tactics: [InitialAccess, InitialAccess]\nentityMappings:\n  - entityType: IP\n    columnName: x\n"
+        self.assertEqual(sorted(self.messages({path: bad})), [
+            "/enabled: is string, expected boolean",
+            "/entityMappings/0: unknown key 'columnName' (allowed: entityType)",
+            '/severity: "Critical" is not one of "Informational", "Low", "Medium", "High"',
+            '/tactics/1: "InitialAccess" is repeated, the items are unique',
+        ])
+
+    def test_required_key(self):
+        path = f"{WS}/analytic-rules/entra-id/break-glass-sign-in.yaml"
+        self.assertEqual(self.messages({path: "name: x\nseverity: Low\n"}), ["/: required key 'query' is missing"])
+
+    def test_collection_without_its_schema(self):
+        self.assertEqual(self.hits(drop=(".github/schemas/sentinel-analytic-rules.schema.json",)),
+                         [("collection-schema", f"{WS}/analytic-rules/terragrunt.hcl", 1)])
+
+    def test_schema_folder_from_the_config(self):
+        config = {**COLLECTIONS, "rules": {"collection-schema": {"schemas": "schemas"}}}
+        self.assertEqual(self.hits({"schemas/sentinel-analytic-rules.schema.json": json.dumps(RULE_SCHEMA)},
+                                   drop=(".github/schemas/sentinel-analytic-rules.schema.json",),
+                                   config=config), [])
+
+    def test_open_object_in_the_schema(self):
+        schema = dict(RULE_SCHEMA, **{"$defs": {"mapping": {"type": "object"}}})
+        path = ".github/schemas/sentinel-analytic-rules.schema.json"
+        self.assertEqual(self.hits({path: json.dumps(schema)}), [("collection-schema", path, 1)])
+
+    def test_unsupported_keyword_in_the_schema(self):
+        schema = dict(RULE_SCHEMA, unevaluatedProperties=False)
+        path = ".github/schemas/sentinel-analytic-rules.schema.json"
+        self.assertEqual(self.messages({path: json.dumps(schema)}),
+                         ["/: keyword 'unevaluatedProperties' is not supported by this validator"])
+
+    def test_key_is_unique_across_subfolders(self):
+        dup = f"{WS}/analytic-rules/home-network/break-glass-sign-in.yaml"
+        self.assertEqual(self.hits({dup: RULE}), [
+            ("collection-schema", f"{WS}/analytic-rules/entra-id/break-glass-sign-in.yaml", 1),
+            ("collection-schema", dup, 1),
+        ])
+
+    def test_key_spelling_and_extension(self):
+        self.assertEqual(self.hits({f"{WS}/analytic-rules/Break_Glass.yaml": RULE,
+                                    f"{WS}/analytic-rules/other.yml": RULE}), [
+            ("collection-schema", f"{WS}/analytic-rules/Break_Glass.yaml", 1),
+            ("collection-schema", f"{WS}/analytic-rules/other.yml", 1),
+            ("unit-assets", f"{WS}/analytic-rules/other.yml", 1),
+        ])
+
+    def test_one_document_per_file(self):
+        path = f"{WS}/analytic-rules/entra-id/break-glass-sign-in.yaml"
+        self.assertEqual(self.messages({path: RULE + "---\n" + RULE}),
+                         ["holds more than one YAML document; one object is one file"])
+        self.assertTrue(self.messages({path: "name: [x\n"})[0].startswith("does not parse as YAML"))
+
+    def test_yaml_a_unit_does_not_read(self):
+        path = f"{WS}/logic-apps-standard/la-soar/settings.yaml"
+        self.assertEqual(self.hits({path: "a: 1\n"}, config={**COLLECTIONS, "rules": {"unit-assets": {}}}),
+                         [("unit-assets", path, 1)])
+
+    def test_logic_app_files(self):
+        config = {**COLLECTIONS, "rules": {"unit-assets": {}}}
+        la = f"{WS}/logic-apps-standard/la-soar"
+        self.assertEqual(self.hits({f"{la}/workflows/revoke-sessions/connections.json": "{}\n",
+                                    f"{la}/host.json": "{}\n"}, config=config),
+                         [("unit-assets", f"{la}/host.json", 1),
+                          ("unit-assets", f"{la}/workflows/revoke-sessions/connections.json", 1)])
+
+    def test_catalogue_folder_outside_units(self):
+        config = {"rules": {"collection-schema": {"collections": [
+            {"path": "content/analytic-rules", "schema": "sentinel-analytic-rules"}]}}}
+        self.assertEqual(self.hits({"content/analytic-rules/entra-id/ok.yaml": RULE,
+                                    "content/analytic-rules/entra-id/bad.yaml": "name: x\n"},
+                                   drop=[k for k in COLLECTION_TREE if k.startswith("infrastructure/")],
+                                   config=config),
+                         [("collection-schema", "content/analytic-rules/entra-id/bad.yaml", 1)] * 2)
+
+    def test_exception_with_a_reason(self):
+        path = f"{WS}/analytic-rules/entra-id/break-glass-sign-in.yaml"
+        config = {**COLLECTIONS, "exceptions": [{"rule": "collection-schema", "path": path,
+                                                 "reason": "Imported as it is; fixed in the next pull request."}]}
+        self.assertEqual(self.hits({path: RULE + "severty: Low\n"}, config=config), [])
+
+    def test_folder_without_the_platform_prefix(self):
+        config = {**COLLECTIONS, "rules": {"folder-dictionary": {
+            "prefixes": ["sentinel-"], "folders": {"logic-app-standard": ["la-*"]}}}}
+        self.assertEqual(self.hits(config=config), [])
+        self.assertEqual(self.hits({f"{WS}/rules/terragrunt.hcl": unit("sentinel-analytic-rules")}, config=config),
+                         [("folder-dictionary", f"{WS}/rules/terragrunt.hcl", 1)])
 
 
 TD = "TO" + "DO"

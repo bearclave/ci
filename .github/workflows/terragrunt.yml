@@ -217,11 +217,13 @@ jobs:
           Usage: conventions.py <config.json> [<repository root>] [--only r1,r2] [--skip r1,r2]
 
           --only runs just the named rules, --skip leaves them out: the pr check runs
-          the rules every repository has (--only todo-issue,markdown-links), the
-          conventions job of a pipeline the rest.
+          the rules every repository has (--only todo-issue,markdown-links,
+          collection-schema), the conventions job of a pipeline the rest.
 
           The workflow converts conventions.yaml to JSON first (yq), so that this script
-          needs nothing beyond the Python standard library. The config:
+          needs nothing beyond the Python standard library; collection-schema reads
+          the YAML objects through the same yq and validates them with schema_check.py,
+          which the workflow writes next to this script. The config:
 
             rules:       <rule>: {level: error | warn | off, ...parameters}; the
                          rules in DEFAULT_ON run unless they are set to off, the others
@@ -605,8 +607,11 @@ jobs:
 
               The source is in the unit, or in the _common/units/<module>.hcl it includes.
               """
+              # The context comes from root.hcl (include.root.locals) or, in the newer
+              # layout, from _common/context.hcl (local.ctx, include.root.locals.ctx).
+              ctx = r"(?:include\.root\.locals(?:\.ctx)?|local\.ctx)"
               pattern = re.compile(params.get(
-                  "pattern", r"^\$\{include\.root\.locals\.modules\}//[^?]+\?ref=\$\{include\.root\.locals\.modules_ref\}$"))
+                  "pattern", rf"^\$\{{{ctx}\.modules\}}//[^?]+\?ref=\$\{{{ctx}\.modules_ref\}}$"))
               common = re.compile(params.get(
                   "common_pattern", r"^\$\{[A-Za-z_.]+\.modules\}//[^?]+\?ref=\$\{[A-Za-z_.]+\.modules_ref\}$"))
               for path in units:
@@ -785,11 +790,32 @@ jobs:
               return None
 
 
+          # What a unit may hold besides HCL, as globs relative to the unit directory
+          # (code/terragrunt.md of governance): the objects of a collection, the
+          # definition of a Logic App (Consumption) and the workflows of a Logic App
+          # (Standard).
+          UNIT_ASSETS = ["**/*.yaml", "definition.json", "workflows/*/workflow.json"]
+          RE_FILESET = re.compile(r'fileset\(\s*[^,()]+(?:\([^()]*\))?[^,()]*,\s*"([^"]+)"\s*\)')
+
+
+          def unit_readers(repo, unit):
+              """The text of a unit's terragrunt.hcl and of the _common/units/ files it includes."""
+              path = f"{unit}/terragrunt.hcl"
+              files = [path] + [f for f in unit_includes(repo, path) if repo.exists(f)]
+              return "\n".join("\n".join(text_lines(repo, f) or []) for f in files)
+
+
           def rule_unit_assets(repo, params, units, report):
-              """A unit holds HCL; any other file only from the allowlist, and read by its terragrunt.hcl."""
-              allowed = set(params.get("allowed", ["definition.json"]))
+              """A unit holds HCL; any other file only from the allowlist, and read by the unit.
+
+              Read means named in the unit's terragrunt.hcl, or matched by a fileset()
+              pattern of the unit or of the _common/units/ file it includes (a
+              collection reads its objects with fileset(get_terragrunt_dir(), "**/*.yaml")).
+              """
+              allowed = list(params.get("allowed", UNIT_ASSETS))
               roots = params.get("paths", ["infrastructure/**"])
               dirs = unit_dirs(repo)
+              readers = {}
               for path in repo.files:
                   if path.endswith(".hcl") or os.path.basename(path) == ".terraform.lock.hcl":
                       continue
@@ -797,14 +823,155 @@ jobs:
                   if unit is None and not matches(path, *roots):
                       continue
                   name = os.path.basename(path)
-                  if unit is None or os.path.dirname(path) != unit or name not in allowed:
+                  rel = path[len(unit) + 1:] if unit else path
+                  if unit is None or not matches(rel, *allowed):
+                      hint = " (a collection object is <key>.yaml)" if name.endswith(".yml") else ""
                       report.add("unit-assets", path, 1,
-                                 f"{name} is not HCL: only {', '.join(sorted(allowed)) or 'nothing'} may sit "
-                                 "next to a terragrunt.hcl; write the rest in HCL (a heredoc, inline KQL)")
+                                 f"{rel} is not HCL: a unit holds only {', '.join(allowed) or 'HCL'}{hint}; "
+                                 "write the rest in HCL or in the YAML of a collection")
                       continue
-                  text = "\n".join(text_lines(repo, f"{unit}/terragrunt.hcl") or [])
-                  if name not in text:
-                      report.add("unit-assets", path, 1, f"{name} is not read by {unit}/terragrunt.hcl")
+                  if unit not in readers:
+                      readers[unit] = unit_readers(repo, unit)
+                  text = readers[unit]
+                  if name not in text and not any(matches(rel, p) for p in RE_FILESET.findall(text)):
+                      report.add("unit-assets", path, 1,
+                                 f"{rel} is not read by {unit}: name it in its terragrunt.hcl, or read the "
+                                 "collection with fileset() in its _common/units/ file")
+
+
+          # --------------------------------------------------------------------------
+          # Collections: one object per <key>.yaml, checked against the JSON Schema of
+          # the module that takes them (code/terragrunt.md#collections of governance).
+
+          RE_KEY = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+          def yaml_files(repo):
+              return [f for f in repo.files if f.endswith((".yaml", ".yml"))]
+
+
+          def collections_of(repo, params):
+              """{collection directory: (schema name, file the collection is reported on)}."""
+              found, dirs = {}, unit_dirs(repo)
+              files = yaml_files(repo)
+              roots = params.get("paths", ["infrastructure/**"])
+              for unit in sorted(dirs):
+                  own = [f[len(unit) + 1:] for f in files if owning_unit(f, dirs) == unit]
+                  if not own or not matches(unit + "/x", *roots):
+                      continue
+                  # A collection reads its objects with fileset(); a YAML file nothing
+                  # reads is unit-assets' to report.
+                  patterns = RE_FILESET.findall(unit_readers(repo, unit))
+                  if not any(matches(rel, p) for rel in own for p in patterns):
+                      continue
+                  module, _, _ = module_of(repo, f"{unit}/terragrunt.hcl")
+                  found[unit] = (os.path.basename(module) if module else None, f"{unit}/terragrunt.hcl")
+              # Folders that are collections without a unit: the catalogue repository.
+              for entry in params.get("collections") or []:
+                  folder, schema = str(entry.get("path", "")).strip("/"), entry.get("schema")
+                  for f in files:
+                      d = os.path.dirname(f)
+                      while d:
+                          if matches(d, folder):
+                              found.setdefault(d, (schema, f))
+                              break
+                          d = os.path.dirname(d)
+              return found
+
+
+          def yaml_to_json(repo, path, yq):
+              """(data, error) of a YAML file, read by yq the way the runner has it."""
+              out = subprocess.run([yq, "-o=json", "-I=0", ".", os.path.join(repo.root, path)],
+                                   capture_output=True, text=True)
+              if out.returncode != 0:
+                  return None, "does not parse as YAML: " + (out.stderr.strip().splitlines() or ["?"])[-1]
+              docs = [line for line in out.stdout.splitlines() if line.strip()]
+              if len(docs) != 1:
+                  return None, "holds more than one YAML document; one object is one file"
+              return json.loads(docs[0]), None
+
+
+          def line_of(repo, path, error):
+              """The line of the key an error names, so that the annotation lands on it."""
+              m = re.match(r"(/\S*): (?:unknown key '([^']+)'|required key)", error)
+              names = []
+              if m and m.group(2):
+                  names.append(m.group(2))
+              if m:
+                  names += [p for p in reversed(m.group(1).split("/")) if p and not p.isdigit()]
+              lines = text_lines(repo, path) or []
+              for name in names:
+                  rx = re.compile(r"^\s*(?:-\s+)?[\"']?" + re.escape(name) + r"[\"']?\s*:")
+                  for n, line in enumerate(lines, 1):
+                      if rx.match(line):
+                          return n
+              return 1
+
+
+          def rule_collection_schema(repo, params, units, report):
+              """Every object of a collection is <key>.yaml with a unique key and matches its module's schema.
+
+              The schema of a unit's collection is <schemas>/<module>.schema.json, the
+              module named by the unit's source; a folder outside every unit is a
+              collection when `collections` lists it ({path: <glob>, schema: <module>}).
+              """
+              import schema_check
+
+              folder = params.get("schemas", ".github/schemas").strip("/")
+              yq = params.get("yq") or os.environ.get("YQ", "yq")
+              groups = collections_of(repo, params)
+              dirs = unit_dirs(repo)
+              loaded = {}
+              for coll, (name, anchor) in sorted(groups.items()):
+                  if not name:
+                      report.add("collection-schema", anchor, 1, f"{coll} holds YAML but runs no module to take it")
+                      continue
+                  schema_path = f"{folder}/{name}.schema.json"
+                  if schema_path not in loaded:
+                      loaded[schema_path] = None
+                      if not repo.exists(schema_path):
+                          report.add("collection-schema", anchor, 1,
+                                     f"{coll} is a collection of {name} without its schema {schema_path} "
+                                     "(the module's schema.json, copied with the modules_ref it pins)")
+                          continue
+                      try:
+                          with open(os.path.join(repo.root, schema_path), encoding="utf-8") as fh:
+                              schema = json.load(fh)
+                      except ValueError as e:
+                          report.add("collection-schema", schema_path, 1, f"not JSON: {e}")
+                          continue
+                      problems = schema_check.schema_errors(schema) + schema_check.closed_errors(schema)
+                      for p in problems:
+                          report.add("collection-schema", schema_path, 1, p)
+                      if not problems:
+                          loaded[schema_path] = schema_check.Validator(schema)
+                  validator = loaded[schema_path]
+                  keys = {}
+                  for path in yaml_files(repo):
+                      in_unit = owning_unit(path, dirs)
+                      if not (path.startswith(coll + "/") and (in_unit == coll or (coll not in dirs and in_unit is None))):
+                          continue
+                      stem, ext = os.path.splitext(os.path.basename(path))
+                      if ext != ".yaml":
+                          report.add("collection-schema", path, 1, f"{os.path.basename(path)}: an object is <key>.yaml")
+                      if not RE_KEY.match(stem):
+                          report.add("collection-schema", path, 1,
+                                     f"key {stem!r}: lowercase ASCII words joined by '-', the file name is the key")
+                      keys.setdefault(stem, []).append(path)
+                      if validator is None:
+                          continue
+                      data, error = yaml_to_json(repo, path, yq)
+                      if error:
+                          report.add("collection-schema", path, 1, error)
+                          continue
+                      for e in validator.errors(data):
+                          report.add("collection-schema", path, line_of(repo, path, e), e)
+                  for stem, paths in sorted(keys.items()):
+                      if len(paths) > 1:
+                          for p in paths:
+                              others = ", ".join(x for x in paths if x != p)
+                              report.add("collection-schema", p, 1,
+                                         f"key {stem!r} is also {others}: a key is unique in its collection")
 
 
           SCOPE_CONTEXT = {"mg": "mg.hcl", "sub": "subscription.hcl", "region": "region.hcl", "rg": "rg.hcl"}
@@ -879,14 +1046,20 @@ jobs:
 
 
           def rule_folder_dictionary(repo, params, units, report):
-              """A unit folder is named after its module: <module> or <module>-<purpose>."""
+              """A unit folder is named after its module: <module> or <module>-<purpose>.
+
+              `prefixes` lets a folder leave out the platform word a module name starts
+              with: with `sentinel-`, analytic-rules/ runs azure/sentinel-analytic-rules.
+              """
               folders = {**SCOPE_FOLDERS, **(params.get("folders") or {})}
+              prefixes = list(params.get("prefixes") or [])
               for path in units:
                   module, _, source_file = module_of(repo, path)
                   if not module:
                       continue
                   name = os.path.basename(module)
                   folder = os.path.basename(os.path.dirname(path))
+                  short = next((name[len(p):] for p in prefixes if name.startswith(p) and len(name) > len(p)), None)
                   if source_file != path and os.path.basename(source_file) != f"{name}.hcl":
                       report.add("folder-dictionary", source_file, 1,
                                  f"{source_file} runs the module {module}: it is named {name}.hcl")
@@ -895,6 +1068,7 @@ jobs:
                   plural = name[:-1] + "ies" if name.endswith("y") else name + "s"
                   parent = os.path.basename(os.path.dirname(os.path.dirname(path)))
                   if folder == name or folder.startswith(name + "-") or parent == plural \
+                          or (short and (folder == short or folder.startswith(short + "-"))) \
                           or (globs and matches(folder, *globs)):
                       continue
                   report.add("folder-dictionary", path, 1,
@@ -1061,13 +1235,15 @@ jobs:
               "no-envcommon": rule_no_envcommon,
               "lock-none-needs-reason": rule_lock_none_needs_reason,
               "unit-assets": rule_unit_assets,
+              "collection-schema": rule_collection_schema,
               "scope-layout": rule_scope_layout,
               "folder-dictionary": rule_folder_dictionary,
               "todo-issue": rule_todo_issue,
               "markdown-links": rule_markdown_links,
           }
-          # Rules every repository has without naming them; level off turns one off.
-          DEFAULT_ON = ("todo-issue", "markdown-links")
+          # Rules every repository has without naming them (pr / check runs them);
+          # level off turns one off.
+          DEFAULT_ON = ("todo-issue", "markdown-links", "collection-schema")
           LEVELS = ("error", "warn", "off")
 
 
@@ -1190,7 +1366,7 @@ jobs:
           fi
           yq -o=json '.' "$CONFIG" >"$RUNNER_TEMP/conventions.json"
           # The rules every repository has run in pr / check (pr.yml).
-          python3 "$script" "$RUNNER_TEMP/conventions.json" . --skip todo-issue,markdown-links
+          python3 "$script" "$RUNNER_TEMP/conventions.json" . --skip todo-issue,markdown-links,collection-schema
 
       # Every exception of the repository (conventions, Sentinel lint, trivy) has a
       # reason and a review date; a date that has passed is a warning.
@@ -2073,8 +2249,10 @@ jobs:
             cannot read, runs the whole tree.
           - A context file (CONTEXT) applies to the unit in its own directory, every
             unit below it, and any other unit that reads it.
-          - Any other file belongs to the nearest unit above it. A file of a deleted
-            unit belongs to nobody - that unit runs as a destroy.
+          - Any other file belongs to the nearest unit above it: the <key>.yaml of a
+            collection, in a subfolder or not, plans its collection unit, a Logic App
+            definition.json or workflows/<name>/workflow.json its Logic App. A file of
+            a deleted unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
             is planned, so when nothing else is touched the whole tree runs - except
             what never reaches a plan (the same as changes.py): .claude/, Markdown,
@@ -2091,7 +2269,7 @@ jobs:
           import subprocess
           import sys
 
-          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl"}
+          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl", "workspace.hcl"}
           UNIT = "terragrunt.hcl"
           CONTENT = "infrastructure/"
           # What under .github/ changes a plan (changes.py has the same list).
@@ -2316,6 +2494,78 @@ jobs:
               args = [a for a in sys.argv[1:] if not a.startswith("--")]
               moves_arg = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--moves=")), "")
               print(json.dumps(select(args[0] if args else "", "--no-expand" not in sys.argv, moves_arg)))
+          __CI_EOF__
+          cat >"$d/base-commit.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """The commit a run on main compares against: the head of the last run whose apply went through.
+
+          Usage: base-commit.py <repository> <workflow file>
+
+          Prints the head commit of the newest run on main (a push or a manual run)
+          that either
+
+          - succeeded as a whole: its apply went through, or there was nothing to
+            apply, or nothing relevant changed; or
+          - failed after its apply succeeded: the job `apply` passed and only the
+            verification (or the report) behind it failed. What it applied is in the
+            state; comparing with the commit before it would select its units again
+            and refuse a move of state that has already happened.
+
+          A run whose apply failed, was held back (destroys without approval) or never
+          started does not count, so the units it left out stay selected. Prints
+          nothing when no such run is found: the whole tree runs then.
+
+          Reads the runs and their jobs through `gh api` (GH_TOKEN, actions: read).
+          """
+          import json
+          import subprocess
+          import sys
+
+          RUNS = 50
+          JOB_LOOKUPS = 20
+
+
+          def gh(path: str):
+              out = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=True).stdout
+              return json.loads(out or "{}")
+
+
+          def applied(jobs: list) -> bool:
+              """The job apply of the run (named `<caller job> / apply` in a reusable workflow) passed."""
+              return any((j.get("name") == "apply" or str(j.get("name", "")).endswith(" / apply"))
+                         and j.get("conclusion") == "success" for j in jobs)
+
+
+          def pick(runs: list, jobs_of) -> str:
+              lookups = 0
+              for run in runs:
+                  if run.get("event") not in ("push", "workflow_dispatch") or run.get("status") != "completed":
+                      continue
+                  if run.get("conclusion") == "success":
+                      return run["head_sha"]
+                  if run.get("conclusion") != "failure" or lookups >= JOB_LOOKUPS:
+                      continue
+                  lookups += 1
+                  if applied(jobs_of(run["id"])):
+                      return run["head_sha"]
+              return ""
+
+
+          def main(repo: str, workflow: str) -> int:
+              runs = gh(f"repos/{repo}/actions/workflows/{workflow}/runs?branch=main&status=completed&per_page={RUNS}")
+              runs = runs.get("workflow_runs") or []
+
+              def jobs_of(run_id):
+                  return gh(f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100").get("jobs") or []
+
+              print(pick(runs, jobs_of))
+              return 0
+
+
+          if __name__ == "__main__":
+              if len(sys.argv) != 3:
+                  sys.exit(__doc__)
+              sys.exit(main(*sys.argv[1:]))
           __CI_EOF__
           cat >"$d/check-moves.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
@@ -4501,9 +4751,10 @@ jobs:
         run: install-tools.sh terragrunt
 
       # A pull request is compared with its base branch. On main the base is
-      # the head of the last successful run - its apply went through or had
-      # nothing to do - so a change a failed or held-back apply left out is
-      # still selected now. Runs on main never overlap (see concurrency).
+      # the head of the last run whose apply went through or had nothing to do
+      # (a failed verification after a good apply counts: its changes are in
+      # the state), so a change a failed or held-back apply left out is still
+      # selected now. Runs on main never overlap (see concurrency).
       - name: Base commit
         id: base
         env:
@@ -4517,12 +4768,11 @@ jobs:
           else
             # The caller's workflow file, e.g. ci.yml.
             wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
-            base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&status=success&per_page=50" \
-              --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")][0].head_sha // empty') || base=""
+            base=$(base-commit.py "$GITHUB_REPOSITORY" "$wf") || base=""
             # Without it the units of an earlier failed apply could be left
             # out, so the whole tree runs instead.
             if [ -z "$base" ]; then
-              echo "::warning::No successful run on main found; the whole tree runs."
+              echo "::warning::No run on main with a successful apply found; the whole tree runs."
             fi
           fi
           echo "sha=$base" >>"$GITHUB_OUTPUT"
@@ -4787,8 +5037,10 @@ jobs:
             cannot read, runs the whole tree.
           - A context file (CONTEXT) applies to the unit in its own directory, every
             unit below it, and any other unit that reads it.
-          - Any other file belongs to the nearest unit above it. A file of a deleted
-            unit belongs to nobody - that unit runs as a destroy.
+          - Any other file belongs to the nearest unit above it: the <key>.yaml of a
+            collection, in a subfolder or not, plans its collection unit, a Logic App
+            definition.json or workflows/<name>/workflow.json its Logic App. A file of
+            a deleted unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
             is planned, so when nothing else is touched the whole tree runs - except
             what never reaches a plan (the same as changes.py): .claude/, Markdown,
@@ -4805,7 +5057,7 @@ jobs:
           import subprocess
           import sys
 
-          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl"}
+          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl", "workspace.hcl"}
           UNIT = "terragrunt.hcl"
           CONTENT = "infrastructure/"
           # What under .github/ changes a plan (changes.py has the same list).
@@ -5030,6 +5282,78 @@ jobs:
               args = [a for a in sys.argv[1:] if not a.startswith("--")]
               moves_arg = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--moves=")), "")
               print(json.dumps(select(args[0] if args else "", "--no-expand" not in sys.argv, moves_arg)))
+          __CI_EOF__
+          cat >"$d/base-commit.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """The commit a run on main compares against: the head of the last run whose apply went through.
+
+          Usage: base-commit.py <repository> <workflow file>
+
+          Prints the head commit of the newest run on main (a push or a manual run)
+          that either
+
+          - succeeded as a whole: its apply went through, or there was nothing to
+            apply, or nothing relevant changed; or
+          - failed after its apply succeeded: the job `apply` passed and only the
+            verification (or the report) behind it failed. What it applied is in the
+            state; comparing with the commit before it would select its units again
+            and refuse a move of state that has already happened.
+
+          A run whose apply failed, was held back (destroys without approval) or never
+          started does not count, so the units it left out stay selected. Prints
+          nothing when no such run is found: the whole tree runs then.
+
+          Reads the runs and their jobs through `gh api` (GH_TOKEN, actions: read).
+          """
+          import json
+          import subprocess
+          import sys
+
+          RUNS = 50
+          JOB_LOOKUPS = 20
+
+
+          def gh(path: str):
+              out = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=True).stdout
+              return json.loads(out or "{}")
+
+
+          def applied(jobs: list) -> bool:
+              """The job apply of the run (named `<caller job> / apply` in a reusable workflow) passed."""
+              return any((j.get("name") == "apply" or str(j.get("name", "")).endswith(" / apply"))
+                         and j.get("conclusion") == "success" for j in jobs)
+
+
+          def pick(runs: list, jobs_of) -> str:
+              lookups = 0
+              for run in runs:
+                  if run.get("event") not in ("push", "workflow_dispatch") or run.get("status") != "completed":
+                      continue
+                  if run.get("conclusion") == "success":
+                      return run["head_sha"]
+                  if run.get("conclusion") != "failure" or lookups >= JOB_LOOKUPS:
+                      continue
+                  lookups += 1
+                  if applied(jobs_of(run["id"])):
+                      return run["head_sha"]
+              return ""
+
+
+          def main(repo: str, workflow: str) -> int:
+              runs = gh(f"repos/{repo}/actions/workflows/{workflow}/runs?branch=main&status=completed&per_page={RUNS}")
+              runs = runs.get("workflow_runs") or []
+
+              def jobs_of(run_id):
+                  return gh(f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100").get("jobs") or []
+
+              print(pick(runs, jobs_of))
+              return 0
+
+
+          if __name__ == "__main__":
+              if len(sys.argv) != 3:
+                  sys.exit(__doc__)
+              sys.exit(main(*sys.argv[1:]))
           __CI_EOF__
           cat >"$d/check-moves.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
@@ -7215,7 +7539,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.tgproviders
-          key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+          key: providers-${{ runner.os }}-${{ hashFiles('account.hcl', '_common/templates/versions*.tf.tmpl') }}
           restore-keys: providers-${{ runner.os }}-
 
       - name: Install terragrunt
@@ -7249,17 +7573,21 @@ jobs:
       # terragrunt runs before validate): nothing signs in to Azure. A
       # dependency's outputs would come from its state; here every dependency
       # answers with the mock outputs it allows for validate.
+      # The providers come through terragrunt's provider cache, as in the plan:
+      # it downloads each one once, under a lock, and links it into the units.
+      # A plain TF_PLUGIN_CACHE_DIR let one unit run a provider binary that
+      # another unit was still writing ("text file busy", #34).
       - name: Terraform validate
         env:
-          TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tgproviders
-          TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "true"
+          TG_PROVIDER_CACHE: "1"
+          TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
           TG_EXPERIMENT: optional-dependency-outputs
           TF_CLI_ARGS_init: -backend=false
           SELECTION: ${{ needs.select.outputs.selection }}
         run: |
           set -euo pipefail
-          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          mkdir -p "$TG_PROVIDER_CACHE_DIR"
           mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
           if [ "$(jq -r .all <<<"$SELECTION")" != "true" ] && [ "${#units[@]}" -eq 0 ]; then
             echo "No unit to validate."
@@ -7513,8 +7841,10 @@ jobs:
             cannot read, runs the whole tree.
           - A context file (CONTEXT) applies to the unit in its own directory, every
             unit below it, and any other unit that reads it.
-          - Any other file belongs to the nearest unit above it. A file of a deleted
-            unit belongs to nobody - that unit runs as a destroy.
+          - Any other file belongs to the nearest unit above it: the <key>.yaml of a
+            collection, in a subfolder or not, plans its collection unit, a Logic App
+            definition.json or workflows/<name>/workflow.json its Logic App. A file of
+            a deleted unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
             is planned, so when nothing else is touched the whole tree runs - except
             what never reaches a plan (the same as changes.py): .claude/, Markdown,
@@ -7531,7 +7861,7 @@ jobs:
           import subprocess
           import sys
 
-          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl"}
+          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl", "workspace.hcl"}
           UNIT = "terragrunt.hcl"
           CONTENT = "infrastructure/"
           # What under .github/ changes a plan (changes.py has the same list).
@@ -7756,6 +8086,78 @@ jobs:
               args = [a for a in sys.argv[1:] if not a.startswith("--")]
               moves_arg = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--moves=")), "")
               print(json.dumps(select(args[0] if args else "", "--no-expand" not in sys.argv, moves_arg)))
+          __CI_EOF__
+          cat >"$d/base-commit.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """The commit a run on main compares against: the head of the last run whose apply went through.
+
+          Usage: base-commit.py <repository> <workflow file>
+
+          Prints the head commit of the newest run on main (a push or a manual run)
+          that either
+
+          - succeeded as a whole: its apply went through, or there was nothing to
+            apply, or nothing relevant changed; or
+          - failed after its apply succeeded: the job `apply` passed and only the
+            verification (or the report) behind it failed. What it applied is in the
+            state; comparing with the commit before it would select its units again
+            and refuse a move of state that has already happened.
+
+          A run whose apply failed, was held back (destroys without approval) or never
+          started does not count, so the units it left out stay selected. Prints
+          nothing when no such run is found: the whole tree runs then.
+
+          Reads the runs and their jobs through `gh api` (GH_TOKEN, actions: read).
+          """
+          import json
+          import subprocess
+          import sys
+
+          RUNS = 50
+          JOB_LOOKUPS = 20
+
+
+          def gh(path: str):
+              out = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=True).stdout
+              return json.loads(out or "{}")
+
+
+          def applied(jobs: list) -> bool:
+              """The job apply of the run (named `<caller job> / apply` in a reusable workflow) passed."""
+              return any((j.get("name") == "apply" or str(j.get("name", "")).endswith(" / apply"))
+                         and j.get("conclusion") == "success" for j in jobs)
+
+
+          def pick(runs: list, jobs_of) -> str:
+              lookups = 0
+              for run in runs:
+                  if run.get("event") not in ("push", "workflow_dispatch") or run.get("status") != "completed":
+                      continue
+                  if run.get("conclusion") == "success":
+                      return run["head_sha"]
+                  if run.get("conclusion") != "failure" or lookups >= JOB_LOOKUPS:
+                      continue
+                  lookups += 1
+                  if applied(jobs_of(run["id"])):
+                      return run["head_sha"]
+              return ""
+
+
+          def main(repo: str, workflow: str) -> int:
+              runs = gh(f"repos/{repo}/actions/workflows/{workflow}/runs?branch=main&status=completed&per_page={RUNS}")
+              runs = runs.get("workflow_runs") or []
+
+              def jobs_of(run_id):
+                  return gh(f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100").get("jobs") or []
+
+              print(pick(runs, jobs_of))
+              return 0
+
+
+          if __name__ == "__main__":
+              if len(sys.argv) != 3:
+                  sys.exit(__doc__)
+              sys.exit(main(*sys.argv[1:]))
           __CI_EOF__
           cat >"$d/check-moves.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
@@ -9943,7 +10345,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.tgproviders
-          key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+          key: providers-${{ runner.os }}-${{ hashFiles('account.hcl', '_common/templates/versions*.tf.tmpl') }}
           restore-keys: providers-${{ runner.os }}-
 
       - name: Install terragrunt and trivy
@@ -12008,8 +12410,10 @@ jobs:
             cannot read, runs the whole tree.
           - A context file (CONTEXT) applies to the unit in its own directory, every
             unit below it, and any other unit that reads it.
-          - Any other file belongs to the nearest unit above it. A file of a deleted
-            unit belongs to nobody - that unit runs as a destroy.
+          - Any other file belongs to the nearest unit above it: the <key>.yaml of a
+            collection, in a subfolder or not, plans its collection unit, a Logic App
+            definition.json or workflows/<name>/workflow.json its Logic App. A file of
+            a deleted unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
             is planned, so when nothing else is touched the whole tree runs - except
             what never reaches a plan (the same as changes.py): .claude/, Markdown,
@@ -12026,7 +12430,7 @@ jobs:
           import subprocess
           import sys
 
-          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl"}
+          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl", "workspace.hcl"}
           UNIT = "terragrunt.hcl"
           CONTENT = "infrastructure/"
           # What under .github/ changes a plan (changes.py has the same list).
@@ -12251,6 +12655,78 @@ jobs:
               args = [a for a in sys.argv[1:] if not a.startswith("--")]
               moves_arg = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--moves=")), "")
               print(json.dumps(select(args[0] if args else "", "--no-expand" not in sys.argv, moves_arg)))
+          __CI_EOF__
+          cat >"$d/base-commit.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """The commit a run on main compares against: the head of the last run whose apply went through.
+
+          Usage: base-commit.py <repository> <workflow file>
+
+          Prints the head commit of the newest run on main (a push or a manual run)
+          that either
+
+          - succeeded as a whole: its apply went through, or there was nothing to
+            apply, or nothing relevant changed; or
+          - failed after its apply succeeded: the job `apply` passed and only the
+            verification (or the report) behind it failed. What it applied is in the
+            state; comparing with the commit before it would select its units again
+            and refuse a move of state that has already happened.
+
+          A run whose apply failed, was held back (destroys without approval) or never
+          started does not count, so the units it left out stay selected. Prints
+          nothing when no such run is found: the whole tree runs then.
+
+          Reads the runs and their jobs through `gh api` (GH_TOKEN, actions: read).
+          """
+          import json
+          import subprocess
+          import sys
+
+          RUNS = 50
+          JOB_LOOKUPS = 20
+
+
+          def gh(path: str):
+              out = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=True).stdout
+              return json.loads(out or "{}")
+
+
+          def applied(jobs: list) -> bool:
+              """The job apply of the run (named `<caller job> / apply` in a reusable workflow) passed."""
+              return any((j.get("name") == "apply" or str(j.get("name", "")).endswith(" / apply"))
+                         and j.get("conclusion") == "success" for j in jobs)
+
+
+          def pick(runs: list, jobs_of) -> str:
+              lookups = 0
+              for run in runs:
+                  if run.get("event") not in ("push", "workflow_dispatch") or run.get("status") != "completed":
+                      continue
+                  if run.get("conclusion") == "success":
+                      return run["head_sha"]
+                  if run.get("conclusion") != "failure" or lookups >= JOB_LOOKUPS:
+                      continue
+                  lookups += 1
+                  if applied(jobs_of(run["id"])):
+                      return run["head_sha"]
+              return ""
+
+
+          def main(repo: str, workflow: str) -> int:
+              runs = gh(f"repos/{repo}/actions/workflows/{workflow}/runs?branch=main&status=completed&per_page={RUNS}")
+              runs = runs.get("workflow_runs") or []
+
+              def jobs_of(run_id):
+                  return gh(f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100").get("jobs") or []
+
+              print(pick(runs, jobs_of))
+              return 0
+
+
+          if __name__ == "__main__":
+              if len(sys.argv) != 3:
+                  sys.exit(__doc__)
+              sys.exit(main(*sys.argv[1:]))
           __CI_EOF__
           cat >"$d/check-moves.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
@@ -14436,7 +14912,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.tgproviders
-          key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+          key: providers-${{ runner.os }}-${{ hashFiles('account.hcl', '_common/templates/versions*.tf.tmpl') }}
           restore-keys: providers-${{ runner.os }}-
 
       - name: Install terragrunt
