@@ -64,13 +64,15 @@ src/                  the scripts the workflows carry or run; terragrunt/, m365/
 tests/                unit tests of src/, mirroring it
 tools/                build.py, export-for-templates.py, sync-templates.py,
                       sanitise-plan.py, move-major-tag.sh, bot-gh.py
-docs/                 identities.md, terragrunt.md, checks.md, organisation-workflows.md
+docs/                 identities.md, terragrunt.md, checks.md, organisation-workflows.md,
+                      releasing.md
 ```
 
 - [docs/identities.md](docs/identities.md) - every identity the workflows and Apps use
 - [docs/terragrunt.md](docs/terragrunt.md) - the Terragrunt pipeline: jobs, identities, verification, comments
 - [docs/checks.md](docs/checks.md) - pr / check, conventions, exceptions, Sentinel, site checks, ESLint
 - [docs/organisation-workflows.md](docs/organisation-workflows.md) - deps, pins, major tag, Projects, housekeeping, bot-gh
+- [docs/releasing.md](docs/releasing.md) - versions, pins of the tools, releasing and the major tag
 
 **How a script gets into a workflow.** A reusable workflow runs in the
 calling repository, whose token cannot read this private repository, so a
@@ -100,43 +102,8 @@ changed workflows are tried on this repository first: `security / scan`,
 `pr / check`, `pipeline / gate` (the tests, Pester, `build.py --check`), the
 conventions and Sentinel self-tests.
 
-**Versions.** Semantic versioning
-([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md)):
-every release is a signed tag `v2.Y.Z` and a GitHub release; the major tag
-`v2` moves to the newest. Callers use `@v2`; repositories that touch
-production pin `@v2.Y.Z` and get the bump as a pull request (`ci-pins.yml`).
-A change that would break callers (a new required input, a renamed job and
-with it the check name) is a major version. Everything the workflows use is
-pinned to a commit (`sha_pinning_required`); the downloaded tools are release
-binaries checked against a sha256 - the security tools in the `env` of
-`security.yml`, the markdownlint image by its digest in `pr.yml`, the
-pipelines' tools in the caller's `.github/tool-versions.env`:
-
-```bash
-gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
-  --jq '.assets[] | select(.name | test("linux_x64")) | .digest'
-```
-
-**Releasing.** This repository releases by hand, because its tags are signed
-(`release.yml` works out the same version and notes):
-
-1. Change the workflow in a pull request; merge it once its own run is green.
-2. Tag and publish:
-
-   ```bash
-   git switch main && git pull --ff-only
-   git tag -s v2.5.0 -m v2.5.0 && git push origin v2.5.0
-   gh release create v2.5.0 --verify-tag --generate-notes
-   ```
-
-3. Publishing runs `major-tag.yml` (moves `v2` as `bearclave-bot`) and
-   `ci-pins.yml` (a pull request in every repository that pins an older
-   `v2.Y.Z`). Check them with `gh run list --workflow major-tag.yml --limit 1`.
-   Fallback and the first tag of a new major: `tools/move-major-tag.sh
-   v2.5.0` - the one force push an agent may run.
-4. Rerun the pipeline in one caller to see it there too.
-
-`v1` stays where it is for anything that still calls it; it gets no changes.
+Versions, pins and how a release is made:
+[docs/releasing.md](docs/releasing.md).
 
 ## Pipeline
 

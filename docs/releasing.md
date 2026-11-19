@@ -1,0 +1,60 @@
+# Releasing
+
+How `ci` is versioned and released. The rules for every repository are in
+[versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md);
+this page holds what is specific to `ci`.
+
+## Versions
+
+- Every release is a signed tag `v2.Y.Z` and a GitHub release; the major
+  tag `v2` moves to the newest.
+- Callers use `@v2`; repositories that touch production pin `@v2.Y.Z` and
+  get the bump as a pull request (`ci-pins.yml`).
+- A change that would break callers (a new required input, a renamed job
+  and with it the check name) is a major version.
+- `v1` stays where it is for anything that still calls it; it gets no
+  changes.
+
+## Pins
+
+Everything the workflows use is pinned to a commit (`sha_pinning_required`).
+The downloaded tools are release binaries checked against a sha256:
+
+| Tools | Pinned in |
+|---|---|
+| gitleaks, actionlint, zizmor, shellcheck | the `env` of `templates/security.yml` |
+| markdownlint-cli2 | the image digest in `templates/pr.yml` |
+| Terraform, Terragrunt, TFLint, Trivy, ... | the caller's `.github/tool-versions.env` |
+
+The sha256 of a release asset:
+
+```bash
+gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
+  --jq '.assets[] | select(.name | test("linux_x64")) | .digest'
+```
+
+## Making a release
+
+`ci` is released by the owner, by hand, because its tags are signed;
+`release.yml` works out the same version and notes in its dry run.
+
+1. Change the workflow in a pull request; merge it once its own run is
+   green.
+2. Tag and publish:
+
+   ```bash
+   git switch main && git pull --ff-only
+   git tag -s v2.5.0 -m v2.5.0 && git push origin v2.5.0
+   gh release create v2.5.0 --verify-tag --generate-notes
+   ```
+
+3. Publishing runs `major-tag.yml` (moves `v2` as `bearclave-bot`) and
+   `ci-pins.yml` (a pull request in every repository that pins an older
+   `v2.Y.Z`). Check them with
+   `gh run list --workflow major-tag.yml --limit 1`.
+4. The next pull request of a caller on `@v2` runs the new release; the
+   pinned callers run it in their `ci-pins` pull request.
+
+**Fallback.** When `major-tag.yml` fails, and for the first tag of a new
+major, the owner runs `tools/move-major-tag.sh v2.5.0`. It force-pushes the
+major tag, so an agent never runs it.
