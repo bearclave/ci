@@ -8,7 +8,8 @@ each repository that drifts on its own.
 
 ```text
 templates/            the workflows, with @@include markers; _fragments/ shared pieces
-.github/workflows/    generated from templates/ by tools/build.py (do not edit)
+.github/workflows/    generated from templates/ by tools/build.py (do not edit);
+                      ci.yml, pr-check.yml, major-tag.yml are this repository's own
 src/                  the scripts the workflows carry; layout.yaml (managed copy)
 tests/                unit tests of src/, mirroring it
 tools/                build.py, export-for-templates.py, sync-templates.py
@@ -438,7 +439,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `exception_review.py`, `site_checks.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `exception_review.py`, `site_checks.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `major_tag.py` (run by `major-tag.yml` of this repository); `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
 | `src/terragrunt/` | unit selection, plan and apply comments, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `tools/` | `build.py`, `export-for-templates.py`, `sync-templates.py`; `sanitise-plan.py` turns plans of a run into test fixtures | |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
@@ -458,7 +459,9 @@ one.
   then proposes the bump as a pull request with its plan.
 - `v1` stays where it is for anything that still calls it; it gets no changes.
 - The `release-tags` ruleset refuses to update or delete a `v*.*.*` tag; only
-  an organisation owner may move `v2`, with `tools/move-major-tag.sh`.
+  an organisation owner and the GitHub App `bearclave-bot` may move `v2`
+  (`major-tag.yml` on every published release; `tools/move-major-tag.sh` by
+  hand).
 - Everything the workflows themselves use is pinned to a commit; the
   organisation enforces that (`sha_pinning_required`).
 
@@ -483,17 +486,26 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
    `pr-check.yml` from its own branch, so the changed workflows are tried on
    this repository first, along with the unit tests.
 2. Merge.
-3. Tag the release and move the major tag:
+3. Tag and publish the release:
 
    ```bash
    git switch main && git pull --ff-only
    git tag -s v2.1.0 -m v2.1.0 && git push origin v2.1.0
    gh release create v2.1.0 --verify-tag --generate-notes
-   tools/move-major-tag.sh v2.1.0
    ```
 
-   The script moves `v2` only to a published, signed release; it is the one
-   force push an agent may run (allowed for this script alone).
+   Publishing the release runs `major-tag.yml`, which moves `v2` to it as
+   the GitHub App `bearclave-bot` (`src/major_tag.py`): only to a published,
+   non-pre-release `vX.Y.Z` with a verified signed tag that is the newest of
+   its major, and never backwards. `v2` becomes a lightweight ref to the
+   release's commit; the release tags stay the owner's signed tags. Check
+   the run with `gh run list --workflow major-tag.yml --limit 1`; rerun it
+   for a release with `gh workflow run major-tag.yml -f release=v2.1.0`
+   (a no-op when `v2` is already there).
+
+   Manual fallback, and the first tag of a new major (`v3`), which the
+   workflow does not create: `tools/move-major-tag.sh v2.1.0`. It is the
+   one force push an agent may run (allowed for this script alone).
 
 4. Rerun the pipeline in one caller to see it there too.
 
