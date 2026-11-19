@@ -554,6 +554,13 @@ jobs:
 
           --trivy=<dir> adds the findings of trivy over those plans (a directory of its
           JSON reports, one per unit) as a section of their own.
+
+          A plan split across jobs (one shard each) is summarised once over all of them.
+          The JSON plans hold sensitive values in clear text and never leave the job
+          that made them, so each shard passes on only what the comment shows of them:
+          --export=<file> writes the tables and the trivy findings of its own plans as
+          JSON, and the merge reads every such file of a directory with --import=<dir>,
+          next to the concatenated plan.txt of all shards.
           """
           import json
           import os
@@ -717,8 +724,20 @@ jobs:
               return sorted(found)
 
 
+          def imported(directory: str) -> tuple:
+              """The tables and trivy findings the shards exported (--export), merged."""
+              tables, findings = {}, set()
+              if directory and os.path.isdir(directory):
+                  for part in sorted(pathlib.Path(directory).glob("*.json")):
+                      data = json.loads(part.read_text(encoding="utf-8") or "{}")
+                      tables.update(data.get("tables") or {})
+                      findings.update(tuple(f) for f in data.get("findings") or [])
+              return tables, sorted(findings)
+
+
           def main(path: str, fail_on_change: bool = False, github_output: bool = False,
-                   artifact: str = None, json_dir: str = None, trivy: str = None) -> int:
+                   artifact: str = None, json_dir: str = None, trivy: str = None,
+                   export: str = None, import_dir: str = None) -> int:
               units, errors = {}, []
               streams, loose, queued = {}, [], {}
               unit, in_queue = "?", False
@@ -796,7 +815,7 @@ jobs:
                              for u in changed for r in parsed[u]["resources"]
                              if r["what"] == "will be destroyed" or "replaced" in r["what"]]
 
-              tables = {}
+              tables, findings = imported(import_dir)
               for u in changed:
                   plan_json = pathlib.Path(json_dir or "", u, "tfplan.json")
                   if json_dir and plan_json.is_file():
@@ -804,7 +823,10 @@ jobs:
                           tables[u] = plan_details.table(plan_details.load(plan_json))
                       except (ValueError, KeyError, TypeError, AttributeError) as e:
                           print(f"::warning::{u}: the JSON plan could not be read ({e})", file=sys.stderr)
-              findings = trivy_findings(trivy)
+              findings = sorted(set(findings) | set(trivy_findings(trivy)))
+              if export:
+                  pathlib.Path(export).write_text(
+                      json.dumps({"tables": tables, "findings": findings}), encoding="utf-8")
 
               if artifact is None and os.environ.get("GITHUB_RUN_ID"):
                   artifact = f"plan-{os.environ['GITHUB_RUN_ID']}"
@@ -951,7 +973,8 @@ jobs:
               paths = [a for a in args if not a.startswith("--")]
               named = dict(a[2:].split("=", 1) for a in args if a.startswith("--") and "=" in a)
               sys.exit(main(paths[0], "--fail-on-change" in args, "--github-output" in args,
-                            named.get("artifact"), named.get("json-dir"), named.get("trivy")))
+                            named.get("artifact"), named.get("json-dir"), named.get("trivy"),
+                            named.get("export"), named.get("import")))
           __CI_EOF__
           cat >"$d/plan_details.py" <<'__CI_EOF__'
           """Reads a terraform plan in JSON and says in plain words what it changes.
@@ -1434,7 +1457,6 @@ jobs:
           REPORTS=${2:?missing report directory}
           IGNORE="$PWD/.github/trivyignore.yaml"
           [ -f "$IGNORE" ] || IGNORE="$PWD/.trivyignore.yaml"
-          UNIT_IGNORE=$(mktemp --suffix=.yaml)
 
           mkdir -p "$REPORTS"
           REPORTS=$(cd "$REPORTS" && pwd)
@@ -1443,30 +1465,45 @@ jobs:
             exit 0
           fi
 
-          found=0
-          while IFS= read -r plan; do
+          # One trivy per unit, as many at once as the runner has cores; each writes its
+          # own report and exit code, collected below.
+          scan() {
+            local plan=$1 report rc=0 ignore
             report="$REPORTS/$(tr / _ <<<"${plan%/tfplan.json}").json"
+            ignore=$(mktemp --suffix=.yaml)
             yq -o=json '.' "$IGNORE" |
               jq --arg plan "$plan" '{misconfigurations: [(.misconfigurations // [])[]
                 | select((.paths // []) | length == 0 or any(.[]; . == $plan)) | del(.paths)]}' |
-              yq -P '.' >"$UNIT_IGNORE"
-            rc=0
+              yq -P '.' >"$ignore"
             (cd "$PLANS" && trivy config --quiet --skip-check-update \
-              --severity HIGH,CRITICAL --exit-code 3 --ignorefile "$UNIT_IGNORE" \
+              --severity HIGH,CRITICAL --exit-code 3 --ignorefile "$ignore" \
               --format json --output "$report" "$plan") || rc=$?
-            case "$rc" in
-              0) ;;
-              3) found=1 ;;
-              *) echo "trivy failed on $plan" >&2; exit "$rc" ;;
-            esac
-            # The unit goes into the report itself, so that the summary does not have
-            # to guess it from trivy's target; the log shows what failed where.
-            unit="${plan%/tfplan.json}"
+            rm -f "$ignore"
+            echo "$rc" >"$report.rc"
+            [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ] || { echo "trivy failed on $plan" >&2; return 0; }
+            local unit="${plan%/tfplan.json}"
             jq --arg unit "$unit" '.Unit = $unit' "$report" >"$report.tmp" && mv "$report.tmp" "$report"
             jq -r --arg unit "$unit" '.Results[]? | .Target as $t | .Misconfigurations[]?
               | select(.Status == "FAIL")
               | "\($unit): \(.Severity) \(.AVDID // .ID) \(.Title) [target \($t)]"' "$report"
-          done < <(cd "$PLANS" && find . -name tfplan.json | sed 's|^\./||' | sort)
+          }
+          export -f scan
+          export PLANS REPORTS IGNORE
+
+          plans=$(cd "$PLANS" && find . -name tfplan.json | sed 's|^\./||' | sort)
+          # shellcheck disable=SC2016 # $1 expands in the child bash, not here.
+          [ -z "$plans" ] || xargs -r -P "$(nproc)" -I{} bash -c 'scan "$1"' _ {} <<<"$plans"
+
+          found=0
+          for rc in "$REPORTS"/*.rc; do
+            [ -e "$rc" ] || continue
+            case "$(cat "$rc")" in
+              0) ;;
+              3) found=1 ;;
+              *) exit 1 ;;
+            esac
+            rm -f "$rc"
+          done
 
           [ "$found" -eq 0 ] || exit 3
           __CI_EOF__

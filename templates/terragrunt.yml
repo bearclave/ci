@@ -53,6 +53,13 @@
 #       secrets:
 #         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
 #
+# A plan is bound by the CPU of its runner: each unit starts terraform and
+# its providers several times, and a hosted runner has two cores. A large
+# selection is therefore split across up to plan-shards jobs, each planning
+# its share of the units (a dependency in another share is read from its
+# state, as with any selection); one more job reads their output back into a
+# single summary and comment. The apply stays one job in dependency order.
+#
 # Versions: TERRAFORM_VERSION, TERRAGRUNT_*, TRIVY_* in the caller's
 # .github/tool-versions.env. The required check is "pipeline / gate".
 name: terragrunt
@@ -119,6 +126,10 @@ on:
         description: Apply also what destroys or replaces resources (manual runs)
         type: boolean
         default: false
+      plan-shards:
+        description: At most this many jobs plan side by side, each a share of the selected units (one job up to 20 units)
+        type: number
+        default: 3
     secrets:
       modules-deploy-key:
         description: Read-only deploy key of bearclave/iac-modules
@@ -211,6 +222,7 @@ jobs:
       actions: read
     outputs:
       selection: ${{ steps.units.outputs.selection }}
+      shards: ${{ steps.shards.outputs.shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -332,6 +344,35 @@ jobs:
             jq -r '.renamed[] | "::error::\(.[0]) moved to \(.[1]). Moving a unit changes its state key. Delete the unit in one pull request (it gets destroyed) and add it under the new path in the next, or move its state by hand first."' <<<"$selection"
             exit 1
           fi
+
+      # The selection split for the plan jobs: up to 20 units in one, at most
+      # plan-shards of them, the units dealt out in turn. The whole tree is
+      # listed unit by unit for that, the same directories select-units.py
+      # counts as units. The deleted units go to the first share.
+      - name: Shares of the plan
+        id: shards
+        env:
+          SELECTION: ${{ steps.units.outputs.selection }}
+          MAX_SHARDS: ${{ inputs.plan-shards }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r .all <<<"$SELECTION")" = "true" ]; then
+            units=$(git ls-files -- '*/terragrunt.hcl' | sed 's|/terragrunt\.hcl$||' |
+              grep -vE '(^|/)\.' | jq -R . | jq -sc .)
+          else
+            units=$(jq -c .units <<<"$SELECTION")
+          fi
+          shards=$(jq -c --argjson units "$units" --argjson max "$MAX_SHARDS" '
+            .deleted as $deleted | ($units | length) as $n
+            | (if $n + ($deleted | length) == 0 then 0
+               else [1, ([$max, (($n + 19) / 20 | floor)] | min)] | max end) as $k
+            | [range($k) as $i | {
+                name: "\($i + 1) of \($k)",
+                index: $i,
+                units: [$units | to_entries[] | select(.key % $k == $i) | .value],
+                deleted: (if $i == 0 then $deleted else [] end)}]' <<<"$SELECTION")
+          echo "shards=$shards" >>"$GITHUB_OUTPUT"
+          jq -r '"Plan jobs: \(length)."' <<<"$shards" >>"$GITHUB_STEP_SUMMARY"
       # terraform validate needs the providers and the modules, so each unit
       # is initialised without its backend (TF_CLI_ARGS_init, in the init
       # terragrunt runs before validate): nothing signs in to Azure. A
@@ -390,21 +431,23 @@ jobs:
           exit 1
 
 
-  plan:
+  # One share of the selection (validate's shards), as many side by side as
+  # there are shares. Each leaves its plan.txt and what the comment shows of
+  # its JSON plans for the plan job.
+  plan-shard:
+    name: plan (${{ matrix.shard.name }})
     needs: [changes, validate]
     # Only after validate has passed; it is skipped where nothing is relevant.
-    if: ${{ !cancelled() && needs.validate.result == 'success' }}
+    if: ${{ !cancelled() && needs.validate.result == 'success' && needs.validate.outputs.shards != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.validate.outputs.shards) }}
     permissions:
       contents: read
       id-token: write
-      pull-requests: write
-    outputs:
-      has_changes: ${{ steps.summary.outputs.has_changes }}
-      has_destroys: ${{ steps.summary.outputs.has_destroys }}
-      planned_at: ${{ steps.planned.outputs.at }}
-      selection: ${{ needs.validate.outputs.selection }}
     env:
       # A plan on a pull request may be queued from any branch, so it runs as
       # the identity that can only read. A plan on main is the one the apply is
@@ -474,8 +517,10 @@ jobs:
       # A job killed while terraform holds a state lock leaves the lock behind
       # for good. Locks a runner took more than 70 minutes ago are released
       # here: no job runs that long (apply has the longest timeout, 60), so
-      # the job that took them is gone. Workstation locks stay.
+      # the job that took them is gone. Workstation locks stay. The first
+      # share does it for all of them.
       - name: Release stale state locks
+        if: matrix.shard.index == 0
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -489,10 +534,11 @@ jobs:
 
       @@include templates/_fragments/github-app.yml@@
 
-      # The units that exist are planned from HEAD. A deleted unit exists only
-      # in the base commit, so it is planned as a destroy from a worktree of
-      # that commit. Both land in the same plan.txt, under their unit paths,
-      # and as JSON in $PLAN_JSON for the comment and for trivy. The JSON holds
+      # The units of this share that exist are planned from HEAD, in
+      # dependency order among themselves. A deleted unit exists only in the
+      # base commit, so it is planned as a destroy from a worktree of that
+      # commit. Both land in the same plan.txt, under their unit paths, and as
+      # JSON in $PLAN_JSON for the comment and for trivy. The JSON holds
       # sensitive values in clear text: it stays in the runner's temp and is
       # never uploaded.
       - name: Plan
@@ -501,19 +547,16 @@ jobs:
           TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
           SELECTION: ${{ needs.validate.outputs.selection }}
+          SHARD: ${{ toJSON(matrix.shard) }}
           PLAN_JSON: ${{ runner.temp }}/plan-json
         run: |
           set -euo pipefail
           mkdir -p "$TG_PROVIDER_CACHE_DIR"
           : >plan.txt
-          mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
-          mapfile -t deleted < <(jq -r '.deleted[]' <<<"$SELECTION")
+          mapfile -t units < <(jq -r '.units[]' <<<"$SHARD")
+          mapfile -t deleted < <(jq -r '.deleted[]' <<<"$SHARD")
           rc=0
-          if [ "$(jq -r .all <<<"$SELECTION")" != "true" ] && [ "${#units[@]}" -eq 0 ] \
-            && [ "${#deleted[@]}" -eq 0 ]; then
-            echo "Nothing to plan." >nothing-selected
-          fi
-          if [ "$(jq -r .all <<<"$SELECTION")" = "true" ] || [ "${#units[@]}" -gt 0 ]; then
+          if [ "${#units[@]}" -gt 0 ]; then
             args=()
             for u in "${units[@]}"; do args+=(--queue-include-dir "$u"); done
             set +e
@@ -539,7 +582,7 @@ jobs:
 
       # trivy over the plans, which carry the value of every setting; over the
       # bare modules it cannot tell what a variable will be. The verdict waits
-      # until the findings are in the comment.
+      # until the findings are passed on for the comment.
       - name: Security findings in the plan
         id: trivy
         if: always()
@@ -554,27 +597,101 @@ jobs:
             *) exit "$rc" ;;
           esac
 
+      # What the comment shows of this share - the tables from the JSON plans
+      # and the trivy findings - and the plan output, for the plan job.
+      - name: Hand over the plan
+        if: always()
+        env:
+          PLAN_JSON: ${{ runner.temp }}/plan-json
+          INDEX: ${{ matrix.shard.index }}
+        run: |
+          set -euo pipefail
+          mkdir -p part
+          touch plan.txt
+          plan-summary.py plan.txt --json-dir="$PLAN_JSON" --trivy=trivy \
+            --export="part/shard-$INDEX.json" >/dev/null
+          cp plan.txt "part/plan-$INDEX.txt"
+
+      - name: Upload the share
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plan-part-${{ github.run_id }}-${{ matrix.shard.index }}
+          path: part/
+          retention-days: 1
+
+      - name: No unaccepted security finding
+        if: always() && steps.trivy.outputs.found == 'true'
+        run: |
+          echo "::error::trivy found a HIGH or CRITICAL setting in the plan (Security findings in the summary). Fix it, or accept it in .github/trivyignore.yaml with the reason."
+          exit 1
+
+  # The shares read back into one plan: one summary, one comment, and the
+  # verdict apply and destroy go by. It fails when a share did.
+  plan:
+    needs: [changes, validate, plan-shard]
+    if: ${{ !cancelled() && needs.validate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      has_changes: ${{ steps.summary.outputs.has_changes }}
+      has_destroys: ${{ steps.summary.outputs.has_destroys }}
+      planned_at: ${{ steps.planned.outputs.at }}
+      selection: ${{ needs.validate.outputs.selection }}
+    steps:
+      # Only the scripts this job runs; the rest stay with the plan jobs.
+      - name: Summary scripts
+        run: |
+          d="$RUNNER_TEMP/ci"
+          mkdir -p "$d"
+          cat >"$d/plan-summary.py" <<'__CI_EOF__'
+          @@include src/terragrunt/plan-summary.py@@
+          __CI_EOF__
+          cat >"$d/plan_details.py" <<'__CI_EOF__'
+          @@include src/terragrunt/plan_details.py@@
+          __CI_EOF__
+          cat >"$d/pr-comment.sh" <<'__CI_EOF__'
+          @@include src/pr-comment.sh@@
+          __CI_EOF__
+          chmod +x "$d"/*
+          echo "$d" >>"$GITHUB_PATH"
+
+      # A share that failed before its upload is missing here: the summary
+      # covers the rest and the last step fails the job.
+      - name: Download the shares
+        if: needs.validate.outputs.shards != '[]'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: plan-part-${{ github.run_id }}-*
+          path: parts
+          merge-multiple: true
+
       - name: Summary
         id: summary
         if: always()
         env:
-          PLAN_JSON: ${{ runner.temp }}/plan-json
+          SHARDS: ${{ needs.validate.outputs.shards }}
         run: |
           set -euo pipefail
           # Without a plan the comment still has to be rewritten, or the pull
           # request keeps showing the plan of an earlier commit.
-          if [ -e nothing-selected ]; then
+          if [ "$SHARDS" = "[]" ]; then
             printf '## Terragrunt plan\n\nNothing to plan: the change selects no unit.\n' \
               | tee plan.md >>"$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          find parts -name 'plan-*.txt' -print0 2>/dev/null | sort -z |
+            xargs -0 -r cat >plan.txt
           if [ ! -s plan.txt ]; then
             printf '## Terragrunt plan\n\nNo plan was produced, see the run log.\n' \
               | tee plan.md >>"$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          plan-summary.py plan.txt --github-output \
-            --json-dir="$PLAN_JSON" --trivy=trivy | tee plan.md
+          plan-summary.py plan.txt --github-output --import=parts | tee plan.md
           cat plan.md >>"$GITHUB_STEP_SUMMARY"
 
       - name: Upload the plan
@@ -603,11 +720,15 @@ jobs:
         if: always()
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
 
-      - name: No unaccepted security finding
-        if: always() && steps.trivy.outputs.found == 'true'
+      - name: Every share planned
+        if: always()
+        env:
+          RESULT: ${{ needs.plan-shard.result }}
         run: |
-          echo "::error::trivy found a HIGH or CRITICAL setting in the plan (Security findings in the summary). Fix it, or accept it in .github/trivyignore.yaml with the reason."
-          exit 1
+          case "$RESULT" in
+            success|skipped) ;;
+            *) echo "::error::a plan job ended as '$RESULT' (its log has the reason)"; exit 1 ;;
+          esac
 
   # GitHub Team has no approval on an environment of a private repository,
   # so the approval of destroys and replaces is the owner's review of the pull
@@ -958,7 +1079,7 @@ jobs:
   # green, so eight applies in a row never happened and nothing said so. An
   # apply that was due and did not succeed has to be red.
   gate:
-    needs: [conventions, sentinel, changes, validate, plan, destroy, apply, verify]
+    needs: [conventions, sentinel, changes, validate, plan-shard, plan, destroy, apply, verify]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

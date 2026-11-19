@@ -483,6 +483,30 @@ class Readable(unittest.TestCase):
                       "| `azurerm_key_vault.this` |", comment)
         self.assertNotIn("AVD-AZU-0016", comment)
 
+    def test_shards_export_what_the_merge_shows(self):
+        """The merge over the exports reads as one job over the JSON plans would."""
+        with tempfile.TemporaryDirectory() as tmp:
+            trivy = pathlib.Path(tmp, "trivy")
+            trivy.mkdir()
+            report = {"Results": [{"Target": "mg/rg-web/tfplan.json", "Misconfigurations": [
+                {"AVDID": "AVD-AZU-0013", "Title": "Key vault network ACL default action",
+                 "Severity": "HIGH", "Status": "FAIL",
+                 "CauseMetadata": {"Resource": "azurerm_key_vault.this"}}]}]}
+            pathlib.Path(trivy, "mg_rg-web.json").write_text(json.dumps(report))
+            whole = run(sample("readable.txt"), f"--json-dir={HERE / 'readable'}",
+                        f"--trivy={trivy}")
+            parts = pathlib.Path(tmp, "parts")
+            parts.mkdir()
+            run(sample("readable.txt"), f"--json-dir={HERE / 'readable'}",
+                f"--export={parts / 'shard-0.json'}")
+            run(sample("no-change.txt"), f"--trivy={trivy}", f"--export={parts / 'shard-1.json'}")
+            merged = run(sample("readable.txt"), f"--import={parts}")
+            exported = json.loads((parts / "shard-0.json").read_text())
+        self.assertEqual(merged["comment"], whole["comment"])
+        self.assertEqual(merged["github_output"], whole["github_output"])
+        # Only what the comment shows leaves a shard, never the plan JSON.
+        self.assertEqual(set(exported), {"tables", "findings"})
+
 
 class OverLimit(unittest.TestCase):
     @classmethod

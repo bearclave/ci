@@ -218,8 +218,8 @@ read it.
 `pipeline / gate` is required, and it needs all of them):
 
 ```text
-changes -> validate -> plan -> apply -> verify
-                                          \-> gate (always)
+changes -> validate -> plan (1 of n) .. plan (n of n) -> plan -> apply -> verify
+                                                                          \-> gate (always)
 ```
 
 **validate** runs before every plan, on pull requests and on `main`, and
@@ -235,6 +235,17 @@ signs in nowhere. It fails early with an annotation that says what to do:
 | Lock files | a committed `.terraform.lock.hcl` had to change in init; skipped when none is committed |
 
 The selection it makes is the one plan and apply use.
+
+**plan** is bound by the runner's CPU (two cores; every unit starts terraform
+and its providers several times), so validate splits a large selection into
+shares of up to 20 units, at most `plan-shards` (default 3) of them. Each
+`plan (k of n)` job plans its share in dependency order and passes on its
+`plan.txt` and what the comment shows of its JSON plans (`plan-summary.py
+--export`); the JSON plans themselves never leave the job. `plan` reads them
+back (`--import`) into one summary, comment and verdict. A unit whose
+dependency is in another share reads that dependency's outputs from its
+state, as any selection does. The whole tree of `iac-azure` (95 units) plans
+in under 4 minutes instead of about 8 (each plan job about 2 minutes of terraform instead of 6).
 
 **Verification** runs in the apply job right after the apply, so it adds a
 minute or two rather than a job of its own:
