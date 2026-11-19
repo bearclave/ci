@@ -67,8 +67,11 @@ Seconds, no sign-in: the base commit, the unit selection (the one plan and
 apply use) and its split into the plan jobs (`src/terragrunt/select-units.py`).
 
 - A pull request is compared with its base; `main` with the head of the last
-  successful run on `main`, so the units of a failed or held-back apply stay
-  selected until they are applied.
+  run on `main` whose apply went through or had nothing to do
+  (`src/terragrunt/base-commit.py`), so the units of a failed or held-back
+  apply stay selected until they are applied. A run whose apply passed and
+  whose verification failed counts: what it applied is in the state, and a
+  state move it carried must not be planned again.
 - `root.hcl` and `account.hcl` select the whole tree.
 - A file under `_common/` selects the units that include or read it, as
   `terragrunt find --reading --include` reports them

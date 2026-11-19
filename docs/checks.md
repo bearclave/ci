@@ -58,7 +58,7 @@ exceptions:
 |---|---|---|
 | `variable-no-default` | a module variable has no `default`, and no `optional(type, default)` | `files` |
 | `variable-documented` | a module variable has a `description` and a `type` | `files` |
-| `module-source` | a unit takes its module from git with `modules_ref`, in its own `terraform` block (`pattern`) or in the `_common/units/<module>.hcl` it includes (`common_pattern`, default `${<any>.modules}//<path>?ref=${<any>.modules_ref}`) | `pattern`, `common_pattern` |
+| `module-source` | a unit takes its module from git with `modules_ref`, in its own `terraform` block (`pattern`, default the context of `include.root.locals`, `include.root.locals.ctx` or `local.ctx`) or in the `_common/units/<module>.hcl` it includes (`common_pattern`, default `${<any>.modules}//<path>?ref=${<any>.modules_ref}`) | `pattern`, `common_pattern` |
 | `dependencies-in-common` | no `dependency` block in a unit, only in the shared directory or `_common/units/` | `dir` (or `dirs`) |
 | `mock-outputs` | every dependency (in the shared directory and `_common/units/`) has mocks, and the mocks never reach apply or destroy | `dir`, `mocks_file`, `forbidden_commands` |
 | `tags-required` | context files set their tags, with an allowed value | `files`, `allowed_values` |

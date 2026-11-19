@@ -26,6 +26,16 @@ class Catalog(unittest.TestCase):
                                               '  description = "Name."\n}\n')
             (mod / "outputs.tf").write_text('output "id" {\n  value       = "x"\n  description = "ID."\n}\n')
 
+            intune = root / "intune" / "compliance-policies"
+            intune.mkdir(parents=True)
+            (intune / "README.md").write_text(README.replace("A key vault\nwith its certificates.", "Compliance."))
+            (intune / "variables.tf").write_text((mod / "variables.tf").read_text())
+            (intune / "outputs.tf").write_text((mod / "outputs.tf").read_text())
+            empty = root / "_empty"
+            empty.mkdir()
+            (empty / "README.md").write_text("# _empty\n\n## What it manages\n\nNothing.\n\n")
+            (empty / "versions.tf").write_text("terraform {}\n")
+
             def run(*args):
                 return subprocess.run([sys.executable, str(SCRIPT), str(root), *args],
                                        capture_output=True, text=True)
@@ -35,6 +45,9 @@ class Catalog(unittest.TestCase):
             catalog = (root / "docs" / "catalog.md").read_text()
             self.assertIn("| [`azure/key-vault`](../azure/key-vault/README.md) | A key vault with its "
                           "certificates. | `name` | `id` |", catalog)
+            self.assertIn("## intune/", catalog)
+            self.assertLess(catalog.index("## azure/"), catalog.index("## intune/"))
+            self.assertNotIn("_empty", catalog)
             self.assertEqual(run("--check").returncode, 0)
 
 

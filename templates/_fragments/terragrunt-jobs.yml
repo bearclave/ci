@@ -108,9 +108,10 @@ select:
       run: install-tools.sh terragrunt
 
     # A pull request is compared with its base branch. On main the base is
-    # the head of the last successful run - its apply went through or had
-    # nothing to do - so a change a failed or held-back apply left out is
-    # still selected now. Runs on main never overlap (see concurrency).
+    # the head of the last run whose apply went through or had nothing to do
+    # (a failed verification after a good apply counts: its changes are in
+    # the state), so a change a failed or held-back apply left out is still
+    # selected now. Runs on main never overlap (see concurrency).
     - name: Base commit
       id: base
       env:
@@ -124,12 +125,11 @@ select:
         else
           # The caller's workflow file, e.g. ci.yml.
           wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
-          base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&status=success&per_page=50" \
-            --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")][0].head_sha // empty') || base=""
+          base=$(base-commit.py "$GITHUB_REPOSITORY" "$wf") || base=""
           # Without it the units of an earlier failed apply could be left
           # out, so the whole tree runs instead.
           if [ -z "$base" ]; then
-            echo "::warning::No successful run on main found; the whole tree runs."
+            echo "::warning::No run on main with a successful apply found; the whole tree runs."
           fi
         fi
         echo "sha=$base" >>"$GITHUB_OUTPUT"
@@ -270,7 +270,7 @@ validate:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ github.workspace }}/.tgproviders
-        key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+        key: providers-${{ runner.os }}-${{ hashFiles('account.hcl', '_common/templates/versions*.tf.tmpl') }}
         restore-keys: providers-${{ runner.os }}-
 
     - name: Install terragrunt
@@ -304,17 +304,21 @@ validate:
     # terragrunt runs before validate): nothing signs in to Azure. A
     # dependency's outputs would come from its state; here every dependency
     # answers with the mock outputs it allows for validate.
+    # The providers come through terragrunt's provider cache, as in the plan:
+    # it downloads each one once, under a lock, and links it into the units.
+    # A plain TF_PLUGIN_CACHE_DIR let one unit run a provider binary that
+    # another unit was still writing ("text file busy", #34).
     - name: Terraform validate
       env:
-        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tgproviders
-        TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "true"
+        TG_PROVIDER_CACHE: "1"
+        TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
         TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
         TG_EXPERIMENT: optional-dependency-outputs
         TF_CLI_ARGS_init: -backend=false
         SELECTION: ${{ needs.select.outputs.selection }}
       run: |
         set -euo pipefail
-        mkdir -p "$TF_PLUGIN_CACHE_DIR"
+        mkdir -p "$TG_PROVIDER_CACHE_DIR"
         mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
         if [ "$(jq -r .all <<<"$SELECTION")" != "true" ] && [ "${#units[@]}" -eq 0 ]; then
           echo "No unit to validate."
@@ -446,7 +450,7 @@ plan-shard:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ github.workspace }}/.tgproviders
-        key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+        key: providers-${{ runner.os }}-${{ hashFiles('account.hcl', '_common/templates/versions*.tf.tmpl') }}
         restore-keys: providers-${{ runner.os }}-
 
     - name: Install terragrunt and trivy
@@ -851,7 +855,7 @@ apply:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ github.workspace }}/.tgproviders
-        key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+        key: providers-${{ runner.os }}-${{ hashFiles('account.hcl', '_common/templates/versions*.tf.tmpl') }}
         restore-keys: providers-${{ runner.os }}-
 
     - name: Install terragrunt

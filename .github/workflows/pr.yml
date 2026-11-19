@@ -1453,8 +1453,11 @@ jobs:
 
               The source is in the unit, or in the _common/units/<module>.hcl it includes.
               """
+              # The context comes from root.hcl (include.root.locals) or, in the newer
+              # layout, from _common/context.hcl (local.ctx, include.root.locals.ctx).
+              ctx = r"(?:include\.root\.locals(?:\.ctx)?|local\.ctx)"
               pattern = re.compile(params.get(
-                  "pattern", r"^\$\{include\.root\.locals\.modules\}//[^?]+\?ref=\$\{include\.root\.locals\.modules_ref\}$"))
+                  "pattern", rf"^\$\{{{ctx}\.modules\}}//[^?]+\?ref=\$\{{{ctx}\.modules_ref\}}$"))
               common = re.compile(params.get(
                   "common_pattern", r"^\$\{[A-Za-z_.]+\.modules\}//[^?]+\?ref=\$\{[A-Za-z_.]+\.modules_ref\}$"))
               for path in units:

@@ -170,6 +170,17 @@ class Terragrunt(Base):
             "tenant/groups/terragrunt.hcl": 'terraform {\n  source = "../../modules/x"\n}\n'}),
             [("module-source", "tenant/groups/terragrunt.hcl", 2)])
 
+    def test_module_source_from_the_context(self):
+        for ctx in ("include.root.locals.ctx", "local.ctx"):
+            self.assertEqual(self.with_changes({
+                "tenant/groups/terragrunt.hcl":
+                    f'terraform {{\n  source = "${{{ctx}.modules}}//entra/groups?ref=${{{ctx}.modules_ref}}"\n}}\n'}),
+                [], ctx)
+        self.assertEqual(self.with_changes({
+            "tenant/groups/terragrunt.hcl":
+                'terraform {\n  source = "${local.other.modules}//entra/groups?ref=${local.other.modules_ref}"\n}\n'}),
+            [("module-source", "tenant/groups/terragrunt.hcl", 2)])
+
     def test_dependency_in_a_unit(self):
         self.assertEqual(self.with_changes({
             "tenant/groups/terragrunt.hcl": SOURCE + 'dependency "x" {\n  config_path = "../x"\n}\n'}),
