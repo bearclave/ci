@@ -33,6 +33,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `static-web-app.yml` | `pipeline` | `app-web-*` | the site's checks, deploy to the Static Web App when the content changed |
 | `container.yml` | `pipeline` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
+| `release.yml` | `release` | versioned repositories (governance `versioning.md`) | manual: the next `vX.Y.Z` from the pull request titles since the last tag and a preview of the notes (`src/release_version.py`); dry run by default, publishing needs a `release-token` |
 | `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows; v2 pipelines carry them as jobs |
 
 The organisation rulesets (in `bearclave/iac-github`) require three checks on
@@ -227,7 +228,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `release_version.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test`, `release_version.py --self-test` |
 | `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 
@@ -282,6 +283,9 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
 
    The script moves `v2` only to a published, signed release; it is the one
    force push an agent may run (allowed for this script alone).
+
+   `release.yml` works out the same version and notes in a dry run; this
+   repository releases by hand, because its tags are signed.
 
 4. Rerun the pipeline in one caller to see it there too.
 

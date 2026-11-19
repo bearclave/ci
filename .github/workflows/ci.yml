@@ -34,6 +34,7 @@ jobs:
       command: |
         python3 -m unittest discover -s tests -v
         python3 src/pr_check.py --self-test
+        python3 src/release_version.py --self-test
         python3 src/layout_check.py --self-test
         pwsh -NoProfile -Command '$r = Invoke-Pester ./tests/m365 -PassThru -Output Detailed; if ($r.FailedCount -gt 0) { exit 1 }'
         tools/build.py --check
@@ -51,3 +52,9 @@ jobs:
       contents: read
     with:
       config: tests/fixtures/sentinel-selftest.yaml
+
+  # TEMPORARY: dry run of release.yml on this pull request; removed before review.
+  release:
+    uses: ./.github/workflows/release.yml
+    permissions:
+      contents: read
