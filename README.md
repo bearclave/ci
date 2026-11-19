@@ -24,7 +24,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck; review dates of the gitleaks allowlists |
 | `pr.yml` | `pr` | every repository | Conventional Commit title, `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`); the root layout (`src/layout_check.py`, below) |
 | `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `vs-code-extensions`, `.github` | ESLint where there is JavaScript, an optional command of the repository, then the gate |
-| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, validate, plan of the affected units with trivy and a plan comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, verification of the apply, an apply comment on the merged pull request, gate |
+| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, validate next to the plan of the affected units with trivy and a plan comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, verification of the apply, an apply comment on the merged pull request, gate |
 | `destroy-review.yml` | `review` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` check of the last pull request run |
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, failed check blocks, analytic rules outside the code |
 | `terragrunt-home.yml` | `pipeline` | `iac-home` | conventions, plan and apply of the router through WireGuard, certificate renewal and drift on schedule |
@@ -330,26 +330,30 @@ read it.
 `pipeline / gate` is required, and it needs all of them):
 
 ```text
-changes -> validate -> plan (1 of n) .. plan (n of n) -> plan -> apply -> verify
-                                                                          \-> gate (always)
+changes -> select -> validate ----------------------------\
+                  \-> plan (1 of n) .. plan (n of n) -> plan -> apply -> verify
+                                                                        \-> gate (always)
 ```
 
-**validate** runs before every plan, on pull requests and on `main`, and
-signs in nowhere. It fails early with an annotation that says what to do:
+**select** takes seconds and signs in nowhere: the base commit, the unit
+selection (the one plan and apply use) and its split into the plan jobs.
+**validate** and the plan jobs both start from it, side by side, so the
+minutes of `terraform validate` no longer come before the plan. The `plan`
+job, its comment (`formatting and validation`), apply and the gate all wait
+for validate: a red validate keeps a pull request from merging and `main`
+from applying. Both fail with an annotation that says what to do:
 
-| Step | Fails when |
-|---|---|
-| HCL formatting | `terragrunt hcl fmt --check` finds an unformatted file |
-| HCL validation | `terragrunt hcl validate` cannot read a file |
-| Principal references | a principal the change creates is referenced by display name (`principal-refs`) |
-| Select the units | a unit directory moved (its state key would change) |
-| Terraform validate | `terraform validate` (its init with `-backend=false`) fails in a selected unit; dependencies answer with their mock outputs for validate (`--no-dependency-outputs`) |
-| Lock files | a committed `.terraform.lock.hcl` had to change in init; skipped when none is committed |
-
-The selection it makes is the one plan and apply use.
+| Job | Step | Fails when |
+|---|---|---|
+| select | Principal references | a principal the change creates is referenced by display name (`principal-refs`) |
+| select | Select the units | a unit directory moved (its state key would change) |
+| validate | HCL formatting | `terragrunt hcl fmt --check` finds an unformatted file |
+| validate | HCL validation | `terragrunt hcl validate` cannot read a file |
+| validate | Terraform validate | `terraform validate` (its init with `-backend=false`) fails in a selected unit; dependencies answer with their mock outputs for validate (`--no-dependency-outputs`) |
+| validate | Lock files | a committed `.terraform.lock.hcl` had to change in init; skipped when none is committed |
 
 **plan** is bound by the runner's CPU (two cores; every unit starts terraform
-and its providers several times), so validate splits a large selection into
+and its providers several times), so select splits a large selection into
 shares of up to 20 units, at most `plan-shards` (default 3) of them. Each
 `plan (k of n)` job plans its share in dependency order and passes on its
 `plan.txt` and what the comment shows of its JSON plans (`plan-summary.py
