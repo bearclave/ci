@@ -34,6 +34,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `static-web-app.yml` | `pipeline` | `app-web-*` | the site's checks, deploy to the Static Web App when the content changed |
 | `container.yml` | `pipeline` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
+| `dependabot-auto-merge.yml` | `auto-merge` | repositories with `touches-production=false` that opt in | a Dependabot pull request with only patch and minor updates merges itself once the required checks pass (`src/dependabot_update.py`); anything else waits for the owner |
 | `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows; v2 pipelines carry them as jobs |
 
 The organisation rulesets (in `bearclave/iac-github`) require three checks on
@@ -228,7 +229,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `dependabot_update.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test`, `dependabot_update.py --self-test` |
 | `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 

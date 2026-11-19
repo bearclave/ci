@@ -1,0 +1,107 @@
+# Dependabot pull requests that merge themselves (bearclave/governance
+# standards/workflow.md#merge), only where nothing reaches production:
+#
+# - the repository's custom property touches-production is false;
+# - main has required status checks, so auto-merge waits for them green;
+# - every update in the pull request is a patch or minor version
+#   (src/dependabot_update.py reads Dependabot's commit message);
+# - the pull request and every commit in it are Dependabot's.
+#
+# Anything else is left for the owner, as in every production repository.
+#
+# Caller, .github/workflows/dependabot-auto-merge.yml of the repository:
+#
+#   on:
+#     pull_request:
+#       branches: [main]
+#       types: [opened, reopened, synchronize]
+#   jobs:
+#     auto-merge:
+#       if: github.event.pull_request.user.login == 'dependabot[bot]'
+#       uses: bearclave/ci/.github/workflows/dependabot-auto-merge.yml@v2
+#       permissions:
+#         contents: write
+#         pull-requests: write
+#       secrets:
+#         bot-token: ${{ secrets.BOT_TOKEN }}   # optional, a Dependabot secret
+#
+# With a bot-token (bearclave-bot) the bot approves and merges, which the
+# required approval needs. Without it auto-merge is only switched on: the
+# owner's approval releases the merge, and a merge by the workflow's token
+# starts no workflow on main. A run triggered by Dependabot reads only
+# Dependabot secrets, so the token is stored there.
+name: dependabot-auto-merge
+
+on:
+  workflow_call:
+    secrets:
+      bot-token:
+        description: Token of bearclave-bot that approves and merges; optional
+        required: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  auto-merge:
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Eligible
+        id: eligible
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          cat >"$RUNNER_TEMP/dependabot_update.py" <<'__CI_EOF__'
+          @@include src/dependabot_update.py@@
+          __CI_EOF__
+          skip() { echo "::notice::Left for the owner: $1"; echo "Left for the owner: $1" >>"$GITHUB_STEP_SUMMARY"; exit 0; }
+          production=$(gh api "repos/$REPOSITORY/properties/values" \
+            --jq '.[] | select(.property_name == "touches-production") | .value')
+          [ "$production" = "false" ] || skip "touches-production is '${production:-unset}'"
+          checks=$(gh api "repos/$REPOSITORY/rules/branches/main" \
+            --jq '[.[] | select(.type == "required_status_checks")] | length')
+          [ "$checks" -gt 0 ] || skip "main has no required checks to wait for"
+          # Not github.actor, which a re-run by someone else can make look like
+          # Dependabot: every commit has to be Dependabot's.
+          authors=$(gh api "repos/$REPOSITORY/pulls/$NUMBER/commits" --jq '[.[].author.login // "?"] | unique | join(",")')
+          [ "$authors" = "dependabot[bot]" ] || skip "commits by $authors"
+          message=$(gh api "repos/$REPOSITORY/commits/$HEAD_SHA" --jq .commit.message)
+          if kind=$(python3 "$RUNNER_TEMP/dependabot_update.py" <<<"$message"); then
+            echo "Update type: $kind" >>"$GITHUB_STEP_SUMMARY"
+            echo "merge=true" >>"$GITHUB_OUTPUT"
+          else
+            skip "$kind"
+          fi
+
+      - name: Approve and switch on auto-merge
+        if: steps.eligible.outputs.merge == 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.bot-token }}
+          WORKFLOW_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BOT_TOKEN" ]; then
+            GH_TOKEN="$BOT_TOKEN" gh pr review "$NUMBER" --repo "$REPOSITORY" --approve \
+              --body "Patch or minor update in a repository without production; merges when the required checks pass."
+            GH_TOKEN="$BOT_TOKEN" gh pr merge "$NUMBER" --repo "$REPOSITORY" --auto --squash
+          else
+            GH_TOKEN="$WORKFLOW_TOKEN" gh pr merge "$NUMBER" --repo "$REPOSITORY" --auto --squash
+            echo "Auto-merge on; it waits for the owner's approval where one is required." >>"$GITHUB_STEP_SUMMARY"
+          fi
