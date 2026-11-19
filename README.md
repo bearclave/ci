@@ -230,7 +230,7 @@ signs in nowhere. It fails early with an annotation that says what to do:
 | HCL validation | `terragrunt hcl validate` cannot read a file |
 | Principal references | a principal the change creates is referenced by display name (`principal-refs`) |
 | Select the units | a unit directory moved (its state key would change) |
-| Terraform validate | `init -backend=false` or `terraform validate` fails in a selected unit; dependencies answer with their mock outputs (`--no-dependency-outputs`) |
+| Terraform validate | `terraform validate` (its init with `-backend=false`) fails in a selected unit; dependencies answer with their mock outputs for validate (`--no-dependency-outputs`) |
 | Lock files | a committed `.terraform.lock.hcl` had to change in init; skipped when none is committed |
 
 The selection it makes is the one plan and apply use.

@@ -324,15 +324,17 @@ jobs:
             exit 1
           fi
       # terraform validate needs the providers and the modules, so each unit
-      # is initialised without its backend: nothing signs in to Azure. A
+      # is initialised without its backend (TF_CLI_ARGS_init, in the init
+      # terragrunt runs before validate): nothing signs in to Azure. A
       # dependency's outputs would come from its state; here every dependency
-      # answers with its mock outputs (the mock-outputs convention).
+      # answers with the mock outputs it allows for validate.
       - name: Terraform validate
         env:
           TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tgproviders
           TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "true"
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
           TG_EXPERIMENT: optional-dependency-outputs
+          TF_CLI_ARGS_init: -backend=false
           SELECTION: ${{ steps.units.outputs.selection }}
         run: |
           set -euo pipefail
@@ -346,21 +348,14 @@ jobs:
           for u in "${units[@]}"; do args+=(--queue-include-dir "$u"); done
           # One annotation per unit and error, so the reason is on the run page.
           annotate() {
-            sed -n "s/.*\[\([^]]*\)\] terraform: Error: \(.*\)/::error title=terraform $1::\1: \2/p" "$2" | sort -u
+            sed -n "s/.*\[\([^]]*\)\] terraform: Error: \(.*\)/::error title=terraform validate::\1: \2/p" "$1" | sort -u
           }
           rc=0
-          terragrunt run --all "${args[@]}" -- init -backend=false -input=false >init.txt 2>&1 || rc=$?
-          if [ "$rc" -ne 0 ]; then
-            cat init.txt
-            annotate init init.txt
-            echo "::error title=terraform init::A unit could not be initialised without its backend (log above): a module source, a provider version, or a dependency without mock outputs."
-            exit "$rc"
-          fi
-          terragrunt run --all "${args[@]}" --no-auto-init -- validate >validate.txt 2>&1 || rc=$?
+          terragrunt run --all "${args[@]}" -- validate >validate.txt 2>&1 || rc=$?
           cat validate.txt
           if [ "$rc" -ne 0 ]; then
             annotate validate validate.txt
-            echo "::error title=terraform validate::A unit's configuration is invalid (log above)."
+            echo "::error title=terraform validate::A unit does not initialise or validate (log above): its configuration, a module source, a provider version, or a dependency without mock outputs for validate."
             exit "$rc"
           fi
 
