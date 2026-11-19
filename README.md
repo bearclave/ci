@@ -338,6 +338,12 @@ changes -> select -> validate ----------------------------\
                                                                         \-> gate (always)
 ```
 
+**changes** decides on a pull request whether anything can change a plan
+(`src/terragrunt/changes.py`): a path has to match the caller's
+`relevant-paths` and not be one that never reaches a plan -
+`.github/dependabot.yml`, `.github/release.yml`, `.claude/**` and Markdown
+outside every unit. Otherwise the rest is skipped and the gate passes.
+
 **select** takes seconds and signs in nowhere: the base commit, the unit
 selection (the one plan and apply use) and its split into the plan jobs.
 **validate** and the plan jobs both start from it, side by side, so the
