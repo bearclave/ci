@@ -1234,7 +1234,13 @@ jobs:
     # !cancelled() so that a failed changes job still plans instead of skipping.
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {variant: dag, env: "", flags: "", pre: ""}
+          - {variant: dag-p4, env: "TG_PARALLELISM=4", flags: "", pre: ""}
     permissions:
       contents: read
       id-token: write
@@ -2839,8 +2845,32 @@ jobs:
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
           SELECTION: ${{ steps.units.outputs.selection }}
           PLAN_JSON: ${{ runner.temp }}/plan-json
+          PERF_ENV: ${{ matrix.env }}
+          PERF_FLAGS: ${{ matrix.flags }}
+          PERF_PRE: ${{ matrix.pre }}
         run: |
           set -euo pipefail
+          for kv in $PERF_ENV; do export "${kv?}"; done
+          echo "PERF nproc=$(nproc) env=$PERF_ENV flags=$PERF_FLAGS pre=$PERF_PRE"
+          vmstat -n 5 >"$RUNNER_TEMP/vmstat.txt" &
+          VMSTAT=$!
+          ( while :; do
+              ps -eo stat=,comm=,args= | awk '$1 ~ /^R/ { c=$2
+                if (c ~ /^terraform-prov/) { n=split($3,a,"/"); k="provider " a[n] }
+                else if (c == "terraform") { k="terraform " $4 } else k=c
+                print k }' >>"$RUNNER_TEMP/cpu.txt"
+              sleep 1
+            done ) &
+          SAMPLER=$!
+          perf_end() {
+            kill "$VMSTAT" "$SAMPLER" || true
+            echo "PERF cpu samples"; sort "$RUNNER_TEMP/cpu.txt" | uniq -c | sort -rn | head -25
+            awk 'NR>3{r+=$1;us+=$13;sy+=$14;id+=$15;wa+=$16;n++} END{printf "PERF avg r=%.1f us=%.0f sy=%.0f id=%.0f wa=%.0f n=%d\n",r/n,us/n,sy/n,id/n,wa/n,n}' "$RUNNER_TEMP/vmstat.txt"
+          }
+          trap perf_end EXIT
+          PERF_T0=$(date +%s)
+          [ -z "$PERF_PRE" ] || eval "$PERF_PRE"
+          echo "PERF pre seconds=$(( $(date +%s) - PERF_T0 ))"
           mkdir -p "$TG_PROVIDER_CACHE_DIR"
           : >plan.txt
           mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
@@ -2854,9 +2884,11 @@ jobs:
             args=()
             for u in "${units[@]}"; do args+=(--queue-include-dir "$u"); done
             set +e
-            terragrunt run --all plan "${args[@]}" --json-out-dir "$PLAN_JSON" \
+            # shellcheck disable=SC2086
+            terragrunt run --all plan "${args[@]}" $PERF_FLAGS --json-out-dir "$PLAN_JSON" \
               --non-interactive --no-color 2>&1 | tee -a plan.txt
             rc=${PIPESTATUS[0]}
+            echo "PERF plan seconds=$(( $(date +%s) - PERF_T0 )) rc=$rc"
             set -e
           fi
           if [ "${#deleted[@]}" -gt 0 ]; then
@@ -2918,7 +2950,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: plan-${{ github.run_id }}
+          name: plan-${{ github.run_id }}-${{ matrix.variant }}
           path: |
             plan.txt
             plan.md
