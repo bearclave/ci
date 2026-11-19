@@ -32,6 +32,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
 | `m365-dsc.yml` | `pipeline` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of the affected types, apply |
 | `m365-drift.yml` | `drift` | `iac-m365` | weekly plan of the whole tenant, tombstones into a pull request |
+| `release.yml` | `release` | versioned repositories (governance `versioning.md`) | manual: the next `vX.Y.Z` from the pull request titles since the last tag and a preview of the notes (`src/release_version.py`); dry run by default, publishing needs a `release-token` |
 | `static-web-app.yml` | `pipeline` | `app-web-*` | the common site checks, ESLint, the site's own checks (optional), deploy to the Static Web App when the content changed |
 | `container.yml` | `pipeline` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
@@ -507,6 +508,9 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
    Manual fallback, and the first tag of a new major (`v3`), which the
    workflow does not create: `tools/move-major-tag.sh v2.1.0`. It is the
    one force push an agent may run (allowed for this script alone).
+
+   `release.yml` works out the same version and notes in a dry run; this
+   repository releases by hand, because its tags are signed.
 
 4. Rerun the pipeline in one caller to see it there too.
 

@@ -1,0 +1,129 @@
+# The release of a versioned repository (bearclave/governance
+# standards/versioning.md): the next vX.Y.Z from the pull request titles merged
+# since the last tag, a preview of the notes, and - only when asked - the tag
+# and the GitHub release with notes generated from the type:* labels.
+#
+# A dry run is the default. It also prints the commands that make the release
+# by hand with a signed tag, which is how a release is made today: a workflow
+# cannot sign with the owner's key, so a published tag is annotated but
+# unsigned (tagger: the identity of the token).
+#
+# Caller, .github/workflows/release.yml of the repository:
+#
+#   on:
+#     workflow_dispatch:
+#       inputs:
+#         dry_run:
+#           description: Only work out the version and the notes
+#           type: boolean
+#           default: true
+#         version:
+#           description: vX.Y.Z instead of the calculated one (empty = calculate)
+#           type: string
+#           default: ""
+#   jobs:
+#     release:
+#       uses: bearclave/ci/.github/workflows/release.yml@v2
+#       permissions:
+#         contents: read
+#       with:
+#         dry-run: ${{ inputs.dry_run }}
+#         version: ${{ inputs.version }}
+#       secrets:
+#         release-token: ${{ secrets.RELEASE_TOKEN }}   # needed to publish
+#
+# Publishing needs a token of an actor the ruleset version-tags-creation lets
+# create v* tags (an owner, or bearclave-bot once it is on the bypass list);
+# the workflow's own token is refused. The major tag (ci's v2) is not moved
+# here: tools/move-major-tag.sh in bearclave/ci does that.
+name: release
+
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        description: Only work out the version and the notes
+        type: boolean
+        default: true
+      version:
+        description: vX.Y.Z instead of the calculated one; empty calculates it
+        type: string
+        default: ""
+    secrets:
+      release-token:
+        description: Token that may create v* tags and releases; needed only to publish
+        required: false
+    outputs:
+      version:
+        description: The version released or proposed; empty when no release is needed
+        value: ${{ jobs.version.outputs.version }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      previous: ${{ steps.next.outputs.previous }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Next version
+        id: next
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          cat >"$RUNNER_TEMP/release_version.py" <<'__CI_EOF__'
+          @@include src/release_version.py@@
+          __CI_EOF__
+          python3 "$RUNNER_TEMP/release_version.py" "$VERSION"
+
+  publish:
+    needs: [version]
+    if: >-
+      !inputs.dry-run && needs.version.outputs.version != ''
+      && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Token present
+        env:
+          RELEASE_TOKEN: ${{ secrets.release-token }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error::No release-token: the workflow's own token may not create v* tags (ruleset version-tags-creation). Use the signed commands in the summary of the version job."
+            exit 1
+          fi
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ secrets.release-token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PREVIOUS: ${{ needs.version.outputs.previous }}
+        run: |
+          set -euo pipefail
+          # An annotated tag object first, then its ref: gh release create
+          # alone would make a lightweight tag.
+          tag=$(gh api "repos/$REPOSITORY/git/tags" -f tag="$VERSION" -f message="$VERSION" \
+            -f object="$SHA" -f type=commit --jq .sha)
+          gh api "repos/$REPOSITORY/git/refs" -f ref="refs/tags/$VERSION" -f sha="$tag" >/dev/null
+          args=(--repo "$REPOSITORY" --verify-tag --generate-notes --title "$VERSION")
+          [ -n "$PREVIOUS" ] && args+=(--notes-start-tag "$PREVIOUS")
+          gh release create "$VERSION" "${args[@]}"
+          echo "Released $VERSION at $SHA." >>"$GITHUB_STEP_SUMMARY"
