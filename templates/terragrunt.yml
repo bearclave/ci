@@ -7,9 +7,17 @@
 #                           plan; conventions and Sentinel lint
 # Push to main            -> plan again under the full identity, then apply,
 #                           but only if the plan proposes something and
-#                           destroys or replaces nothing
+#                           destroys or replaces nothing, or the destroys were
+#                           approved in the merged pull request
 # Manual run on main      -> the same; with allow-destroy it also applies what
-#                           destroys or replaces, which a push leaves waiting
+#                           destroys or replaces (the fallback)
+#
+# Destroys and replaces need the owner's approval given after the plan that
+# shows them: on a pull request whose plan has any, the check "destroy /
+# approved" (part of the gate) passes only with an approving review submitted
+# after the plan job ended. A submitted review re-runs that check
+# (destroy-review.yml, from the caller's pull_request_review trigger), and the
+# push of the merge applies the destroys when that check passed on approval.
 #
 # Which units run is worked out from the diff against the last commit a run on
 # main went through with, so the units of a failed or held-back apply stay
@@ -24,6 +32,7 @@
 #   jobs:
 #     pipeline:
 #       uses: bearclave/ci/.github/workflows/terragrunt.yml@v2
+#       if: github.event_name != 'pull_request_review'
 #       permissions:
 #         contents: read
 #         id-token: write
@@ -196,6 +205,7 @@ jobs:
     outputs:
       has_changes: ${{ steps.summary.outputs.has_changes }}
       has_destroys: ${{ steps.summary.outputs.has_destroys }}
+      planned_at: ${{ steps.planned.outputs.at }}
       selection: ${{ steps.units.outputs.selection }}
     env:
       # A plan on a pull request may be queued from any branch, so it runs as
@@ -464,26 +474,92 @@ jobs:
           [ -s plan.md ] || exit 0
           pr-comment.sh "$PR_NUMBER" plan.md terragrunt-plan
 
+      # The moment the plan could be read in the pull request: an approval of
+      # its destroys counts only after it.
+      - name: Plan time
+        id: planned
+        if: always()
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
+
       - name: No unaccepted security finding
         if: always() && steps.trivy.outputs.found == 'true'
         run: |
           echo "::error::trivy found a HIGH or CRITICAL setting in the plan (Security findings in the summary). Fix it, or accept it in .github/trivyignore.yaml with the reason."
           exit 1
 
+  # GitHub Team has no approval on an environment of a private repository,
+  # so the approval of destroys and replaces is the owner's review of the pull
+  # request, given after its plan. On a pull request this check passes when
+  # the plan has none, or when such a review exists; a review submitted later
+  # re-runs it (destroy-review.yml). On main it finds the merged pull request
+  # and tells the apply whether that check passed on an approval; it never
+  # fails there, the gate says what is missing.
+  destroy:
+    name: destroy / approved
+    needs: plan
+    if: >-
+      !cancelled()
+      && (github.event_name == 'pull_request'
+          || (needs.plan.outputs.has_destroys == 'true' && !inputs.allow-destroy))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      approved: ${{ steps.merged.outputs.approved }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Approval script
+        run: |
+          d="$RUNNER_TEMP/ci"
+          mkdir -p "$d"
+          cat >"$d/destroy-approval.py" <<'__CI_EOF__'
+          @@include src/terragrunt/destroy-approval.py@@
+          __CI_EOF__
+          chmod +x "$d/destroy-approval.py"
+          echo "$d" >>"$GITHUB_PATH"
+
+      - name: No destroys in the plan
+        if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys != 'true'
+        run: echo "The plan destroys and replaces nothing." >>"$GITHUB_STEP_SUMMARY"
+
+      # The name is read on main (destroy-approval.py STEP): only this step's
+      # success means the destroys were approved.
+      - name: Destroys approved after the plan
+        if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys == 'true'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PLANNED_AT: ${{ needs.plan.outputs.planned_at }}
+        run: destroy-approval.py pr "$PR_NUMBER" "$PLANNED_AT"
+
+      - name: The merged pull request approved the destroys
+        id: merged
+        if: github.event_name != 'pull_request'
+        run: |
+          # The caller's workflow file, e.g. ci.yml.
+          wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
+          destroy-approval.py main "$GITHUB_SHA" "$wf"
+
   # Apply runs from main only. The environment allows deployments from main
   # and nothing else, and it is also what makes the OIDC token carry the
   # environment subject the apply identity is federated on.
   #
-  # A plan that destroys or replaces anything is not applied by a push: GitHub
-  # Team has no approval on an environment of a private repository, so the
-  # manual run with allow-destroy is that approval. The selection it plans
-  # still holds those units, since this run does not end as a success.
+  # A plan that destroys or replaces anything is applied by a push only when
+  # the merged pull request approved it after its plan (destroy job), or by
+  # the manual run with allow-destroy. Otherwise the selection keeps those
+  # units, since this run does not end as a success.
   apply:
-    needs: plan
+    needs: [plan, destroy]
     if: >-
-      github.event_name != 'pull_request'
+      !cancelled()
+      && github.event_name != 'pull_request'
+      && needs.plan.result == 'success'
       && needs.plan.outputs.has_changes == 'true'
-      && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy)
+      && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy
+          || needs.destroy.outputs.approved == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: ${{ inputs.environment }}
@@ -581,7 +657,7 @@ jobs:
   # green, so eight applies in a row never happened and nothing said so. An
   # apply that was due and did not succeed has to be red.
   gate:
-    needs: [conventions, sentinel, changes, plan, apply]
+    needs: [conventions, sentinel, changes, plan, destroy, apply]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -605,6 +681,7 @@ jobs:
           PLAN_HAS_CHANGES: ${{ needs.plan.outputs.has_changes }}
           PLAN_HAS_DESTROYS: ${{ needs.plan.outputs.has_destroys }}
           ALLOW_DESTROY: ${{ inputs.allow-destroy }}
+          DESTROY_APPROVED: ${{ needs.destroy.outputs.approved }}
           APPLY_RESULT: ${{ needs.apply.result }}
         run: |
           if [ "$PLAN_RESULT" != "success" ]; then
@@ -617,8 +694,9 @@ jobs:
           fi
           # Red on purpose: the change is merged but not applied, and the next
           # run on main keeps it selected until someone applies it.
-          if [ "$PLAN_HAS_DESTROYS" = "true" ] && [ "$ALLOW_DESTROY" != "true" ]; then
-            msg="The plan destroys or replaces resources, so the apply did not run by itself."
+          if [ "$PLAN_HAS_DESTROYS" = "true" ] && [ "$ALLOW_DESTROY" != "true" ] \
+            && [ "$DESTROY_APPROVED" != "true" ]; then
+            msg="The plan destroys or replaces resources and the merged pull request did not approve them after its plan, so the apply did not run by itself."
             msg="$msg Check the plan of this run, then run the workflow on main by hand with allow_destroy."
             echo "::error::$msg"
             echo "$msg" >>"$GITHUB_STEP_SUMMARY"
