@@ -1,0 +1,55 @@
+# A submitted review of a pull request in a repository that uses
+# terragrunt.yml: re-runs the failed "destroy / approved" check of the last
+# pull request run, so that an approval given after the plan lets the gate
+# pass without a new push. GitHub re-runs the jobs that need it (the gate) and
+# keeps the results and outputs of the others, the plan among them.
+#
+# Called from the same ci.yml as terragrunt.yml, in a job of its own, so that
+# a review run carries no check named like the required ones:
+#
+#   on:
+#     pull_request_review:
+#       types: [submitted]
+#
+#   jobs:
+#     review:
+#       if: github.event_name == 'pull_request_review'
+#       uses: bearclave/ci/.github/workflows/destroy-review.yml@v2
+#       permissions:
+#         contents: read
+#         actions: write
+name: destroy-review
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  rerun:
+    if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Re-run the destroy check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/ci"
+          mkdir -p "$d"
+          cat >"$d/destroy-approval.py" <<'__CI_EOF__'
+          @@include src/terragrunt/destroy-approval.py@@
+          __CI_EOF__
+          # The caller's workflow file, e.g. ci.yml.
+          wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
+          python3 "$d/destroy-approval.py" review "$HEAD_SHA" "$wf"

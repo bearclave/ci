@@ -8,9 +8,17 @@
 #                           plan; conventions and Sentinel lint
 # Push to main            -> plan again under the full identity, then apply,
 #                           but only if the plan proposes something and
-#                           destroys or replaces nothing
+#                           destroys or replaces nothing, or the destroys were
+#                           approved in the merged pull request
 # Manual run on main      -> the same; with allow-destroy it also applies what
-#                           destroys or replaces, which a push leaves waiting
+#                           destroys or replaces (the fallback)
+#
+# Destroys and replaces need the owner's approval given after the plan that
+# shows them: on a pull request whose plan has any, the check "destroy /
+# approved" (part of the gate) passes only with an approving review submitted
+# after the plan job ended. A submitted review re-runs that check
+# (destroy-review.yml, from the caller's pull_request_review trigger), and the
+# push of the merge applies the destroys when that check passed on approval.
 #
 # Which units run is worked out from the diff against the last commit a run on
 # main went through with, so the units of a failed or held-back apply stay
@@ -25,6 +33,7 @@
 #   jobs:
 #     pipeline:
 #       uses: bearclave/ci/.github/workflows/terragrunt.yml@v2
+#       if: github.event_name != 'pull_request_review'
 #       permissions:
 #         contents: read
 #         id-token: write
@@ -1235,6 +1244,7 @@ jobs:
     outputs:
       has_changes: ${{ steps.summary.outputs.has_changes }}
       has_destroys: ${{ steps.summary.outputs.has_destroys }}
+      planned_at: ${{ steps.planned.outputs.at }}
       selection: ${{ steps.units.outputs.selection }}
     env:
       # A plan on a pull request may be queued from any branch, so it runs as
@@ -2909,26 +2919,266 @@ jobs:
           [ -s plan.md ] || exit 0
           pr-comment.sh "$PR_NUMBER" plan.md terragrunt-plan
 
+      # The moment the plan could be read in the pull request: an approval of
+      # its destroys counts only after it.
+      - name: Plan time
+        id: planned
+        if: always()
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
+
       - name: No unaccepted security finding
         if: always() && steps.trivy.outputs.found == 'true'
         run: |
           echo "::error::trivy found a HIGH or CRITICAL setting in the plan (Security findings in the summary). Fix it, or accept it in .github/trivyignore.yaml with the reason."
           exit 1
 
+  # GitHub Team has no approval on an environment of a private repository,
+  # so the approval of destroys and replaces is the owner's review of the pull
+  # request, given after its plan. On a pull request this check passes when
+  # the plan has none, or when such a review exists; a review submitted later
+  # re-runs it (destroy-review.yml). On main it finds the merged pull request
+  # and tells the apply whether that check passed on an approval; it never
+  # fails there, the gate says what is missing.
+  destroy:
+    name: destroy / approved
+    needs: plan
+    if: >-
+      !cancelled()
+      && (github.event_name == 'pull_request'
+          || (needs.plan.outputs.has_destroys == 'true' && !inputs.allow-destroy))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      approved: ${{ steps.merged.outputs.approved }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Approval script
+        run: |
+          d="$RUNNER_TEMP/ci"
+          mkdir -p "$d"
+          cat >"$d/destroy-approval.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """Decides whether the destroys and replaces of a plan are approved.
+
+          A plan that destroys or replaces resources is applied only when the owner
+          approved the pull request after he could read that plan. The plan is the
+          pull request comment, so "after" means after the plan job ended.
+
+            destroy-approval.py pr <number> <planned-at>
+                On a pull request: passes (exit 0) when the pull request has an
+                approving review, by a person other than its author, submitted after
+                <planned-at> (ISO 8601, UTC) on the head commit, and not superseded by a
+                later review of the same person that requests changes or was dismissed.
+                Fails (exit 1) otherwise.
+
+            destroy-approval.py main <sha> <workflow>
+                On main: writes approved=true|false to $GITHUB_OUTPUT. True when <sha>
+                is the merge commit of a pull request whose last run of <workflow>
+                (e.g. ci.yml) passed its destroy check BECAUSE the destroys were
+                approved (the step STEP below succeeded), not because it had none.
+
+            destroy-approval.py review <head-sha> <workflow>
+                On a submitted review: re-runs the failed destroy check of the last
+                completed pull request run of <workflow> for <head-sha>, so that it
+                reads the new review. GitHub also re-runs the jobs that need it (the
+                gate).
+
+          Reads the API with gh (GH_TOKEN) in GITHUB_REPOSITORY.
+          """
+          import json
+          import os
+          import subprocess
+          import sys
+
+          STEP = "Destroys approved after the plan"
+          JOB_SUFFIX = "destroy / approved"
+
+
+          def api(path: str, method: str = "GET"):
+              args = ["gh", "api", "-X", method, path]
+              if method == "GET":
+                  args += ["--paginate", "--slurp"]
+              r = subprocess.run(args, capture_output=True, text=True)
+              if r.returncode != 0:
+                  sys.exit(f"::error::gh api {method} {path}: {r.stderr.strip()}")
+              out = r.stdout
+              if method != "GET":
+                  return None
+              pages = json.loads(out or "[]")
+              # --slurp gives a list of pages; a page is a list or an object holding one.
+              items = []
+              for page in pages:
+                  if isinstance(page, list):
+                      items += page
+                  else:
+                      items.append(page)
+              return items
+
+
+          def approval(reviews: list, author: str, head_sha: str, planned_at: str):
+              """The approving review that counts, or None.
+
+              Only the latest review of each person that is not a plain comment
+              counts: an approval followed by a request for changes, or dismissed (a
+              push dismisses stale approvals), is no approval.
+              """
+              latest = {}
+              for r in sorted(reviews, key=lambda r: r.get("submitted_at") or ""):
+                  user = r.get("user") or {}
+                  if r.get("state") == "COMMENTED" or not r.get("submitted_at"):
+                      continue
+                  latest[user.get("login")] = r
+              for login, r in latest.items():
+                  user = r.get("user") or {}
+                  if (r["state"] == "APPROVED" and login != author and user.get("type") == "User"
+                          and r.get("commit_id") == head_sha and r["submitted_at"] > planned_at):
+                      return r
+              return None
+
+
+          def last_run(runs: list):
+              """The most recent pull request run of the workflow."""
+              runs = [r for r in runs if r.get("event") == "pull_request"]
+              return max(runs, key=lambda r: r["id"]) if runs else None
+
+
+          def destroy_job(jobs: list):
+              for job in jobs:
+                  if job.get("name", "").endswith(JOB_SUFFIX):
+                      return job
+              return None
+
+
+          def approved_by_step(job) -> bool:
+              if not job or job.get("conclusion") != "success":
+                  return False
+              return any(s.get("name") == STEP and s.get("conclusion") == "success" for s in job.get("steps", []))
+
+
+          def merged_pull(pulls: list, sha: str):
+              for p in pulls:
+                  if p.get("merged_at") and p.get("merge_commit_sha") == sha:
+                      return p
+              return None
+
+
+          def runs_of(repo: str, workflow: str, sha: str) -> list:
+              pages = api(f"repos/{repo}/actions/workflows/{workflow}/runs?head_sha={sha}&event=pull_request&per_page=100")
+              return [r for page in pages for r in page.get("workflow_runs", [])]
+
+
+          def jobs_of(repo: str, run_id: int) -> list:
+              pages = api(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+              return [j for page in pages for j in page.get("jobs", [])]
+
+
+          def cmd_pr(repo: str, number: str, planned_at: str) -> int:
+              pr = api(f"repos/{repo}/pulls/{number}")[0]
+              reviews = api(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
+              r = approval(reviews, pr["user"]["login"], pr["head"]["sha"], planned_at)
+              if r:
+                  print(f"Approved by {r['user']['login']} at {r['submitted_at']}, after the plan of {planned_at}.")
+                  return 0
+              print(f"::error::The plan destroys or replaces resources. Read the plan in the pull request "
+                    f"and approve it: an approval counts only when it comes after the plan ({planned_at}).")
+              return 1
+
+
+          def cmd_main(repo: str, sha: str, workflow: str) -> int:
+              approved = False
+              pr = merged_pull(api(f"repos/{repo}/commits/{sha}/pulls"), sha)
+              if not pr:
+                  print(f"{sha} is not the merge commit of a pull request.")
+              else:
+                  run = last_run(runs_of(repo, workflow, pr["head"]["sha"]))
+                  job = destroy_job(jobs_of(repo, run["id"])) if run else None
+                  approved = approved_by_step(job)
+                  print(f"Pull request #{pr['number']}: the destroys were "
+                        f"{'approved after its plan' if approved else 'not approved after its plan'}.")
+              if out := os.environ.get("GITHUB_OUTPUT"):
+                  with open(out, "a", encoding="utf-8") as fh:
+                      fh.write(f"approved={str(approved).lower()}\n")
+              return 0
+
+
+          def cmd_review(repo: str, head_sha: str, workflow: str) -> int:
+              run = last_run(runs_of(repo, workflow, head_sha))
+              if not run:
+                  print("No pull request run for the head commit yet.")
+                  return 0
+              if run.get("status") != "completed":
+                  print(f"Run {run['id']} is still {run.get('status')}; its destroy check reads the reviews when it gets there.")
+                  return 0
+              job = destroy_job(jobs_of(repo, run["id"]))
+              if not job or job.get("conclusion") != "failure":
+                  print(f"Nothing to re-run: the destroy check of run {run['id']} is "
+                        f"{job.get('conclusion') if job else 'missing'}.")
+                  return 0
+              api(f"repos/{repo}/actions/jobs/{job['id']}/rerun", method="POST")
+              print(f"Re-running '{job['name']}' of run {run['id']}.")
+              return 0
+
+
+          def main(argv: list) -> int:
+              repo = os.environ["GITHUB_REPOSITORY"]
+              if len(argv) == 3 and argv[0] == "pr":
+                  return cmd_pr(repo, argv[1], argv[2])
+              if len(argv) == 3 and argv[0] == "main":
+                  return cmd_main(repo, argv[1], argv[2])
+              if len(argv) == 3 and argv[0] == "review":
+                  return cmd_review(repo, argv[1], argv[2])
+              sys.exit(__doc__)
+
+
+          if __name__ == "__main__":
+              sys.exit(main(sys.argv[1:]))
+          __CI_EOF__
+          chmod +x "$d/destroy-approval.py"
+          echo "$d" >>"$GITHUB_PATH"
+
+      - name: No destroys in the plan
+        if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys != 'true'
+        run: echo "The plan destroys and replaces nothing." >>"$GITHUB_STEP_SUMMARY"
+
+      # The name is read on main (destroy-approval.py STEP): only this step's
+      # success means the destroys were approved.
+      - name: Destroys approved after the plan
+        if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys == 'true'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PLANNED_AT: ${{ needs.plan.outputs.planned_at }}
+        run: destroy-approval.py pr "$PR_NUMBER" "$PLANNED_AT"
+
+      - name: The merged pull request approved the destroys
+        id: merged
+        if: github.event_name != 'pull_request'
+        run: |
+          # The caller's workflow file, e.g. ci.yml.
+          wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
+          destroy-approval.py main "$GITHUB_SHA" "$wf"
+
   # Apply runs from main only. The environment allows deployments from main
   # and nothing else, and it is also what makes the OIDC token carry the
   # environment subject the apply identity is federated on.
   #
-  # A plan that destroys or replaces anything is not applied by a push: GitHub
-  # Team has no approval on an environment of a private repository, so the
-  # manual run with allow-destroy is that approval. The selection it plans
-  # still holds those units, since this run does not end as a success.
+  # A plan that destroys or replaces anything is applied by a push only when
+  # the merged pull request approved it after its plan (destroy job), or by
+  # the manual run with allow-destroy. Otherwise the selection keeps those
+  # units, since this run does not end as a success.
   apply:
-    needs: plan
+    needs: [plan, destroy]
     if: >-
-      github.event_name != 'pull_request'
+      !cancelled()
+      && github.event_name != 'pull_request'
+      && needs.plan.result == 'success'
       && needs.plan.outputs.has_changes == 'true'
-      && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy)
+      && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy
+          || needs.destroy.outputs.approved == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: ${{ inputs.environment }}
@@ -3141,7 +3391,7 @@ jobs:
   # green, so eight applies in a row never happened and nothing said so. An
   # apply that was due and did not succeed has to be red.
   gate:
-    needs: [conventions, sentinel, changes, plan, apply]
+    needs: [conventions, sentinel, changes, plan, destroy, apply]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -3165,6 +3415,7 @@ jobs:
           PLAN_HAS_CHANGES: ${{ needs.plan.outputs.has_changes }}
           PLAN_HAS_DESTROYS: ${{ needs.plan.outputs.has_destroys }}
           ALLOW_DESTROY: ${{ inputs.allow-destroy }}
+          DESTROY_APPROVED: ${{ needs.destroy.outputs.approved }}
           APPLY_RESULT: ${{ needs.apply.result }}
         run: |
           if [ "$PLAN_RESULT" != "success" ]; then
@@ -3177,8 +3428,9 @@ jobs:
           fi
           # Red on purpose: the change is merged but not applied, and the next
           # run on main keeps it selected until someone applies it.
-          if [ "$PLAN_HAS_DESTROYS" = "true" ] && [ "$ALLOW_DESTROY" != "true" ]; then
-            msg="The plan destroys or replaces resources, so the apply did not run by itself."
+          if [ "$PLAN_HAS_DESTROYS" = "true" ] && [ "$ALLOW_DESTROY" != "true" ] \
+            && [ "$DESTROY_APPROVED" != "true" ]; then
+            msg="The plan destroys or replaces resources and the merged pull request did not approve them after its plan, so the apply did not run by itself."
             msg="$msg Check the plan of this run, then run the workflow on main by hand with allow_destroy."
             echo "::error::$msg"
             echo "$msg" >>"$GITHUB_STEP_SUMMARY"
