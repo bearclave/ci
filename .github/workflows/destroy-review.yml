@@ -33,7 +33,7 @@ defaults:
 
 jobs:
   rerun:
-    if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved'
+    if: github.event_name == 'pull_request_review' && github.event.review.state != 'dismissed'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
