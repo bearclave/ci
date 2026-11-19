@@ -2834,16 +2834,14 @@ jobs:
       # never uploaded.
       - name: Plan
         env:
-          # Terraform's own plugin cache: the units read it at once, while the
-          # Terragrunt cache server let only a few of them initialise at a time.
-          TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tgproviders
-          TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "true"
+          TG_PROVIDER_CACHE: "1"
+          TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
           SELECTION: ${{ steps.units.outputs.selection }}
           PLAN_JSON: ${{ runner.temp }}/plan-json
         run: |
           set -euo pipefail
-          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          mkdir -p "$TG_PROVIDER_CACHE_DIR"
           : >plan.txt
           mapfile -t units < <(jq -r '.units[]' <<<"$SELECTION")
           mapfile -t deleted < <(jq -r '.deleted[]' <<<"$SELECTION")
