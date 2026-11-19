@@ -11,8 +11,9 @@
 # - the conventions every repository has (src/conventions.py --only):
 #   todo-issue (a to-do comment names its issue) and markdown-links (a
 #   relative link in Markdown leads to a file and heading of the repository;
-#   offline, nothing is fetched), with the levels and exceptions of
-#   .github/conventions.yaml;
+#   offline, nothing is fetched) and collection-schema (every <key>.yaml of a
+#   collection matches the JSON Schema of its module, .github/schemas/),
+#   with the levels and exceptions of .github/conventions.yaml;
 # - markdownlint (markdownlint-cli2, the image pinned by its digest below)
 #   over the Markdown git tracks, with the rules of src/markdownlint.yaml;
 #   .github/markdownlint.yaml of the repository replaces them rule by rule.
@@ -102,7 +103,16 @@ jobs:
           python3 "$RUNNER_TEMP/layout_check.py" "$RUNNER_TEMP/layout.json" \
             "$RUNNER_TEMP/layout-exceptions.json" "$REPOSITORY" .
 
-      - name: To-dos and links
+      # A step of its own: actionlint deadlocks on a run script of more than
+      # about 64 KB, and conventions.py imports it from the same directory.
+      - name: Schema validator
+        if: ${{ !cancelled() }}
+        run: |
+          cat >"$RUNNER_TEMP/schema_check.py" <<'__CI_EOF__'
+          @@include src/schema_check.py@@
+          __CI_EOF__
+
+      - name: To-dos, links and collections
         if: ${{ !cancelled() }}
         run: |
           cat >"$RUNNER_TEMP/conventions.py" <<'__CI_EOF__'
@@ -116,7 +126,7 @@ jobs:
             echo '{}' >"$RUNNER_TEMP/conventions.json"
           fi
           python3 "$RUNNER_TEMP/conventions.py" "$RUNNER_TEMP/conventions.json" . \
-            --only todo-issue,markdown-links
+            --only todo-issue,markdown-links,collection-schema
 
       # The pinned image of markdownlint-cli2: the version and the digest of
       # its multi-platform index (bumped together, like the tools of

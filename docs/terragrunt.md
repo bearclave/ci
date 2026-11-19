@@ -1,6 +1,8 @@
 # Terragrunt pipeline
 
-`terragrunt.yml` (`iac-azure`, `iac-github`) and `terragrunt-home.yml`
+`terragrunt.yml` (`iac-azure`, `iac-github`, and the Microsoft 365 and
+Sentinel repositories `iac-identity`, `iac-conditional-access`, `iac-intune`,
+`iac-exchange`, `iac-purview`, `iac-sentinel`) and `terragrunt-home.yml`
 (`iac-home`) run the same jobs, `templates/_fragments/terragrunt-jobs.yml`;
 the home variant only changes the defaults (below). The checks are
 `pipeline / <job>`; only `pipeline / gate` is required, and it needs all of
@@ -12,6 +14,29 @@ changes -> select -> validate ----------------------------\
                                                                                             \-> report
                                                                                      gate (always)
 ```
+
+## Providers and sign-in
+
+Every provider of the Microsoft cloud signs in the same way, from the
+environment the workflow sets; the provider blocks that `root.hcl`
+generates carry no credentials:
+
+| Provider | Manages | Environment it reads | Also in the provider block |
+|---|---|---|---|
+| `hashicorp/azurerm`, `azure/azapi` | Azure, Sentinel | `ARM_USE_OIDC`, `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID` (empty where the repository has no subscription), `ACTIONS_ID_TOKEN_REQUEST_URL` and `_TOKEN` (GitHub sets them for `id-token: write`) | `storage_use_azuread` (azurerm) |
+| `hashicorp/azuread`, `microsoft/msgraph` | Entra ID | `ARM_USE_OIDC`, `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ACTIONS_ID_TOKEN_REQUEST_*` | - |
+| `terraprovider/microsoft365wp` | Intune, Defender for Endpoint | the same `ARM_*` as azuread | - |
+| `terraprovider/exo`, `terraprovider/scc` | Exchange Online, Defender for Office 365; Purview | the same `ARM_*` (`AZURE_*` and `ARM_OIDC_REQUEST_*` are read too) | `organization`: the tenant's `<name>.onmicrosoft.com`, from `account.hcl` (app-only routing of the Exchange and compliance endpoints) |
+
+Nothing else is needed: the workflow sets `ARM_USE_OIDC`, `ARM_TENANT_ID` and
+`ARM_CLIENT_ID` (the plan identity, the apply job its own), and the jobs
+that plan or apply have `id-token: write`. No secret, certificate or
+PowerShell module is involved. The providers come from the public registry
+like any other: `terraform providers lock -platform=linux_amd64
+-platform=darwin_arm64` writes the lock file of a unit, and init in the
+pipeline (through the provider cache) keeps it unchanged (tried with
+microsoft365wp 0.21.1, exo 0.4.2, scc 0.2.0, msgraph 0.6.0, azuread
+3.10.0). What each identity may do: governance `standards/identities.md`.
 
 ## Identities
 
@@ -51,10 +76,15 @@ apply use) and its split into the plan jobs (`src/terragrunt/select-units.py`).
   the units that read the groups). A file no unit reports - a template
   `root.hcl` renders, a deleted file - selects the whole tree.
 - A context file (`mg.hcl`, `subscription.hcl`, `region.hcl`, `rg.hcl`,
-  `device.hcl`) selects the units at and below it and any other unit that
-  reads it.
+  `device.hcl`, `workspace.hcl`) selects the units at and below it and any
+  other unit that reads it.
 - Any other file selects its nearest unit, with everything that unit depends
-  on.
+  on: a `<key>.yaml` of a collection, in a subfolder or not, plans its
+  collection unit, and moving it between subfolders plans the same unit
+  without a change (the key is the file name); a Logic App's
+  `definition.json` or `workflows/<name>/workflow.json` plans its Logic App.
+  A schema in `.github/schemas/` plans nothing (the conventions check reads
+  it).
 - A file outside every unit (the workflows, the scripts) selects the whole
   tree, except what never reaches a plan (the list of changes above): a push
   of a README, an agent rule or `.github/conventions.yaml` plans nothing.

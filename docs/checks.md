@@ -13,7 +13,7 @@ of governance.
 |---|---|---|
 | Title, branch, description, labels | Conventional Commit title (a bot's title over 72 characters only warns), `<type>/<slug>` branch, the six description sections for people and Apps (Dependabot excepted); sets `type:*`, `breaking`, `size:*`; assigns the author, or `vars.OWNER` when the author is an App (`src/pr_check.py`) | - |
 | Root layout | the root against `standards/layout.yaml` of governance (`src/layout.yaml`, a managed copy): required and allowed root files, the folders of the repository's group and pipeline (and those it forbids: `tools/` and `deploy/` in a Terragrunt repository), what `.github/` holds, the names in `docs/` (`src/layout_check.py`) | `layout: exceptions:` in `.github/conventions.yaml` |
-| To-dos and links | `todo-issue` and `markdown-links` of `src/conventions.py` (below) | `.github/conventions.yaml` |
+| To-dos, links and collections | `todo-issue`, `markdown-links` and `collection-schema` of `src/conventions.py` (below) | `.github/conventions.yaml` |
 | Markdown | markdownlint (`markdownlint-cli2`, image pinned by digest) over the Markdown git tracks, with the rules of `src/markdownlint.yaml` | `.github/markdownlint.yaml`: its keys replace the defaults rule by rule |
 
 `.claude/` is left out of the last two: the standards there are managed
@@ -65,9 +65,10 @@ exceptions:
 | `no-hardcoded-ids` | no subscription or tenant ID and no `/subscriptions/<id>` written out in a unit | `id_files` |
 | `no-hardcoded-location` | no region written out in a unit | `locations` |
 | `no-envcommon` | no `_envcommon` | - |
-| `unit-assets` | a file in the unit tree that is not HCL: only a name of `allowed` (default `definition.json`), directly next to a `terragrunt.hcl` that names it | `allowed`, `paths` (default `infrastructure/**`, plus every unit directory) |
+| `unit-assets` | a file in the unit tree that is not HCL: only a path of `allowed` (globs relative to the unit, default `**/*.yaml`, `definition.json`, `workflows/*/workflow.json`), read by the unit: named in its `terragrunt.hcl`, or matched by a `fileset()` pattern of the unit or of the `_common/units/` file it includes | `allowed`, `paths` (default `infrastructure/**`, plus every unit directory) |
+| `collection-schema` (every repository) | every object of a collection (below) is `<key>.yaml`, its key is lowercase words joined by `-` and unique in the collection, and it matches the schema of its module; the schema is usable and closed | `schemas` (default `.github/schemas`), `collections` (folders outside the units: `[{path, schema}]`), `paths` (default `infrastructure/**`) |
 | `scope-layout` | under `root` (default `infrastructure`): `mg-*` holds `mg.hcl`, its unit, `global/`, `mg-*/`, `sub-*/`; `sub-*` holds `subscription.hcl`, its unit, `global/`, regions; a region `region.hcl` and `rg-*/`; `rg-*` `rg.hcl`, its unit and units; a folder with `device.hcl` that file and units; `global/` units only; a unit inside another unit fails | `root` |
-| `folder-dictionary` | a unit folder is named after its module, `<module>` or `<module>-<purpose>`; a `_common/units/` file `<module>.hcl`. `mg-*`, `sub-*`, `rg-*` hold the units of their scope; a folder named in the plural (`repositories/`) holds one unit per instance, named after it | `folders` (`{<module>: [<glob>]}`, e.g. `repository: ["*"]`) |
+| `folder-dictionary` | a unit folder is named after its module, `<module>` or `<module>-<purpose>`; a `_common/units/` file `<module>.hcl`. `mg-*`, `sub-*`, `rg-*` hold the units of their scope; a folder named in the plural (`repositories/`) holds one unit per instance, named after it | `folders` (`{<module>: [<glob>]}`, e.g. `repository: ["*"]`), `prefixes` (a folder may leave out the platform word: with `sentinel-`, `analytic-rules/` runs `sentinel-analytic-rules`) |
 | `lock-none-needs-reason` | `lock = "none"` in a resource group of the listed criticality has a comment on or above the line | `criticality` |
 | `todo-issue` (every repository) | a to-do comment names its issue: `TODO(#42): ...`; any tracked file but Markdown and binaries | `files`, `exclude` |
 | `markdown-links` (every repository) | a relative link or image in Markdown leads to a file or folder of the repository, and its `#anchor` to a heading of the linked Markdown; offline, nothing is fetched; links in code are skipped | `exclude` |
@@ -77,6 +78,45 @@ exception without a `reason`, an unknown rule or level fail the check. The
 script reads HCL with a small parser of its own and needs only the Python
 standard library; the workflow turns the YAML into JSON with the runner's
 `yq`.
+
+## Collections
+
+A collection is a unit that reads its objects with `fileset()` - one
+`<key>.yaml` per object, in organisational subfolders or not
+(governance `code/terragrunt.md#collections`) - or a folder that
+`collections` lists (the catalogue `content-sentinel`, which has no units).
+`collection-schema` runs in `pr / check` of every repository, so a
+repository without collections pays nothing and one without a pipeline
+(the catalogue) is checked all the same.
+
+- **Which schema:** `<schemas>/<module>.schema.json`, `<module>` the name of
+  the module the unit runs (`azure/sentinel-analytic-rules` ->
+  `.github/schemas/sentinel-analytic-rules.schema.json`); for a listed folder
+  the `schema` of its entry. The schema is a copy of the module's
+  `schema.json` in `iac-modules`, refreshed in the pull request that moves
+  `modules_ref`.
+- **The schema itself** must be closed - every object has
+  `additionalProperties: false` or a schema for the values of a map -
+  because Terraform drops an unknown key silently when it converts YAML to
+  a typed object, so a typo would pass.
+- **Reading the YAML:** the runner's `yq`, one document per file, the same
+  YAML 1.2 that Terraform's `yamldecode` reads (`yes` stays a string).
+- **The validator** is `src/schema_check.py`, a subset of JSON Schema
+  2020-12 in the standard library: the reference implementation
+  (`jsonschema`) needs `attrs`, `referencing` and the compiled `rpds-py`, so
+  it cannot travel inside a workflow as one pinned file, and the pipelines
+  install nothing from PyPI. A keyword outside the subset fails the check
+  instead of being ignored; the list is at the top of the script.
+  `python3 schema_check.py <schema.json> <object.json>` runs it locally.
+
+```yaml
+# .github/conventions.yaml of content-sentinel
+rules:
+  collection-schema:
+    collections:
+      - path: content/analytic-rules
+        schema: sentinel-analytic-rules
+```
 
 ## Exceptions and their review
 
@@ -152,7 +192,13 @@ exceptions:
 | `watchlist-exists` | `_GetWatchlist('X')` for a watchlist the repository does not define |
 
 The KQL itself is not run: that needs a workspace and an identity that may
-read it.
+read it. Planned for `iac-sentinel`, not built yet: a step of the plan job
+that runs `<query> | take 0` of each changed analytic rule and hunting
+query against the workspace of `workspace.hcl` as the plan identity (Log
+Analytics Reader; the Log Analytics query API through ARM), which catches a
+missing table, column, watchlist or function in about two seconds a rule.
+It waits for the YAML format of the rules in `sentinel_lint.py` and the
+first workspace in `iac-sentinel`.
 
 ## Site checks
 

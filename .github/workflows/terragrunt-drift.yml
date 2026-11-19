@@ -239,8 +239,10 @@ jobs:
             cannot read, runs the whole tree.
           - A context file (CONTEXT) applies to the unit in its own directory, every
             unit below it, and any other unit that reads it.
-          - Any other file belongs to the nearest unit above it. A file of a deleted
-            unit belongs to nobody - that unit runs as a destroy.
+          - Any other file belongs to the nearest unit above it: the <key>.yaml of a
+            collection, in a subfolder or not, plans its collection unit, a Logic App
+            definition.json or workflows/<name>/workflow.json its Logic App. A file of
+            a deleted unit belongs to nobody - that unit runs as a destroy.
           - A file outside every unit (the workflows, the scripts) changes how the tree
             is planned, so when nothing else is touched the whole tree runs - except
             what never reaches a plan (the same as changes.py): .claude/, Markdown,
@@ -257,7 +259,7 @@ jobs:
           import subprocess
           import sys
 
-          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl"}
+          CONTEXT = {"mg.hcl", "subscription.hcl", "region.hcl", "rg.hcl", "device.hcl", "workspace.hcl"}
           UNIT = "terragrunt.hcl"
           CONTENT = "infrastructure/"
           # What under .github/ changes a plan (changes.py has the same list).

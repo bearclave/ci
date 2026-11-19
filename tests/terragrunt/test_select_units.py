@@ -155,6 +155,65 @@ class SelectUnits(unittest.TestCase):
         self.commit()
         self.assertEqual(self.select()["units"], ["mg-corp/sub-a/weu/rg-x/sentinel"])
 
+    def sentinel_workspace(self):
+        """A workspace folder of iac-sentinel: its own unit and collection units below."""
+        ws = "infrastructure/law-security"
+        for f in ("workspace.hcl", "terragrunt.hcl", "analytic-rules/terragrunt.hcl",
+                  "analytic-rules/entra-id/break-glass-sign-in.yaml", "watchlists/terragrunt.hcl",
+                  "watchlists/break-glass-accounts.yaml", "logic-apps-standard/la-soar/terragrunt.hcl",
+                  "logic-apps-standard/la-soar/workflows/revoke/workflow.json",
+                  "logic-apps-consumption/pb-revoke/terragrunt.hcl",
+                  "logic-apps-consumption/pb-revoke/definition.json"):
+            self.write(f"{ws}/{f}", f"# {f}\n")
+        self.base = self.commit("workspace")
+        return ws
+
+    def test_collection_object_selects_its_collection(self):
+        ws = self.sentinel_workspace()
+        self.write(f"{ws}/analytic-rules/entra-id/break-glass-sign-in.yaml", "severity: High\n")
+        self.commit()
+        self.assertEqual(self.select(None, "--no-expand")["units"], [f"{ws}/analytic-rules"])
+
+    def test_new_and_deleted_objects_select_their_collections(self):
+        ws = self.sentinel_workspace()
+        self.write(f"{ws}/analytic-rules/home-network/nas-login-failures.yaml", "kind: Scheduled\n")
+        self.remove(f"{ws}/watchlists/break-glass-accounts.yaml")
+        self.commit()
+        self.assertEqual(self.select(None, "--no-expand")["units"],
+                         [f"{ws}/analytic-rules", f"{ws}/watchlists"])
+
+    def test_object_moved_between_subfolders_selects_its_collection(self):
+        ws = self.sentinel_workspace()
+        self.git("mv", f"{ws}/analytic-rules/entra-id/break-glass-sign-in.yaml",
+                 f"{ws}/analytic-rules/break-glass-sign-in.yaml")
+        self.commit()
+        r = self.select(None, "--no-expand")
+        self.assertEqual(r["units"], [f"{ws}/analytic-rules"])
+        self.assertEqual(r["renamed"], [])
+
+    def test_logic_app_files_select_their_unit(self):
+        ws = self.sentinel_workspace()
+        self.write(f"{ws}/logic-apps-standard/la-soar/workflows/revoke/workflow.json", "{}\n")
+        self.write(f"{ws}/logic-apps-consumption/pb-revoke/definition.json", "{}\n")
+        self.commit()
+        self.assertEqual(self.select(None, "--no-expand")["units"],
+                         [f"{ws}/logic-apps-consumption/pb-revoke", f"{ws}/logic-apps-standard/la-soar"])
+
+    def test_workspace_file_selects_every_unit_below(self):
+        ws = self.sentinel_workspace()
+        self.write(f"{ws}/workspace.hcl", "resource_group changed\n")
+        self.commit()
+        self.assertEqual(self.select(None, "--no-expand")["units"], [
+            ws, f"{ws}/analytic-rules", f"{ws}/logic-apps-consumption/pb-revoke",
+            f"{ws}/logic-apps-standard/la-soar", f"{ws}/watchlists"])
+
+    def test_schema_alone_selects_nothing(self):
+        self.write(".github/schemas/sentinel-analytic-rules.schema.json", "{}\n")
+        self.commit()
+        r = self.select()
+        self.assertFalse(r["all"])
+        self.assertEqual(r["units"], [])
+
     def test_dependencies_are_pulled_in(self):
         self.write("mg-corp/sub-a/weu/rg-x/key-vault/certificate/terragrunt.hcl")
         self.commit()

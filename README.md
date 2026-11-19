@@ -20,14 +20,14 @@ name, never `secrets: inherit`). The header of each workflow shows its caller.
 | Workflow | Caller job | Used by | What it does |
 |---|---|---|---|
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck; review dates of the gitleaks allowlists |
-| `pr.yml` | `pr` | every repository | title, branch, description sections (people and Apps), labels, assignee; the root layout; to-dos with their issue and relative links; markdownlint ([checks.md](docs/checks.md)) |
+| `pr.yml` | `pr` | every repository | title, branch, description sections (people and Apps), labels, assignee; the root layout; to-dos with their issue and relative links; the YAML of collections against their JSON Schema; markdownlint ([checks.md](docs/checks.md)) |
 | `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `vs-code-extensions`, `.github` | one job: ESLint where there is JavaScript, an optional command of the repository; the gate |
-| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, validate next to the plan of the affected units (read-only identity) with trivy and a plan comment, `destroy / approved`, apply from `main` in the environment, its verification, an apply comment, gate ([terragrunt.md](docs/terragrunt.md)) |
+| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github`; `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-purview`, `iac-sentinel` | conventions, Sentinel lint, validate next to the plan of the affected units (read-only identity) with trivy and a plan comment, `destroy / approved`, apply from `main` in the environment, its verification, an apply comment, gate ([terragrunt.md](docs/terragrunt.md)) |
 | `terragrunt-home.yml` | `pipeline` | `iac-home` | the jobs of `terragrunt.yml` through WireGuard, with the certificate renewal on schedule |
 | `destroy-review.yml` | `review` | `iac-azure`, `iac-github`, `iac-home` | on a submitted approval, re-runs the failed `destroy / approved` check |
-| `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree as the read-only identity, trivy, failed check blocks, analytic rules outside the code |
+| `terragrunt-drift.yml` | `drift` | the repositories of `terragrunt.yml` | weekly plan of the whole tree as the read-only identity, trivy, failed check blocks, analytic rules outside the code |
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, `terraform test`, tflint, trivy config, README tables (terraform-docs `--output-check`), `docs/catalog.md` (`src/terraform/catalog.py --check`), conventions |
-| `m365-dsc.yml`, `m365-drift.yml` | `pipeline`, `drift` | `iac-m365` | Microsoft365DSC: plan, apply, weekly drift (to be retired) |
+| `m365-dsc.yml`, `m365-drift.yml` | `pipeline`, `drift` | `iac-m365` | Microsoft365DSC: plan, apply, weekly drift; retired, removed in a minor release once the last domain has moved to Terraform and `iac-m365` is archived |
 | `static-web-app.yml` | `pipeline` | `app-web-*` | site checks (with SEO), ESLint, the site's own checks, deploy in the `environment` when the content changed, smoke test of `url` |
 | `container.yml` | `pipeline` | `app-home` | ESLint, lint and tests in the image; push to GHCR from `main` (`:main`) and from a release (`:vX.Y.Z`) |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
@@ -87,7 +87,7 @@ git -C ~/Repositories/Bearclave.GitHub/platform/ci novy <type>/<slug>
 # edit templates/, templates/_fragments/ or src/ - never the generated workflows
 tools/build.py
 python3 -m unittest discover -s tests
-python3 src/pr_check.py --self-test && python3 src/layout_check.py --self-test
+python3 src/pr_check.py --self-test && python3 src/layout_check.py --self-test && python3 src/schema_check.py --self-test
 tools/build.py --check
 actionlint .github/workflows/*.yml
 zizmor --persona=regular --min-severity=medium .github/workflows

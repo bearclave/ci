@@ -12,8 +12,9 @@
 # - the conventions every repository has (src/conventions.py --only):
 #   todo-issue (a to-do comment names its issue) and markdown-links (a
 #   relative link in Markdown leads to a file and heading of the repository;
-#   offline, nothing is fetched), with the levels and exceptions of
-#   .github/conventions.yaml;
+#   offline, nothing is fetched) and collection-schema (every <key>.yaml of a
+#   collection matches the JSON Schema of its module, .github/schemas/),
+#   with the levels and exceptions of .github/conventions.yaml;
 # - markdownlint (markdownlint-cli2, the image pinned by its digest below)
 #   over the Markdown git tracks, with the rules of src/markdownlint.yaml;
 #   .github/markdownlint.yaml of the repository replaces them rule by rule.
@@ -370,6 +371,8 @@ jobs:
               - tools
               - docs
               - _common
+              # settings.json only: the yaml.schemas of the collections.
+              - .vscode
             # What .github/ may hold: GitHub, CI, and the configs only the pipeline reads.
             github:
               - workflows
@@ -383,6 +386,8 @@ jobs:
               - tool-versions.env
               - conventions.yaml
               - state-moves.yaml
+              # The JSON Schemas of the collections, copied from their modules.
+              - schemas
               - sentinel-lint.yaml
               - trivyignore.yaml
               - pssa.psd1
@@ -392,6 +397,9 @@ jobs:
           groups:
             app:
               folders: [config, content, data, deploy, lib]
+            template:
+              # content-sentinel: the catalogue, in the collection folders of iac-sentinel.
+              folders: [content]
 
           pipelines:
             # Every unit under infrastructure/. No tools/ and no deploy/: a script
@@ -412,8 +420,8 @@ jobs:
               files: [.terraform-docs.yml]
               content: modules
             m365-dsc:
-              # tenant.psd1 is the tenant context of the configuration, as account.hcl
-              # is for Terragrunt.
+              # Retired: iac-m365 alone, until it is archived. tenant.psd1 is the
+              # tenant context of the configuration, as account.hcl is for Terragrunt.
               files: [tenant.psd1]
               folders: [config, content, data, deploy, lib]
             static-web-app:
@@ -421,7 +429,8 @@ jobs:
               folders: [api]
             container: {}
             content-sentinel:
-              # The content and its generated Terragrunt view.
+              # The content and its generated Terragrunt view, until the catalogue is
+              # converted to the YAML of iac-sentinel (content/, pipeline checks).
               folders: [ARM, terragrunt]
             checks: {}
             ci:
@@ -645,7 +654,406 @@ jobs:
           python3 "$RUNNER_TEMP/layout_check.py" "$RUNNER_TEMP/layout.json" \
             "$RUNNER_TEMP/layout-exceptions.json" "$REPOSITORY" .
 
-      - name: To-dos and links
+      # A step of its own: actionlint deadlocks on a run script of more than
+      # about 64 KB, and conventions.py imports it from the same directory.
+      - name: Schema validator
+        if: ${{ !cancelled() }}
+        run: |
+          cat >"$RUNNER_TEMP/schema_check.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """Validates data against a JSON Schema, with the Python standard library only.
+
+          Usage: schema_check.py <schema.json> <data.json> [<data.json> ...]
+                 schema_check.py --self-test
+
+          The runners have no `jsonschema` package and the pipelines install nothing
+          from PyPI: the reference implementation pulls in attrs, referencing and the
+          compiled rpds-py, so it cannot be vendored as one pinned file. The schemas
+          of the YAML collections need a small part of JSON Schema 2020-12, and this
+          file implements exactly that part. A schema that uses anything else is
+          refused (`schema_errors`), so a keyword never passes by being ignored.
+
+          Supported keywords:
+
+            structure   $schema $id $comment $defs definitions $ref (#, #/$defs/<name>,
+                        #/definitions/<name>, any JSON pointer into the same file)
+            any type    type enum const allOf anyOf oneOf not if then else
+            object      properties required additionalProperties patternProperties
+                        propertyNames minProperties maxProperties dependentRequired
+            array       items prefixItems minItems maxItems uniqueItems contains
+                        minContains maxContains
+            string      minLength maxLength pattern (Python re, which reads the
+                        ECMA-262 patterns schemas use the same way for the usual
+                        classes and anchors)
+            number      minimum maximum exclusiveMinimum exclusiveMaximum multipleOf
+            annotations title description markdownDescription default examples
+                        deprecated readOnly writeOnly format (an annotation in 2020-12)
+
+          Every object in a collection schema is closed: `additionalProperties` is
+          false, or a schema for a map whose keys are data (`closed_errors`).
+          """
+          import json
+          import math
+          import re
+          import sys
+
+          ANNOTATIONS = {"$schema", "$id", "$comment", "title", "description", "markdownDescription", "default",
+                         "examples", "deprecated", "readOnly", "writeOnly", "format"}
+          CONTAINERS = {"$defs", "definitions"}
+          SUBSCHEMA = {"not", "if", "then", "else", "additionalProperties", "propertyNames", "items", "contains"}
+          SUBSCHEMA_LIST = {"allOf", "anyOf", "oneOf", "prefixItems"}
+          SUBSCHEMA_MAP = {"properties", "patternProperties"}
+          ASSERTIONS = {"$ref", "type", "enum", "const", "required", "minProperties", "maxProperties",
+                        "dependentRequired", "minItems", "maxItems", "uniqueItems", "minContains", "maxContains",
+                        "minLength", "maxLength", "pattern", "minimum", "maximum", "exclusiveMinimum",
+                        "exclusiveMaximum", "multipleOf"}
+          KNOWN = ANNOTATIONS | CONTAINERS | SUBSCHEMA | SUBSCHEMA_LIST | SUBSCHEMA_MAP | ASSERTIONS
+          TYPES = {"object", "array", "string", "number", "integer", "boolean", "null"}
+
+
+          def pointer(parts) -> str:
+              """A JSON pointer of the path, `/` for the document itself."""
+              return "/" + "/".join(str(p).replace("~", "~0").replace("/", "~1") for p in parts)
+
+
+          def resolve(root, ref: str):
+              if ref == "#":
+                  return root
+              if not ref.startswith("#/"):
+                  raise KeyError(ref)
+              node = root
+              for raw in ref[2:].split("/"):
+                  part = raw.replace("~1", "/").replace("~0", "~")
+                  node = node[int(part)] if isinstance(node, list) else node[part]
+              return node
+
+
+          def walk(schema, path=()):
+              """Every subschema with its path, the schema itself first."""
+              yield path, schema
+              if not isinstance(schema, dict):
+                  return
+              for k, v in schema.items():
+                  if k in SUBSCHEMA:
+                      yield from walk(v, path + (k,))
+                  elif k in SUBSCHEMA_LIST and isinstance(v, list):
+                      for i, s in enumerate(v):
+                          yield from walk(s, path + (k, i))
+                  elif (k in SUBSCHEMA_MAP or k in CONTAINERS) and isinstance(v, dict):
+                      for name, s in v.items():
+                          yield from walk(s, path + (k, name))
+
+
+          def schema_errors(schema) -> list:
+              """What makes the schema unusable here: unknown keywords, bad values, dangling references."""
+              out = []
+              for path, s in walk(schema):
+                  where = pointer(path)
+                  if isinstance(s, bool):
+                      continue
+                  if not isinstance(s, dict):
+                      out.append(f"{where}: a schema is an object or a boolean")
+                      continue
+                  for k, v in s.items():
+                      if k not in KNOWN:
+                          out.append(f"{where}: keyword {k!r} is not supported by this validator")
+                      elif k == "type":
+                          names = v if isinstance(v, list) else [v]
+                          if not names or any(n not in TYPES for n in names):
+                              out.append(f"{where}: type {v!r} is not one of {', '.join(sorted(TYPES))}")
+                      elif k == "$ref":
+                          try:
+                              resolve(schema, v)
+                          except (KeyError, IndexError, ValueError, TypeError):
+                              out.append(f"{where}: $ref {v!r} does not lead to a schema in this file")
+                      elif k == "pattern" or (k == "patternProperties" and isinstance(v, dict)):
+                          for p in [v] if k == "pattern" else list(v):
+                              try:
+                                  re.compile(p)
+                              except (re.error, TypeError) as e:
+                                  out.append(f"{where}: pattern {p!r} does not compile ({e})")
+                      elif k == "required" and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+                          out.append(f"{where}: required is a list of names")
+                      elif k == "enum" and not isinstance(v, list):
+                          out.append(f"{where}: enum is a list")
+                      elif k in SUBSCHEMA_LIST and not isinstance(v, list):
+                          out.append(f"{where}: {k} is a list of schemas")
+                      elif k in SUBSCHEMA_MAP | CONTAINERS and not isinstance(v, dict):
+                          out.append(f"{where}: {k} is an object of schemas")
+              return out
+
+
+          def closed_errors(schema) -> list:
+              """Objects that accept keys nobody declared: a typo would pass and Terraform drop it silently."""
+              out = []
+              for path, s in walk(schema):
+                  if not isinstance(s, dict):
+                      continue
+                  types = s.get("type")
+                  is_object = "properties" in s or types == "object" or (isinstance(types, list) and "object" in types)
+                  extra = s.get("additionalProperties", True)
+                  if is_object and (extra is True or extra == {}):
+                      out.append(f"{pointer(path)}: an object without additionalProperties: false "
+                                 "(or a schema for the values of a map)")
+              return out
+
+
+          def type_of(value):
+              if value is None:
+                  return "null"
+              if isinstance(value, bool):
+                  return "boolean"
+              if isinstance(value, int):
+                  return "integer"
+              if isinstance(value, float):
+                  return "number"
+              if isinstance(value, str):
+                  return "string"
+              if isinstance(value, list):
+                  return "array"
+              return "object"
+
+
+          def is_type(value, name: str) -> bool:
+              actual = type_of(value)
+              if name == "number":
+                  return actual in ("integer", "number")
+              if name == "integer":
+                  return actual == "integer" or (actual == "number" and math.isfinite(value) and value.is_integer())
+              return actual == name
+
+
+          def equal(a, b) -> bool:
+              """JSON equality: 1 == 1.0, but true is not 1."""
+              if isinstance(a, bool) or isinstance(b, bool):
+                  return isinstance(a, bool) and isinstance(b, bool) and a == b
+              if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+                  return a == b
+              if isinstance(a, list) and isinstance(b, list):
+                  return len(a) == len(b) and all(equal(x, y) for x, y in zip(a, b))
+              if isinstance(a, dict) and isinstance(b, dict):
+                  return a.keys() == b.keys() and all(equal(a[k], b[k]) for k in a)
+              return type(a) is type(b) and a == b
+
+
+          def short(value) -> str:
+              text = json.dumps(value, ensure_ascii=False)
+              return text if len(text) <= 60 else text[:57] + "..."
+
+
+          class Validator:
+              def __init__(self, schema):
+                  self.root = schema
+
+              def errors(self, data) -> list:
+                  """Every place the data breaks the schema, as `<JSON pointer>: <what>`."""
+                  return [f"{pointer(p)}: {m}" for p, m in self._check(self.root, data, (), 0)]
+
+              def _check(self, s, value, path, depth):
+                  if depth > 64:
+                      return [(path, "the schema refers to itself too deeply")]
+                  if s is True or s == {}:
+                      return []
+                  if s is False:
+                      return [(path, "no value is allowed here")]
+                  out = []
+                  if "$ref" in s:
+                      out += self._check(resolve(self.root, s["$ref"]), value, path, depth + 1)
+                  if "type" in s:
+                      names = s["type"] if isinstance(s["type"], list) else [s["type"]]
+                      if not any(is_type(value, n) for n in names):
+                          return out + [(path, f"is {type_of(value)}, expected {' or '.join(names)}")]
+                  if "enum" in s and not any(equal(value, e) for e in s["enum"]):
+                      out.append((path, f"{short(value)} is not one of {', '.join(short(e) for e in s['enum'])}"))
+                  if "const" in s and not equal(value, s["const"]):
+                      out.append((path, f"{short(value)} is not {short(s['const'])}"))
+                  for sub in s.get("allOf", []):
+                      out += self._check(sub, value, path, depth + 1)
+                  if "anyOf" in s:
+                      branches = [self._check(sub, value, path, depth + 1) for sub in s["anyOf"]]
+                      if all(branches):
+                          out += self._none_of("anyOf", branches, path)
+                  if "oneOf" in s:
+                      branches = [self._check(sub, value, path, depth + 1) for sub in s["oneOf"]]
+                      passing = sum(1 for b in branches if not b)
+                      if passing == 0:
+                          out += self._none_of("oneOf", branches, path)
+                      elif passing > 1:
+                          out.append((path, f"matches {passing} of the oneOf alternatives, exactly one is allowed"))
+                  if "not" in s and not self._check(s["not"], value, path, depth + 1):
+                      out.append((path, "matches a schema it must not match (not)"))
+                  if "if" in s:
+                      branch = "then" if not self._check(s["if"], value, path, depth + 1) else "else"
+                      if branch in s:
+                          out += self._check(s[branch], value, path, depth + 1)
+                  if isinstance(value, dict):
+                      out += self._object(s, value, path, depth)
+                  elif isinstance(value, list):
+                      out += self._array(s, value, path, depth)
+                  elif isinstance(value, str):
+                      out += self._string(s, value, path)
+                  elif type_of(value) in ("integer", "number"):
+                      out += self._number(s, value, path)
+                  return out
+
+              @staticmethod
+              def _none_of(keyword, branches, path):
+                  """The alternative that came closest, so that the message says what to fix.
+
+                  One whose type fits beats one of another type, then the fewest errors.
+                  """
+                  def wrong_type(branch):
+                      return any(p == path and m.startswith("is ") and ", expected " in m for p, m in branch)
+
+                  best = min(branches, key=lambda b: (wrong_type(b), len(b)))
+                  if len(best) == 1:
+                      p, m = best[0]
+                      return [(p, f"{m} (closest of the {keyword} alternatives)")]
+                  return [(path, f"matches none of the {keyword} alternatives")]
+
+              def _object(self, s, value, path, depth):
+                  out = []
+                  props = s.get("properties", {})
+                  for name in s.get("required", []):
+                      if name not in value:
+                          out.append((path, f"required key {name!r} is missing"))
+                  for name, deps in s.get("dependentRequired", {}).items():
+                      if name in value:
+                          out += [(path, f"{name!r} needs {d!r} too") for d in deps if d not in value]
+                  if "minProperties" in s and len(value) < s["minProperties"]:
+                      out.append((path, f"has {len(value)} keys, at least {s['minProperties']} expected"))
+                  if "maxProperties" in s and len(value) > s["maxProperties"]:
+                      out.append((path, f"has {len(value)} keys, at most {s['maxProperties']} allowed"))
+                  patterns = [(re.compile(p), sub) for p, sub in s.get("patternProperties", {}).items()]
+                  extra = s.get("additionalProperties", True)
+                  for name, item in value.items():
+                      where = path + (name,)
+                      if "propertyNames" in s:
+                          out += [(path, f"key {name!r}: {m}") for _, m in self._check(s["propertyNames"], name, where, depth + 1)]
+                      matched = False
+                      if name in props:
+                          matched = True
+                          out += self._check(props[name], item, where, depth + 1)
+                      for rx, sub in patterns:
+                          if rx.search(name):
+                              matched = True
+                              out += self._check(sub, item, where, depth + 1)
+                      if matched:
+                          continue
+                      if extra is False:
+                          allowed = ", ".join(sorted(props)) or "none"
+                          out.append((path, f"unknown key {name!r} (allowed: {allowed})"))
+                      elif isinstance(extra, dict):
+                          out += self._check(extra, item, where, depth + 1)
+                  return out
+
+              def _array(self, s, value, path, depth):
+                  out = []
+                  if "minItems" in s and len(value) < s["minItems"]:
+                      out.append((path, f"has {len(value)} items, at least {s['minItems']} expected"))
+                  if "maxItems" in s and len(value) > s["maxItems"]:
+                      out.append((path, f"has {len(value)} items, at most {s['maxItems']} allowed"))
+                  prefix = s.get("prefixItems", [])
+                  for i, item in enumerate(value):
+                      sub = prefix[i] if i < len(prefix) else s.get("items", True)
+                      out += self._check(sub, item, path + (i,), depth + 1)
+                  if s.get("uniqueItems"):
+                      for i in range(len(value)):
+                          if any(equal(value[i], value[j]) for j in range(i)):
+                              out.append((path + (i,), f"{short(value[i])} is repeated, the items are unique"))
+                  if "contains" in s:
+                      n = sum(1 for item in value if not self._check(s["contains"], item, path, depth + 1))
+                      low, high = s.get("minContains", 1), s.get("maxContains")
+                      if n < low or (high is not None and n > high):
+                          out.append((path, f"{n} items match contains, expected {low}" + (f" to {high}" if high else " or more")))
+                  return out
+
+              @staticmethod
+              def _string(s, value, path):
+                  out = []
+                  n = len(value)
+                  if "minLength" in s and n < s["minLength"]:
+                      out.append((path, f"is {n} characters long, at least {s['minLength']} expected"))
+                  if "maxLength" in s and n > s["maxLength"]:
+                      out.append((path, f"is {n} characters long, at most {s['maxLength']} allowed"))
+                  if "pattern" in s and not re.search(s["pattern"], value):
+                      out.append((path, f"{short(value)} does not match {s['pattern']}"))
+                  return out
+
+              @staticmethod
+              def _number(s, value, path):
+                  out = []
+                  if "minimum" in s and value < s["minimum"]:
+                      out.append((path, f"{value} is below the minimum {s['minimum']}"))
+                  if "maximum" in s and value > s["maximum"]:
+                      out.append((path, f"{value} is above the maximum {s['maximum']}"))
+                  if "exclusiveMinimum" in s and value <= s["exclusiveMinimum"]:
+                      out.append((path, f"{value} is not above {s['exclusiveMinimum']}"))
+                  if "exclusiveMaximum" in s and value >= s["exclusiveMaximum"]:
+                      out.append((path, f"{value} is not below {s['exclusiveMaximum']}"))
+                  if "multipleOf" in s:
+                      q = value / s["multipleOf"]
+                      if not math.isclose(q, round(q), abs_tol=1e-9):
+                          out.append((path, f"{value} is not a multiple of {s['multipleOf']}"))
+                  return out
+
+
+          def validate(schema, data) -> list:
+              return Validator(schema).errors(data)
+
+
+          SELF_TEST = [
+              ({"type": "object", "properties": {"a": {"type": "integer"}}, "additionalProperties": False},
+               {"a": 1}, 0),
+              ({"type": "object", "properties": {"a": {"type": "integer"}}, "additionalProperties": False},
+               {"a": 1, "b": 2}, 1),
+              ({"type": "string", "enum": ["Low", "High"]}, "Medium", 1),
+              ({"$defs": {"n": {"type": "number", "minimum": 0}}, "type": "array", "items": {"$ref": "#/$defs/n"}},
+               [1, -1, 2.5], 1),
+              ({"oneOf": [{"type": "string"}, {"type": "integer"}]}, True, 1),
+              ({"type": "integer"}, 2.0, 0),
+              ({"type": "integer"}, True, 1),
+          ]
+
+
+          def self_test() -> int:
+              failed = 0
+              for schema, data, expected in SELF_TEST:
+                  problems = schema_errors(schema)
+                  got = validate(schema, data)
+                  if problems or len(got) != expected:
+                      failed += 1
+                      print(f"FAIL {json.dumps(schema)} {json.dumps(data)}: {problems or got}")
+              print(f"{len(SELF_TEST) - failed} of {len(SELF_TEST)} passed")
+              return 1 if failed else 0
+
+
+          def main(argv: list) -> int:
+              if argv[:1] == ["--self-test"]:
+                  return self_test()
+              if len(argv) < 2:
+                  sys.exit(__doc__)
+              with open(argv[0], encoding="utf-8") as fh:
+                  schema = json.load(fh)
+              problems = schema_errors(schema)
+              for p in problems:
+                  print(f"{argv[0]}: {p}")
+              if problems:
+                  return 1
+              failed = 0
+              for path in argv[1:]:
+                  with open(path, encoding="utf-8") as fh:
+                      for e in validate(schema, json.load(fh)):
+                          failed += 1
+                          print(f"{path}: {e}")
+              return 1 if failed else 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main(sys.argv[1:]))
+          __CI_EOF__
+
+      - name: To-dos, links and collections
         if: ${{ !cancelled() }}
         run: |
           cat >"$RUNNER_TEMP/conventions.py" <<'__CI_EOF__'
@@ -655,11 +1063,13 @@ jobs:
           Usage: conventions.py <config.json> [<repository root>] [--only r1,r2] [--skip r1,r2]
 
           --only runs just the named rules, --skip leaves them out: the pr check runs
-          the rules every repository has (--only todo-issue,markdown-links), the
-          conventions job of a pipeline the rest.
+          the rules every repository has (--only todo-issue,markdown-links,
+          collection-schema), the conventions job of a pipeline the rest.
 
           The workflow converts conventions.yaml to JSON first (yq), so that this script
-          needs nothing beyond the Python standard library. The config:
+          needs nothing beyond the Python standard library; collection-schema reads
+          the YAML objects through the same yq and validates them with schema_check.py,
+          which the workflow writes next to this script. The config:
 
             rules:       <rule>: {level: error | warn | off, ...parameters}; the
                          rules in DEFAULT_ON run unless they are set to off, the others
@@ -1223,11 +1633,32 @@ jobs:
               return None
 
 
+          # What a unit may hold besides HCL, as globs relative to the unit directory
+          # (code/terragrunt.md of governance): the objects of a collection, the
+          # definition of a Logic App (Consumption) and the workflows of a Logic App
+          # (Standard).
+          UNIT_ASSETS = ["**/*.yaml", "definition.json", "workflows/*/workflow.json"]
+          RE_FILESET = re.compile(r'fileset\(\s*[^,()]+(?:\([^()]*\))?[^,()]*,\s*"([^"]+)"\s*\)')
+
+
+          def unit_readers(repo, unit):
+              """The text of a unit's terragrunt.hcl and of the _common/units/ files it includes."""
+              path = f"{unit}/terragrunt.hcl"
+              files = [path] + [f for f in unit_includes(repo, path) if repo.exists(f)]
+              return "\n".join("\n".join(text_lines(repo, f) or []) for f in files)
+
+
           def rule_unit_assets(repo, params, units, report):
-              """A unit holds HCL; any other file only from the allowlist, and read by its terragrunt.hcl."""
-              allowed = set(params.get("allowed", ["definition.json"]))
+              """A unit holds HCL; any other file only from the allowlist, and read by the unit.
+
+              Read means named in the unit's terragrunt.hcl, or matched by a fileset()
+              pattern of the unit or of the _common/units/ file it includes (a
+              collection reads its objects with fileset(get_terragrunt_dir(), "**/*.yaml")).
+              """
+              allowed = list(params.get("allowed", UNIT_ASSETS))
               roots = params.get("paths", ["infrastructure/**"])
               dirs = unit_dirs(repo)
+              readers = {}
               for path in repo.files:
                   if path.endswith(".hcl") or os.path.basename(path) == ".terraform.lock.hcl":
                       continue
@@ -1235,14 +1666,155 @@ jobs:
                   if unit is None and not matches(path, *roots):
                       continue
                   name = os.path.basename(path)
-                  if unit is None or os.path.dirname(path) != unit or name not in allowed:
+                  rel = path[len(unit) + 1:] if unit else path
+                  if unit is None or not matches(rel, *allowed):
+                      hint = " (a collection object is <key>.yaml)" if name.endswith(".yml") else ""
                       report.add("unit-assets", path, 1,
-                                 f"{name} is not HCL: only {', '.join(sorted(allowed)) or 'nothing'} may sit "
-                                 "next to a terragrunt.hcl; write the rest in HCL (a heredoc, inline KQL)")
+                                 f"{rel} is not HCL: a unit holds only {', '.join(allowed) or 'HCL'}{hint}; "
+                                 "write the rest in HCL or in the YAML of a collection")
                       continue
-                  text = "\n".join(text_lines(repo, f"{unit}/terragrunt.hcl") or [])
-                  if name not in text:
-                      report.add("unit-assets", path, 1, f"{name} is not read by {unit}/terragrunt.hcl")
+                  if unit not in readers:
+                      readers[unit] = unit_readers(repo, unit)
+                  text = readers[unit]
+                  if name not in text and not any(matches(rel, p) for p in RE_FILESET.findall(text)):
+                      report.add("unit-assets", path, 1,
+                                 f"{rel} is not read by {unit}: name it in its terragrunt.hcl, or read the "
+                                 "collection with fileset() in its _common/units/ file")
+
+
+          # --------------------------------------------------------------------------
+          # Collections: one object per <key>.yaml, checked against the JSON Schema of
+          # the module that takes them (code/terragrunt.md#collections of governance).
+
+          RE_KEY = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+          def yaml_files(repo):
+              return [f for f in repo.files if f.endswith((".yaml", ".yml"))]
+
+
+          def collections_of(repo, params):
+              """{collection directory: (schema name, file the collection is reported on)}."""
+              found, dirs = {}, unit_dirs(repo)
+              files = yaml_files(repo)
+              roots = params.get("paths", ["infrastructure/**"])
+              for unit in sorted(dirs):
+                  own = [f[len(unit) + 1:] for f in files if owning_unit(f, dirs) == unit]
+                  if not own or not matches(unit + "/x", *roots):
+                      continue
+                  # A collection reads its objects with fileset(); a YAML file nothing
+                  # reads is unit-assets' to report.
+                  patterns = RE_FILESET.findall(unit_readers(repo, unit))
+                  if not any(matches(rel, p) for rel in own for p in patterns):
+                      continue
+                  module, _, _ = module_of(repo, f"{unit}/terragrunt.hcl")
+                  found[unit] = (os.path.basename(module) if module else None, f"{unit}/terragrunt.hcl")
+              # Folders that are collections without a unit: the catalogue repository.
+              for entry in params.get("collections") or []:
+                  folder, schema = str(entry.get("path", "")).strip("/"), entry.get("schema")
+                  for f in files:
+                      d = os.path.dirname(f)
+                      while d:
+                          if matches(d, folder):
+                              found.setdefault(d, (schema, f))
+                              break
+                          d = os.path.dirname(d)
+              return found
+
+
+          def yaml_to_json(repo, path, yq):
+              """(data, error) of a YAML file, read by yq the way the runner has it."""
+              out = subprocess.run([yq, "-o=json", "-I=0", ".", os.path.join(repo.root, path)],
+                                   capture_output=True, text=True)
+              if out.returncode != 0:
+                  return None, "does not parse as YAML: " + (out.stderr.strip().splitlines() or ["?"])[-1]
+              docs = [line for line in out.stdout.splitlines() if line.strip()]
+              if len(docs) != 1:
+                  return None, "holds more than one YAML document; one object is one file"
+              return json.loads(docs[0]), None
+
+
+          def line_of(repo, path, error):
+              """The line of the key an error names, so that the annotation lands on it."""
+              m = re.match(r"(/\S*): (?:unknown key '([^']+)'|required key)", error)
+              names = []
+              if m and m.group(2):
+                  names.append(m.group(2))
+              if m:
+                  names += [p for p in reversed(m.group(1).split("/")) if p and not p.isdigit()]
+              lines = text_lines(repo, path) or []
+              for name in names:
+                  rx = re.compile(r"^\s*(?:-\s+)?[\"']?" + re.escape(name) + r"[\"']?\s*:")
+                  for n, line in enumerate(lines, 1):
+                      if rx.match(line):
+                          return n
+              return 1
+
+
+          def rule_collection_schema(repo, params, units, report):
+              """Every object of a collection is <key>.yaml with a unique key and matches its module's schema.
+
+              The schema of a unit's collection is <schemas>/<module>.schema.json, the
+              module named by the unit's source; a folder outside every unit is a
+              collection when `collections` lists it ({path: <glob>, schema: <module>}).
+              """
+              import schema_check
+
+              folder = params.get("schemas", ".github/schemas").strip("/")
+              yq = params.get("yq") or os.environ.get("YQ", "yq")
+              groups = collections_of(repo, params)
+              dirs = unit_dirs(repo)
+              loaded = {}
+              for coll, (name, anchor) in sorted(groups.items()):
+                  if not name:
+                      report.add("collection-schema", anchor, 1, f"{coll} holds YAML but runs no module to take it")
+                      continue
+                  schema_path = f"{folder}/{name}.schema.json"
+                  if schema_path not in loaded:
+                      loaded[schema_path] = None
+                      if not repo.exists(schema_path):
+                          report.add("collection-schema", anchor, 1,
+                                     f"{coll} is a collection of {name} without its schema {schema_path} "
+                                     "(the module's schema.json, copied with the modules_ref it pins)")
+                          continue
+                      try:
+                          with open(os.path.join(repo.root, schema_path), encoding="utf-8") as fh:
+                              schema = json.load(fh)
+                      except ValueError as e:
+                          report.add("collection-schema", schema_path, 1, f"not JSON: {e}")
+                          continue
+                      problems = schema_check.schema_errors(schema) + schema_check.closed_errors(schema)
+                      for p in problems:
+                          report.add("collection-schema", schema_path, 1, p)
+                      if not problems:
+                          loaded[schema_path] = schema_check.Validator(schema)
+                  validator = loaded[schema_path]
+                  keys = {}
+                  for path in yaml_files(repo):
+                      in_unit = owning_unit(path, dirs)
+                      if not (path.startswith(coll + "/") and (in_unit == coll or (coll not in dirs and in_unit is None))):
+                          continue
+                      stem, ext = os.path.splitext(os.path.basename(path))
+                      if ext != ".yaml":
+                          report.add("collection-schema", path, 1, f"{os.path.basename(path)}: an object is <key>.yaml")
+                      if not RE_KEY.match(stem):
+                          report.add("collection-schema", path, 1,
+                                     f"key {stem!r}: lowercase ASCII words joined by '-', the file name is the key")
+                      keys.setdefault(stem, []).append(path)
+                      if validator is None:
+                          continue
+                      data, error = yaml_to_json(repo, path, yq)
+                      if error:
+                          report.add("collection-schema", path, 1, error)
+                          continue
+                      for e in validator.errors(data):
+                          report.add("collection-schema", path, line_of(repo, path, e), e)
+                  for stem, paths in sorted(keys.items()):
+                      if len(paths) > 1:
+                          for p in paths:
+                              others = ", ".join(x for x in paths if x != p)
+                              report.add("collection-schema", p, 1,
+                                         f"key {stem!r} is also {others}: a key is unique in its collection")
 
 
           SCOPE_CONTEXT = {"mg": "mg.hcl", "sub": "subscription.hcl", "region": "region.hcl", "rg": "rg.hcl"}
@@ -1317,14 +1889,20 @@ jobs:
 
 
           def rule_folder_dictionary(repo, params, units, report):
-              """A unit folder is named after its module: <module> or <module>-<purpose>."""
+              """A unit folder is named after its module: <module> or <module>-<purpose>.
+
+              `prefixes` lets a folder leave out the platform word a module name starts
+              with: with `sentinel-`, analytic-rules/ runs azure/sentinel-analytic-rules.
+              """
               folders = {**SCOPE_FOLDERS, **(params.get("folders") or {})}
+              prefixes = list(params.get("prefixes") or [])
               for path in units:
                   module, _, source_file = module_of(repo, path)
                   if not module:
                       continue
                   name = os.path.basename(module)
                   folder = os.path.basename(os.path.dirname(path))
+                  short = next((name[len(p):] for p in prefixes if name.startswith(p) and len(name) > len(p)), None)
                   if source_file != path and os.path.basename(source_file) != f"{name}.hcl":
                       report.add("folder-dictionary", source_file, 1,
                                  f"{source_file} runs the module {module}: it is named {name}.hcl")
@@ -1333,6 +1911,7 @@ jobs:
                   plural = name[:-1] + "ies" if name.endswith("y") else name + "s"
                   parent = os.path.basename(os.path.dirname(os.path.dirname(path)))
                   if folder == name or folder.startswith(name + "-") or parent == plural \
+                          or (short and (folder == short or folder.startswith(short + "-"))) \
                           or (globs and matches(folder, *globs)):
                       continue
                   report.add("folder-dictionary", path, 1,
@@ -1499,13 +2078,15 @@ jobs:
               "no-envcommon": rule_no_envcommon,
               "lock-none-needs-reason": rule_lock_none_needs_reason,
               "unit-assets": rule_unit_assets,
+              "collection-schema": rule_collection_schema,
               "scope-layout": rule_scope_layout,
               "folder-dictionary": rule_folder_dictionary,
               "todo-issue": rule_todo_issue,
               "markdown-links": rule_markdown_links,
           }
-          # Rules every repository has without naming them; level off turns one off.
-          DEFAULT_ON = ("todo-issue", "markdown-links")
+          # Rules every repository has without naming them (pr / check runs them);
+          # level off turns one off.
+          DEFAULT_ON = ("todo-issue", "markdown-links", "collection-schema")
           LEVELS = ("error", "warn", "off")
 
 
@@ -1626,7 +2207,7 @@ jobs:
             echo '{}' >"$RUNNER_TEMP/conventions.json"
           fi
           python3 "$RUNNER_TEMP/conventions.py" "$RUNNER_TEMP/conventions.json" . \
-            --only todo-issue,markdown-links
+            --only todo-issue,markdown-links,collection-schema
 
       # The pinned image of markdownlint-cli2: the version and the digest of
       # its multi-platform index (bumped together, like the tools of
