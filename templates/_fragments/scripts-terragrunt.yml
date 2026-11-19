@@ -28,3 +28,13 @@
     @@include src/terragrunt/trivy-plans.sh@@
     __CI_EOF__
     chmod +x "$d"/*
+
+# A step of its own: actionlint deadlocks on a run script of more than about
+# 64 KB (it feeds shellcheck through a pipe), so the scripts are split.
+- name: Verification script
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/verify-apply.py" <<'__CI_EOF__'
+    @@include src/terragrunt/verify-apply.py@@
+    __CI_EOF__
+    chmod +x "$d/verify-apply.py"

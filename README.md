@@ -24,9 +24,9 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck |
 | `pr.yml` | `pr` | every repository | Conventional Commit title, `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`); the root layout (`src/layout_check.py`, below) |
 | `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `.github` | an optional command of the repository, then the gate |
-| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, plan of the affected units with trivy and a PR comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, gate |
+| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, validate, plan of the affected units with trivy and a PR comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, verification of the apply, gate |
 | `destroy-review.yml` | `review` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` check of the last pull request run |
-| `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, analytic rules outside the code |
+| `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, failed check blocks, analytic rules outside the code |
 | `terragrunt-home.yml` | `pipeline` | `iac-home` | conventions, plan and apply of the router through WireGuard, certificate renewal and drift on schedule |
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
 | `m365-dsc.yml` | `pipeline` | `iac-m365` | schema check, Pester, PSScriptAnalyzer, plan of the affected types, apply |
@@ -211,6 +211,89 @@ exceptions:
 
 The KQL itself is not run: that needs a workspace and an identity that may
 read it.
+
+## Terragrunt: validate and verify
+
+`terragrunt.yml` runs these jobs (checks `pipeline / <job>`; only
+`pipeline / gate` is required, and it needs all of them):
+
+```text
+changes -> validate -> plan -> apply -> verify
+                                          \-> gate (always)
+```
+
+**validate** runs before every plan, on pull requests and on `main`, and
+signs in nowhere. It fails early with an annotation that says what to do:
+
+| Step | Fails when |
+|---|---|
+| HCL formatting | `terragrunt hcl fmt --check` finds an unformatted file |
+| HCL validation | `terragrunt hcl validate` cannot read a file |
+| Principal references | a principal the change creates is referenced by display name (`principal-refs`) |
+| Select the units | a unit directory moved (its state key would change) |
+| Terraform validate | `terraform validate` (its init with `-backend=false`) fails in a selected unit; dependencies answer with their mock outputs for validate (`--no-dependency-outputs`) |
+| Lock files | a committed `.terraform.lock.hcl` had to change in init; skipped when none is committed |
+
+The selection it makes is the one plan and apply use.
+
+**Verification** runs in the apply job right after the apply, so it adds a
+minute or two rather than a job of its own:
+
+1. *Plan again* - the applied units once more, at once, with
+   `-detailed-exitcode`: anything but "no changes" fails.
+2. *Failed Azure operations* - `az monitor activity-log list --status Failed`
+   in the subscriptions of the applied units' azurerm providers (and
+   `subscription-id`), from a minute before the apply until now, filtered
+   to the apply identity. Skipped where no unit has an azurerm provider
+   (`iac-github`). The Activity Log lags by a minute or more, so an
+   operation that failed at the very end may be missed; a log that cannot
+   be read is reported as `unreadable`, not as a failure.
+3. *Check blocks* - every `check {}` that failed, from the second plan's JSON
+   and from the warnings in the apply log.
+
+The result is `verification.md` (a `| Check | Result | Detail |` table, the
+body of the apply comment's `### Verification` section) and
+`verification.json`, in the job summary and in the artifact
+`verification-<run id>` that the apply comment picks up. `verification.json`,
+version 1:
+
+```json
+{
+  "version": 1,
+  "result": "passed | failed",
+  "commit": "<sha>",
+  "run_url": "https://github.com/<repo>/actions/runs/<id>",
+  "replan": {"result": "no-changes | changes | error | skipped", "exit_code": 0,
+             "units_with_changes": [], "errors": []},
+  "activity_log": {"result": "passed | failed | skipped | unreadable", "reason": "...",
+                   "subscriptions": [], "window": {"start": "...", "end": "..."},
+                   "failures": [{"time": "...", "operation": "...", "resource": "...",
+                                 "status": "...", "sub_status": "...", "message": "..."}]},
+  "checks": {"result": "passed | failed | none", "passed": 0, "unknown": 0,
+             "failed": [{"unit": "...", "check": "...", "message": "...", "source": "plan | apply"}]}
+}
+```
+
+**verify** is the only job that writes to the repository
+(`contents`, `pull-requests`, `issues: write`). When the verification
+failed it turns red and, without rolling anything back:
+
+- opens a `Bug` issue `Apply of <sha> failed its verification` (`prio:high`,
+  `source:drift`, assigned to the owner) with the table, the JSON and the
+  run link, or comments on the open one;
+- on a push, pushes `revert/<short-sha>` with `git revert` of the commit
+  (`-m1` for a merge commit) and opens it as a draft pull request
+  `revert: <original title>`. A pull request opened with the workflow token
+  starts no checks until someone pushes or reopens it. Where the repository
+  does not let GitHub Actions create pull requests, or the commit changes a
+  workflow file, the issue says so and links the branch or asks for a revert
+  by hand. A manual run has no single commit and gets only the issue.
+
+The caller grants those permissions to the `pipeline` job (`contents: write`,
+`issues: write` next to the rest); without them the workflow does not start.
+
+`terragrunt-drift.yml` reports failed check blocks of the whole tree as
+well, and fails on them.
 
 ## How a script gets into a workflow
 
