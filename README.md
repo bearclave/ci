@@ -24,7 +24,8 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck |
 | `pr.yml` | `pr` | every repository | Conventional Commit title, `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`); the root layout (`src/layout_check.py`, below) |
 | `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `.github` | an optional command of the repository, then the gate |
-| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, validate, plan of the affected units with trivy and a PR comment, apply from `main`, destroys held back, verification of the apply, gate |
+| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, validate, plan of the affected units with trivy and a PR comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, verification of the apply, gate |
+| `destroy-review.yml` | `review` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` check of the last pull request run |
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, failed check blocks, analytic rules outside the code |
 | `terragrunt-home.yml` | `pipeline` | `iac-home` | conventions, plan and apply of the router through WireGuard, certificate renewal and drift on schedule |
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
@@ -329,7 +330,7 @@ one.
   then proposes the bump as a pull request with its plan.
 - `v1` stays where it is for anything that still calls it; it gets no changes.
 - The `release-tags` ruleset refuses to update or delete a `v*.*.*` tag; only
-  an organisation owner may move `v2`.
+  an organisation owner may move `v2`, with `tools/move-major-tag.sh`.
 - Everything the workflows themselves use is pinned to a commit; the
   organisation enforces that (`sha_pinning_required`).
 
@@ -360,8 +361,11 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
    git switch main && git pull --ff-only
    git tag -s v2.1.0 -m v2.1.0 && git push origin v2.1.0
    gh release create v2.1.0 --verify-tag --generate-notes
-   git tag -fs v2 -m "v2 -> v2.1.0" "v2.1.0^{}" && git push -f origin v2
+   tools/move-major-tag.sh v2.1.0
    ```
+
+   The script moves `v2` only to a published, signed release; it is the one
+   force push an agent may run (allowed for this script alone).
 
 4. Rerun the pipeline in one caller to see it there too.
 
