@@ -15,15 +15,6 @@
     cat >"$d/release-stale-locks.py" <<'__CI_EOF__'
     @@include src/terragrunt/release-stale-locks.py@@
     __CI_EOF__
-    cat >"$d/plan-summary.py" <<'__CI_EOF__'
-    @@include src/terragrunt/plan-summary.py@@
-    __CI_EOF__
-    cat >"$d/apply-summary.py" <<'__CI_EOF__'
-    @@include src/terragrunt/apply-summary.py@@
-    __CI_EOF__
-    cat >"$d/plan_details.py" <<'__CI_EOF__'
-    @@include src/terragrunt/plan_details.py@@
-    __CI_EOF__
     cat >"$d/portal-rules.py" <<'__CI_EOF__'
     @@include src/terragrunt/portal-rules.py@@
     __CI_EOF__
@@ -31,3 +22,29 @@
     @@include src/terragrunt/trivy-plans.sh@@
     __CI_EOF__
     chmod +x "$d"/*
+
+# A step of its own: actionlint deadlocks on a run script of more than about
+# 64 KB (it feeds shellcheck through a pipe), so the scripts are split.
+- name: Verification script
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/verify-apply.py" <<'__CI_EOF__'
+    @@include src/terragrunt/verify-apply.py@@
+    __CI_EOF__
+    chmod +x "$d/verify-apply.py"
+
+# The plan comment's two scripts, a step each for the same reason.
+- name: Plan summary script
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/plan-summary.py" <<'__CI_EOF__'
+    @@include src/terragrunt/plan-summary.py@@
+    __CI_EOF__
+    chmod +x "$d/plan-summary.py"
+
+- name: Plan details script
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/plan_details.py" <<'__CI_EOF__'
+    @@include src/terragrunt/plan_details.py@@
+    __CI_EOF__

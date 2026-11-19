@@ -214,8 +214,9 @@ class MultiUnit(unittest.TestCase):
 
     def test_needed_lists_the_fix_and_the_approval(self):
         self.assertIn("**Needed:**\n\n- fix the errors above", self.comment)
-        self.assertIn("- approval of the destroy: after the merge the apply waits, run the "
-                      "workflow on `main` by hand with `allow_destroy`", self.comment)
+        self.assertIn("- approval of the destroy: an approving review of this pull request "
+                      "after this plan (`destroy / approved`), then the merge applies it",
+                      self.comment)
 
     def test_diff_is_what_terraform_printed(self):
         for unit in ["web/site", "web/misc", "web/db"]:
@@ -479,6 +480,31 @@ class Readable(unittest.TestCase):
         self.assertEqual(rg["rows"], [["tag `criticality`", "`medium`", "`high`"]])
         self.assertEqual(self.result["changes"]["units"], ["mg/rg-web"])
 
+    def test_shards_export_what_the_merge_shows(self):
+        """The merge over the exports reads as one job over the JSON plans would."""
+        with tempfile.TemporaryDirectory() as tmp:
+            trivy = pathlib.Path(tmp, "trivy")
+            trivy.mkdir()
+            report = {"Results": [{"Target": "mg/rg-web/tfplan.json", "Misconfigurations": [
+                {"AVDID": "AVD-AZU-0013", "Title": "Key vault network ACL default action",
+                 "Severity": "HIGH", "Status": "FAIL",
+                 "CauseMetadata": {"Resource": "azurerm_key_vault.this"}}]}]}
+            pathlib.Path(trivy, "mg_rg-web.json").write_text(json.dumps(report))
+            whole = run(sample("readable.txt"), f"--json-dir={HERE / 'readable'}",
+                        f"--trivy={trivy}")
+            parts = pathlib.Path(tmp, "parts")
+            parts.mkdir()
+            run(sample("readable.txt"), f"--json-dir={HERE / 'readable'}",
+                f"--export={parts / 'shard-0.json'}")
+            run(sample("no-change.txt"), f"--trivy={trivy}", f"--export={parts / 'shard-1.json'}")
+            merged = run(sample("readable.txt"), f"--import={parts}", "--trivy=")
+            exported = json.loads((parts / "shard-0.json").read_text())
+        self.assertEqual(merged["comment"], whole["comment"])
+        self.assertEqual(merged["github_output"], whole["github_output"])
+        # Only what the comment shows leaves a share, never the plan JSON.
+        self.assertEqual(set(exported), {"entries", "outputs", "findings"})
+        self.assertNotIn("s3cr3t", json.dumps(exported))
+
     def test_trivy_findings(self):
         with tempfile.TemporaryDirectory() as tmp:
             report = {"Results": [{"Target": "mg/rg-web/tfplan.json", "Misconfigurations": [
@@ -702,7 +728,8 @@ class ApplyComment(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pathlib.Path(tmp, "a").mkdir()
             pathlib.Path(tmp, "a", "verification.md").write_text(
-                "| Check | Result | Detail |\n|---|---|---|\n| description | ✅ | matches |\n")
+                "### Verification\n\n| Check | Result | Detail |\n|---|---|---|\n"
+                "| description | ✅ | matches |\n")
             comment = self.apply((base / "plan.txt", base / "plan-json"),
                                  (HERE / "apply" / "handbook.txt").read_text(), f"--verification={tmp}")
         self.assertTrue(comment.endswith("### Verification\n\n| Check | Result | Detail |\n|---|---|---|\n"

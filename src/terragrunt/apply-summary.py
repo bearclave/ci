@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turns the output of a terragrunt apply into the apply comment of the merged pull request.
 
-Usage: apply-summary.py <apply.txt> --changes=<changes.json> [options]
+Usage: apply-summary.py <apply output>... --changes=<changes.json> [options]
 
 The comment, top to bottom:
 
@@ -82,13 +82,19 @@ def duration(start: str, end: str) -> str:
     return f"{s // 60} min {s % 60} s" if s >= 60 else f"{s} s"
 
 
-def read_apply(path: str) -> dict:
-    """Per unit: resources done, failed (address -> error), error blocks, finished."""
+def read_apply(paths: list) -> dict:
+    """Per unit: resources done, failed (address -> error), error blocks, finished.
+
+    The output of the destroy of deleted units and of the apply; a file that
+    is not there (nothing was destroyed) is skipped.
+    """
     units = {}
-    if not path or not os.path.isfile(path):
-        return units
+    lines = []
+    for path in paths:
+        if path and os.path.isfile(path):
+            lines += open(path, encoding="utf-8", errors="replace").readlines()
     modes = {}
-    for line in open(path, encoding="utf-8", errors="replace"):
+    for line in lines:
         line = line.rstrip("\n")
         m = RE_UNIT.search(line)
         if not m:
@@ -143,14 +149,14 @@ def result(entry: dict, units: dict, outcome: str) -> str:
     return "✅ done"
 
 
-def main(path: str, opts: dict) -> int:
+def main(paths: list, opts: dict) -> int:
     changes = {}
     if opts.get("changes") and os.path.isfile(opts["changes"]):
         changes = json.loads(pathlib.Path(opts["changes"]).read_text(encoding="utf-8"))
     entries = [e for e in changes.get("entries", []) if not e.get("noop_import")]
     noop_imports = changes.get("noop_imports") or {}
     outcome = opts.get("outcome") or "success"
-    units = read_apply(path)
+    units = read_apply(paths)
 
     results = [(e, result(e, units, outcome)) for e in entries]
     any_failed = any(r.startswith("❌") for _, r in results) or any(
@@ -194,6 +200,8 @@ def main(path: str, opts: dict) -> int:
     if vdir and os.path.isdir(vdir):
         for f in sorted(pathlib.Path(vdir).rglob("*.md")):
             text = f.read_text(encoding="utf-8").strip()
+            # A check that writes its own section heading gets this one.
+            text = re.sub(r"^#{1,3} Verification[ \t]*\n+", "", text).strip()
             if text:
                 verification.append(text)
 
@@ -259,4 +267,4 @@ if __name__ == "__main__":
         if a.startswith("--"):
             key, _, value = a[2:].partition("=")
             opts[key] = value
-    sys.exit(main(paths[0] if paths else "", opts))
+    sys.exit(main(paths, opts))

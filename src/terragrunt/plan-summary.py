@@ -37,6 +37,10 @@ Options:
                      $GITHUB_OUTPUT; a plan that destroys or replaces is not
                      applied by a push, it waits for a manual run
   --json-dir=<dir>   the plans in JSON, <dir>/<unit>/tfplan.json
+  --export=<file>    a share of a split plan: write the rows of its JSON plans,
+                     its outputs and trivy findings, for the merge
+  --import=<dir>     the merge: read every such file of the directory, next to
+                     the concatenated plan.txt of all shares
   --trivy=<dir>      trivy's JSON reports over those plans, one per unit
   --checks=<list>    results of the checks of the same job, as
                      name=outcome,name=outcome (formatting=success,...)
@@ -194,6 +198,23 @@ def trivy_findings(reports: str) -> list:
     return sorted(found)
 
 
+def shared_parts(directory: str) -> tuple:
+    """What the shares of a split plan exported (--export), merged.
+
+    The JSON plans hold sensitive values in clear text and never leave the job
+    that made them; a share passes on only the rows the comment shows.
+    """
+    entries, outputs, findings = {}, {}, set()
+    if directory and os.path.isdir(directory):
+        for part in sorted(pathlib.Path(directory).glob("*.json")):
+            data = json.loads(part.read_text(encoding="utf-8") or "{}")
+            for unit, items in (data.get("entries") or {}).items():
+                entries[unit] = [{**e, "rows": [tuple(r) for r in e["rows"]]} for e in items]
+            outputs.update(data.get("outputs") or {})
+            findings.update(tuple(f) for f in data.get("findings") or [])
+    return entries, outputs, sorted(findings)
+
+
 def read_output(path: str):
     """units {unit: (add, chg, dst, imp)}, parsed per unit, loose lines, queue, errors."""
     units, errors, streams, loose, queued = {}, [], {}, [], {}
@@ -256,11 +277,16 @@ def main(path: str, opts: dict) -> int:
     units, parsed, loose, queued, errors = read_output(path)
 
     # Every resource the plan touches, from JSON where there is one.
-    entries, from_json, outputs = [], set(), {}
+    shared, shared_outputs, shared_findings = shared_parts(opts.get("import"))
+    entries, from_json, outputs = [], {}, {}
     for u, p in sorted(parsed.items()):
         plan_json = pathlib.Path(opts.get("json-dir") or "", u, "tfplan.json")
         got = None
-        if opts.get("json-dir") and plan_json.is_file():
+        if u in shared:
+            got = shared[u]
+            if shared_outputs.get(u):
+                outputs[u] = shared_outputs[u]
+        elif opts.get("json-dir") and plan_json.is_file():
             try:
                 plan = plan_details.load(plan_json)
                 got = plan_details.entries(plan, u)
@@ -268,7 +294,7 @@ def main(path: str, opts: dict) -> int:
                         if (v or {}).get("actions") not in (["no-op"], None)]
                 if outs:
                     outputs[u] = outs
-                from_json.add(u)
+                from_json[u] = got
             except (ValueError, KeyError, TypeError, AttributeError) as e:
                 print(f"::warning::{u}: the JSON plan could not be read ({e})", file=sys.stderr)
         if got is None:
@@ -318,7 +344,11 @@ def main(path: str, opts: dict) -> int:
                            | {u for u, t in units.items() if any(t)})
     unchanged = [u for u in all_units if u not in changed_units and u in units]
     many = len({e["unit"] for e in listed}) > 1
-    findings = trivy_findings(opts.get("trivy"))
+    findings = sorted(set(shared_findings) | set(trivy_findings(opts.get("trivy"))))
+    if export := opts.get("export"):
+        pathlib.Path(export).write_text(json.dumps({
+            "entries": from_json, "outputs": {u: outputs[u] for u in from_json if u in outputs},
+            "findings": findings}, ensure_ascii=False), encoding="utf-8")
 
     diffs = {}
     for u in changed_units:
@@ -374,8 +404,8 @@ def main(path: str, opts: dict) -> int:
         needed.append("fix the security findings or accept them in "
                       "`.github/trivyignore.yaml` with the reason")
     if destructive:
-        needed.append("approval of the destroy: after the merge the apply waits, run the "
-                      "workflow on `main` by hand with `allow_destroy`")
+        needed.append("approval of the destroy: an approving review of this pull request "
+                      "after this plan (`destroy / approved`), then the merge applies it")
     if not needed:
         needed.append("review and merge; the apply on `main` runs by itself" if changes
                       else "nothing; merging applies nothing")
