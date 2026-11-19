@@ -52,6 +52,10 @@ federation is a smaller blast radius.
 | GitHub App | the read-only App (`bearclave-iac-github-read`): all permissions `read` | the App that writes (`bearclave-iac-github`) | `bearclave-bot`: contents, pull requests, issues, workflows `write`, projects `write`, major-tag bypass | - |
 
 - No deploy token, client secret or certificate read by a plan identity.
+  Known exception: `sp-tf-plan` holds `Static Web App Secret Reader` on both
+  sites, because azurerm reads the deployment token on every refresh of
+  `azurerm_static_web_app`. It goes once the module stops reading it
+  (`api_key` ignored or the site through azapi).
 - A Tier-0 permission (Owner on a management group, Privileged Role
   Administrator, `RoleManagement.ReadWrite.Directory`, `Directory.ReadWrite.All`)
   only on an **apply** identity, federated only on its environment.
@@ -99,8 +103,8 @@ not.
 | Federated credentials | `iac-azure` `tenant/federated-credentials` |
 | Azure RBAC, Key Vault and state access | the unit of the resource, `role_assignments` |
 | Entra roles, Graph permissions | `iac-azure` `tenant/directory-roles`, `tenant/graph-permissions` |
-| Client ID in GitHub | repository variable in `iac-github` (`repositories/<name>`) |
-| GitHub Apps | `iac-github` `tools/github-apps.py`, `tools/bearclave-bot.py` (key in the Key Vault) |
+| Client ID in GitHub | repository variable in `iac-github` (`infrastructure/repositories/<name>`) |
+| GitHub Apps | the know-how repository `tools/iac-github/github-apps.py` (`iac-github`, `bearclave-bot`; key in the Key Vault), procedure in `iac-github` `docs/setup.md` |
 | Inventory | `bearclave/ci` `docs/identities.md` |
 
 A new identity is one pull request in `iac-azure` (application, credential,

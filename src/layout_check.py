@@ -95,7 +95,14 @@ def check(layout: dict, config: dict, name: str, root: str) -> tuple:
     for entry in sorted(root_files):
         if entry not in allowed_files and not excepted(entry):
             errors.append((entry, f"{entry} does not belong in the root (layout.md: .github/, tools/, docs/ or a folder)"))
+    forbidden = merged(layout, group, pipeline, "forbidden")
     for entry in sorted(root_dirs):
+        if entry in forbidden:
+            if not excepted(entry):
+                errors.append((entry, f"{entry}/ has no place in a {pipeline} repository (layout.md: "
+                                      "a pipeline's script lives in bearclave/ci, a person's in the "
+                                      "know-how repository, a bootstrap in docs/setup.md)"))
+            continue
         if entry in allowed_dirs or (kind and holds(files, entry, kind)) or excepted(entry):
             continue
         errors.append((entry, f"{entry}/ is not a folder of the layout for {group}/{pipeline}"))
@@ -148,13 +155,26 @@ def main(layout_path: str, config_path: str, name: str, root: str = ".") -> int:
 
 def self_test() -> int:
     layout = {"common": {"required": ["README.md", ".github"], "files": ["README.md", ".gitignore"],
-                         "folders": [".github", "src", "docs"], "github": ["workflows"],
+                         "folders": [".github", "src", "tools", "docs"], "github": ["workflows"],
                          "docs_name": r"^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+)?$"},
               "groups": {"app": {"folders": ["content"]}},
-              "pipelines": {"terragrunt": {"files": ["root.hcl"], "content": "units"}, "checks": {}}}
+              "pipelines": {"terragrunt": {"required": ["root.hcl", "infrastructure"], "files": ["root.hcl"],
+                                           "folders": ["infrastructure"], "forbidden": ["tools", "deploy"]},
+                            "terraform-modules": {"content": "modules"}, "checks": {}}}
     cases = [
-        ("iac-x", "terragrunt", ["README.md", "root.hcl", "mg/rg/terragrunt.hcl", "docs/setup.md"], {}, 0),
-        ("iac-x", "terragrunt", ["README.md", "SETUP.md", "scripts/a.sh", "docs/Setup.md"], {}, 3),
+        ("iac-x", "terragrunt", ["README.md", "root.hcl", "infrastructure/mg/rg/terragrunt.hcl",
+                                 "docs/setup.md"], {}, 0),
+        ("iac-x", "terragrunt", ["README.md", "root.hcl", "SETUP.md", "scripts/a.sh", "docs/Setup.md",
+                                 "infrastructure/a/terragrunt.hcl"], {}, 3),
+        # Units outside infrastructure/, tools/ and deploy/ in an IaC repository.
+        ("iac-x", "terragrunt", ["README.md", "root.hcl", "infrastructure/a/terragrunt.hcl",
+                                 "mg/rg/terragrunt.hcl", "tools/a.sh", "deploy/a.yaml"], {}, 3),
+        ("iac-x", "terragrunt", ["README.md", "root.hcl", "mg/terragrunt.hcl"], {}, 2),
+        ("iac-x", "terragrunt", ["README.md", "root.hcl", "infrastructure/a/terragrunt.hcl",
+                                 "tenant/g/terragrunt.hcl", "tools/a.sh"],
+         {"exceptions": [{"path": "tenant", "reason": "retired"},
+                         {"path": "tools", "reason": "moving out"}]}, 0),
+        ("iac-modules", "terraform-modules", ["README.md", "azure/key-vault/main.tf", "tools/catalog.py"], {}, 0),
         ("app-x", "checks", ["README.md", "content/a.txt", ".github/scripts/a.sh"], {}, 1),
         ("handbook", "checks", ["README.md", "gotchas/a.md"],
          {"exceptions": [{"path": "gotchas", "reason": "content"}]}, 0),

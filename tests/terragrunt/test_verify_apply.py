@@ -96,6 +96,12 @@ class VerifyApply(unittest.TestCase):
         self.assertEqual(v["activity_log"]["result"], "skipped")
         self.assertIn("`web/db`", md)
 
+    def test_unit_under_infrastructure_is_named_by_its_key(self):
+        self.write_plan("infrastructure/web/db", plan([("terraform_data.a", ["update"])]))
+        v, md = self.report(2, {"skipped": "no applied unit deploys to an Azure subscription"})
+        self.assertEqual(v["replan"]["units_with_changes"], ["web/db"])
+        self.assertNotIn("infrastructure/", md)
+
     def test_change_found_even_when_exit_code_says_none(self):
         self.write_plan("web/db", plan(outputs={"x": {"actions": ["create"]}}))
         v, _ = self.report(0, {"skipped": "none"})

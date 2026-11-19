@@ -2,8 +2,10 @@
 # The pipeline of a repository of Terraform modules (iac-modules). Nothing
 # reaches a cloud: no credentials, no backend, no apply.
 #
-#   formatting, init -backend=false + validate per module, tflint, trivy
-#   config over the modules, and the conventions in conventions.yaml
+#   formatting, init -backend=false + validate per module, terraform test
+#   where a module has tests/, tflint, trivy config over the modules, the
+#   README tables (terraform-docs, where .terraform-docs.yml is), the catalog
+#   (docs/catalog.md, where it is), and the conventions in conventions.yaml
 #
 #   jobs:
 #     pipeline:
@@ -11,7 +13,7 @@
 #       permissions:
 #         contents: read
 #
-# Versions: TERRAFORM_VERSION, TFLINT_*, TRIVY_* in the caller's
+# Versions: TERRAFORM_VERSION, TFLINT_*, TRIVY_*, TERRAFORM_DOCS_* in the caller's
 # .github/tool-versions.env. The required check is "pipeline / gate".
 name: terraform-modules
 
@@ -57,7 +59,7 @@ jobs:
           # download is checked against the sha256 in the calling repository's
           # tool-versions.env.
           #
-          # Usage: install-tools.sh terragrunt trivy tflint
+          # Usage: install-tools.sh terragrunt trivy tflint terraform-docs
           #
           # TOOL_VERSIONS  the versions file (default .github/tool-versions.env)
           # TOOLS_DIR      where the binaries go (default ~/.cache/iac-tools/bin)
@@ -97,8 +99,16 @@ jobs:
             unzip -q "$t/a.zip" -d "$t" tflint && mv "$t/tflint" "$BIN/"
           }
 
+          install_terraform_docs() {
+            [ -x "$BIN/terraform-docs" ] && return 0
+            local t; t=$(mktemp -d)
+            fetch "https://github.com/terraform-docs/terraform-docs/releases/download/v${TERRAFORM_DOCS_VERSION}/terraform-docs-v${TERRAFORM_DOCS_VERSION}-linux-amd64.tar.gz" \
+                  "$TERRAFORM_DOCS_SHA256" "$t/a.tgz"
+            tar -xzf "$t/a.tgz" -C "$t" terraform-docs && mv "$t/terraform-docs" "$BIN/"
+          }
+
           for tool in "$@"; do
-            "install_$tool"
+            "install_${tool//-/_}"
             chmod +x "$BIN/$tool"
             echo "$tool $("$BIN/$tool" --version 2>&1 | head -1)"
           done
@@ -164,7 +174,9 @@ jobs:
       - name: Install tools
         run: |
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
-          install-tools.sh tflint trivy
+          tools=(tflint trivy)
+          if [ -f .terraform-docs.yml ]; then tools+=(terraform-docs); fi
+          install-tools.sh "${tools[@]}"
 
       - name: Formatting
         run: terraform fmt -check -recursive -diff
@@ -188,6 +200,120 @@ jobs:
             echo "::endgroup::"
           done < <(find . -name '*.tf' -not -path '*/.terraform/*' -not -path './.tools/*' -exec dirname {} \; | sort -u)
           exit $fail
+
+      # Offline: the tests plan against mock_provider; the modules are
+      # initialised by the step above.
+      - name: Module tests
+        run: |
+          set -uo pipefail
+          fail=0
+          while read -r dir; do
+            echo "::group::$dir"
+            if ! terraform -chdir="$dir" test -no-color; then
+              echo "::error file=$dir::terraform test failed"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done < <(find . -path '*/tests/*.tftest.hcl' -not -path './.tools/*' | sed 's|/tests/[^/]*$||' | sort -u)
+          exit $fail
+
+      # The generated tables of every module README match the module.
+      - name: README tables
+        if: hashFiles('.terraform-docs.yml') != ''
+        run: |
+          set -uo pipefail
+          fail=0
+          while read -r dir; do
+            if ! terraform-docs --config .terraform-docs.yml --output-check "$dir" >/dev/null; then
+              echo "::error file=$dir/README.md::the terraform-docs part is not up to date; run 'terraform-docs --config .terraform-docs.yml $dir'"
+              fail=1
+            fi
+          done < <(find . -name '*.tf' -not -path './.*' -not -path '*/.terraform/*' -exec dirname {} \; | sort -u |
+            while read -r d; do [ -f "$d/README.md" ] && echo "$d"; done)
+          exit $fail
+
+      - name: Catalog
+        if: hashFiles('docs/catalog.md') != ''
+        run: |
+          cat >"$RUNNER_TEMP/catalog.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """Write docs/catalog.md of iac-modules from the module READMEs and variables.
+
+          Usage: catalog.py <iac-modules checkout> [--check]
+          --check exits 1 when docs/catalog.md differs from what would be written.
+          """
+          import json
+          import pathlib
+          import re
+          import subprocess
+          import tempfile
+          import sys
+
+          PLATFORMS = ["azure", "entra", "github", "routeros"]
+
+
+          def what_it_manages(readme: pathlib.Path) -> str:
+              text = readme.read_text()
+              m = re.search(r"## What it manages\n\n(.+?)\n\n", text, re.S)
+              return " ".join(m.group(1).split()) if m else ""
+
+
+          def interface(module: pathlib.Path) -> tuple[list[str], list[str]]:
+              # Run outside the checkout: terraform-docs would otherwise pick up
+              # .terraform-docs.yml there and inject the JSON into the README.
+              out = subprocess.run(
+                  ["terraform-docs", "json", str(module)], capture_output=True, text=True, check=True, cwd=tempfile.gettempdir()
+              )
+              doc = json.loads(out.stdout)
+              return [i["name"] for i in doc["inputs"]], [o["name"] for o in doc["outputs"]]
+
+
+          def render(root: pathlib.Path) -> str:
+              lines = [
+                  "# Module catalog",
+                  "",
+                  "Generated from the module READMEs and variables; do not edit by hand.",
+                  "Source in a unit: `${modules}//<platform>/<module>?ref=<modules_ref>`.",
+                  "Shared building blocks: [azure/_common/](../azure/_common/README.md).",
+                  "",
+              ]
+              for platform in PLATFORMS:
+                  mods = sorted(p.parent for p in (root / platform).glob("*/README.md") if p.parent.name != "_common")
+                  if not mods:
+                      continue
+                  lines += [f"## {platform}/", "", "| Module | What it manages | Inputs | Outputs |", "|---|---|---|---|"]
+                  for mod in mods:
+                      ins, outs = interface(mod)
+                      rel = mod.relative_to(root)
+                      lines.append(
+                          f"| [`{rel}`](../{rel}/README.md) | {what_it_manages(mod / 'README.md')} "
+                          f"| {', '.join(f'`{i}`' for i in ins)} | {', '.join(f'`{o}`' for o in outs)} |"
+                      )
+                  lines.append("")
+              return "\n".join(lines)
+
+
+          def main() -> int:
+              root = pathlib.Path(sys.argv[1]).resolve()
+              target = root / "docs" / "catalog.md"
+              content = render(root)
+              if "--check" in sys.argv[2:]:
+                  if not target.exists() or target.read_text() != content:
+                      print("docs/catalog.md is not up to date; run catalog.py", file=sys.stderr)
+                      return 1
+                  return 0
+              target.parent.mkdir(exist_ok=True)
+              target.write_text(content)
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          __CI_EOF__
+          python3 "$RUNNER_TEMP/catalog.py" . --check || {
+            echo "::error file=docs/catalog.md::not up to date; run python3 <ci>/src/terraform/catalog.py ."
+            exit 1
+          }
 
       - name: tflint
         env:
@@ -577,35 +703,83 @@ jobs:
                                      + " and no ".join(missing))
 
 
+          RE_MODULE = re.compile(r"//([^?]+)\?")
+
+
+          def unit_includes(repo, path):
+              """The repository paths of the _common/units/ files a unit includes."""
+              root, _, _ = repo.hcl(path)
+              out = []
+              for inc in root.find("include"):
+                  if "path" not in inc.attrs:
+                      continue
+                  m = re.search(r"_common/units/[\w.-]+\.hcl", inc.attrs["path"].text())
+                  if m:
+                      out.append(m.group(0))
+              return out
+
+
+          def module_of(repo, path):
+              """(module path, line, file) of the module a unit runs, its own or its _common/units/ file's."""
+              for f in [path] + unit_includes(repo, path):
+                  if not repo.exists(f):
+                      continue
+                  root, _, _ = repo.hcl(f)
+                  for b in root.find("terraform"):
+                      if "source" in b.attrs and (m := RE_MODULE.search(b.attrs["source"].text())):
+                          return m.group(1).strip("/"), b.attrs["source"].line, f
+              return None, None, None
+
+
           def rule_module_source(repo, params, units, report):
-              """A unit takes its module from git, through the modules and modules_ref of root.hcl."""
+              """A unit takes its module from git, through modules and modules_ref.
+
+              The source is in the unit, or in the _common/units/<module>.hcl it includes.
+              """
               pattern = re.compile(params.get(
                   "pattern", r"^\$\{include\.root\.locals\.modules\}//[^?]+\?ref=\$\{include\.root\.locals\.modules_ref\}$"))
+              common = re.compile(params.get(
+                  "common_pattern", r"^\$\{[A-Za-z_.]+\.modules\}//[^?]+\?ref=\$\{[A-Za-z_.]+\.modules_ref\}$"))
               for path in units:
                   root, _, _ = repo.hcl(path)
                   sources = [b.attrs["source"] for b in root.find("terraform") if "source" in b.attrs]
-                  if not sources:
-                      report.add("module-source", path, 1, "the unit names no terraform source")
+                  included = [f for f in unit_includes(repo, path) if repo.exists(f)]
+                  if not sources and not any("source" in b.attrs for f in included
+                                             for b in repo.hcl(f)[0].find("terraform")):
+                      report.add("module-source", path, 1,
+                                 "the unit names no terraform source, itself or in a _common/units/ file")
                   for attr in sources:
                       value = attr.string()
                       if value is None or not pattern.match(value):
                           report.add("module-source", path, attr.line,
                                      f"source {attr.text()} is not the module from git with modules_ref")
+              for path in repo.glob("_common/units/*.hcl"):
+                  root, _, _ = repo.hcl(path)
+                  for b in root.find("terraform"):
+                      attr = b.attrs.get("source")
+                      if attr and (attr.string() is None or not common.match(attr.string())):
+                          report.add("module-source", path, attr.line,
+                                     f"source {attr.text()} is not the module from git with modules_ref")
+
+
+          def shared_dirs(params):
+              """Where dependency blocks may live: dir (or dirs) and _common/units."""
+              dirs = params.get("dirs") or [params.get("dir", "_common/deps")]
+              return list(dict.fromkeys([d.rstrip("/") for d in dirs] + ["_common/units"]))
 
 
           def rule_dependencies_in_common(repo, params, units, report):
-              """A dependency is declared once, in the shared directory, with its mocks."""
-              where = params.get("dir", "_common/deps")
+              """A dependency is declared once, in a shared file, with its mocks."""
+              where = " or ".join(f"{d}/" for d in shared_dirs(params))
               for path in units:
                   root, _, _ = repo.hcl(path)
                   for dep in root.find("dependency"):
                       report.add("dependencies-in-common", path, dep.line,
-                                 f'dependency "{dep.labels[0] if dep.labels else "?"}" belongs in {where}/')
+                                 f'dependency "{dep.labels[0] if dep.labels else "?"}" belongs in {where}')
 
 
           def rule_mock_outputs(repo, params, units, report):
               """Every dependency has mocks, and the mocks never reach an apply or a destroy."""
-              where = params.get("dir", "_common/deps").rstrip("/")
               forbidden = set(params.get("forbidden_commands", ["apply", "destroy"]))
               mocks = {}
               if params.get("mocks_file") and repo.exists(params["mocks_file"]):
@@ -613,7 +787,7 @@ jobs:
                   for loc in mroot.find("locals"):
                       for name, attr in loc.attrs.items():
                           mocks[name] = literal(attr.value)
-              for path in repo.glob(f"{where}/*.hcl"):
+              for path in repo.glob(*(f"{d}/*.hcl" for d in shared_dirs(params))):
                   root, _, _ = repo.hcl(path)
                   for dep in root.find("dependency"):
                       label = dep.labels[0] if dep.labels else "?"
@@ -644,7 +818,8 @@ jobs:
                       if "allowed" in loc.attrs:
                           allowed = literal(loc.attrs["allowed"].value) or {}
               for name, keys in (params.get("files") or {}).items():
-                  for path in repo.glob(f"**/{name}"):
+                  # _common/units/subscription.hcl is the shared unit of a module, not a context file.
+                  for path in [f for f in repo.glob(f"**/{name}") if not f.startswith("_common/")]:
                       root, _, _ = repo.hcl(path)
                       attrs = {}
                       for loc in root.find("locals"):
@@ -725,6 +900,138 @@ jobs:
                                  f'lock = "none" in a resource group of criticality {crit}, with no comment saying why')
 
 
+          # --------------------------------------------------------------------------
+          # The shape of a live repository (code/terragrunt.md of governance)
+
+          def unit_dirs(repo):
+              return {os.path.dirname(f) for f in repo.files if os.path.basename(f) == "terragrunt.hcl"}
+
+
+          def owning_unit(path, dirs):
+              d = os.path.dirname(path)
+              while d:
+                  if d in dirs:
+                      return d
+                  d = os.path.dirname(d)
+              return None
+
+
+          def rule_unit_assets(repo, params, units, report):
+              """A unit holds HCL; any other file only from the allowlist, and read by its terragrunt.hcl."""
+              allowed = set(params.get("allowed", ["definition.json"]))
+              roots = params.get("paths", ["infrastructure/**"])
+              dirs = unit_dirs(repo)
+              for path in repo.files:
+                  if path.endswith(".hcl") or os.path.basename(path) == ".terraform.lock.hcl":
+                      continue
+                  unit = owning_unit(path, dirs)
+                  if unit is None and not matches(path, *roots):
+                      continue
+                  name = os.path.basename(path)
+                  if unit is None or os.path.dirname(path) != unit or name not in allowed:
+                      report.add("unit-assets", path, 1,
+                                 f"{name} is not HCL: only {', '.join(sorted(allowed)) or 'nothing'} may sit "
+                                 "next to a terragrunt.hcl; write the rest in HCL (a heredoc, inline KQL)")
+                      continue
+                  text = "\n".join(text_lines(repo, f"{unit}/terragrunt.hcl") or [])
+                  if name not in text:
+                      report.add("unit-assets", path, 1, f"{name} is not read by {unit}/terragrunt.hcl")
+
+
+          SCOPE_CONTEXT = {"mg": "mg.hcl", "sub": "subscription.hcl", "region": "region.hcl", "rg": "rg.hcl"}
+          UNIT_FILES = {"terragrunt.hcl", ".terraform.lock.hcl"}
+
+
+          def rule_scope_layout(repo, params, units, report):
+              """Each level of the hierarchy holds its context file, its own unit and the next level only."""
+              root = params.get("root", "infrastructure").strip("/")
+              dirs = unit_dirs(repo)
+              children, files = {}, {}
+              for f in repo.files:
+                  if not f.startswith(root + "/"):
+                      continue
+                  d = os.path.dirname(f)
+                  files.setdefault(d, []).append(os.path.basename(f))
+                  while d != root and d:
+                      parent = os.path.dirname(d)
+                      children.setdefault(parent, set()).add(os.path.basename(d))
+                      d = parent
+
+              def level(d):
+                  name, parent = os.path.basename(d), os.path.basename(os.path.dirname(d))
+                  if name == "global":
+                      return "global"
+                  for prefix in ("mg", "sub", "rg"):
+                      if name.startswith(prefix + "-"):
+                          return prefix
+                  if parent.startswith("sub-"):
+                      return "region"
+                  if "device.hcl" in files.get(d, []):
+                      return "device"
+                  return None
+
+              allowed = {
+                  "mg": (lambda c: c == "global" or c.startswith(("mg-", "sub-")), "global/, mg-*/ and sub-*/"),
+                  # Any other folder of a subscription is a region, checked as one.
+                  "sub": (lambda c: True, "global/ and the regions"),
+                  "region": (lambda c: c.startswith("rg-"), "rg-*/"),
+                  "rg": (None, "the units of its resources"),
+                  "device": (None, "the units of the device"),
+                  "global": (None, "units"),
+              }
+              for d in sorted(set(files) | set(children)):
+                  kind = level(d)
+                  if kind is None:
+                      continue
+                  own = set(files.get(d, []))
+                  context = SCOPE_CONTEXT.get(kind) or ("device.hcl" if kind == "device" else None)
+                  if context and context not in own:
+                      report.add("scope-layout", d + "/", 1, f"{d}/ has no {context}")
+                  may_unit = kind in ("mg", "sub", "rg")
+                  holds = " and ".join(x for x in (context, "its own unit" if may_unit else "") if x)
+                  for f in sorted(own - {context} - (UNIT_FILES if may_unit else set())):
+                      report.add("scope-layout", f"{d}/{f}", 1,
+                                 f"{f} does not belong in a {kind} folder: "
+                                 + (f"it holds {holds} only" if holds else "it holds folders only"))
+                  test, what = allowed[kind]
+                  for c in sorted(children.get(d, set())):
+                      child = f"{d}/{c}"
+                      ok = test(c) if test else (child in dirs and level(child) is None)
+                      if not ok:
+                          report.add("scope-layout", child + "/", 1, f"{child}/ in a {kind} folder: it holds {what}")
+                      elif test is None and children.get(child):
+                          report.add("scope-layout", child + "/", 1,
+                                     f"{child}/ is a unit with folders inside: a unit is one resource and its children, "
+                                     "in its own terragrunt.hcl")
+
+
+          # A scope's own unit sits in the folder of the scope (code/azure.md).
+          SCOPE_FOLDERS = {"management-group": ["mg-*"], "subscription": ["sub-*"], "resource-group": ["rg-*"]}
+
+
+          def rule_folder_dictionary(repo, params, units, report):
+              """A unit folder is named after its module: <module> or <module>-<purpose>."""
+              folders = {**SCOPE_FOLDERS, **(params.get("folders") or {})}
+              for path in units:
+                  module, _, source_file = module_of(repo, path)
+                  if not module:
+                      continue
+                  name = os.path.basename(module)
+                  folder = os.path.basename(os.path.dirname(path))
+                  if source_file != path and os.path.basename(source_file) != f"{name}.hcl":
+                      report.add("folder-dictionary", source_file, 1,
+                                 f"{source_file} runs the module {module}: it is named {name}.hcl")
+                  globs = folders.get(name) or folders.get(module) or []
+                  # A folder named in the plural holds one unit per instance, named after it.
+                  plural = name[:-1] + "ies" if name.endswith("y") else name + "s"
+                  parent = os.path.basename(os.path.dirname(os.path.dirname(path)))
+                  if folder == name or folder.startswith(name + "-") or parent == plural \
+                          or (globs and matches(folder, *globs)):
+                      continue
+                  report.add("folder-dictionary", path, 1,
+                             f"{folder}/ runs the module {module}: name it {name}/ or {name}-<purpose>/")
+
+
           # Every repository: a to-do comment names its issue, a relative link in Markdown leads
           # somewhere. Both read every file git tracks, apart from the managed copies
           # of the standards in .claude/ (governance checks the originals).
@@ -772,8 +1079,8 @@ jobs:
           RE_HTML_ID = re.compile(r"<a\s+(?:[^>]*\s)?(?:id|name)=[\"']([^\"']+)[\"']", re.I)
 
 
-          def markdown_code_free(lines):
-              """(line number, text) of the lines outside fenced code, inline code blanked out."""
+          def markdown_code_free(lines, blank=True):
+              """(line number, text) of the lines outside fenced code, inline code blanked out unless not blank."""
               fence = None
               comment = False
               for n, line in enumerate(lines, 1):
@@ -790,7 +1097,7 @@ jobs:
                       end = line.find("-->", start)
                       comment = end < 0
                       line = line[:start] + ("" if comment else line[end + 3:])
-                  yield n, re.sub(r"(`+)(.+?)\1", lambda c: " " * len(c.group(0)), line)
+                  yield n, re.sub(r"(`+)(.+?)\1", lambda c: " " * len(c.group(0)), line) if blank else line
 
 
           def slug(text: str) -> str:
@@ -804,7 +1111,8 @@ jobs:
 
           def anchors(lines) -> set:
               found, seen = set(), {}
-              for _, line in markdown_code_free(lines):
+              # Inline code stays: GitHub keeps its text in the anchor (## `_common/` -> #_common).
+              for _, line in markdown_code_free(lines, blank=False):
                   found.update(RE_HTML_ID.findall(line))
                   m = RE_HEADING.match(line)
                   if not m:
@@ -883,6 +1191,9 @@ jobs:
               "no-hardcoded-location": rule_no_hardcoded_location,
               "no-envcommon": rule_no_envcommon,
               "lock-none-needs-reason": rule_lock_none_needs_reason,
+              "unit-assets": rule_unit_assets,
+              "scope-layout": rule_scope_layout,
+              "folder-dictionary": rule_folder_dictionary,
               "todo-issue": rule_todo_issue,
               "markdown-links": rule_markdown_links,
           }

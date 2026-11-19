@@ -20,7 +20,8 @@ Only what something reads from the root by itself:
 | Folders | the vocabulary below and the content folders of the pipeline |
 
 Everything else goes into a folder. A config that only the pipeline reads
-belongs in `.github/`, a script in `tools/`, a document in `docs/`.
+belongs in `.github/`, a script in `tools/` (not in a Terragrunt
+repository), a document in `docs/`.
 
 ## `.claude/` and `.github/`
 
@@ -33,6 +34,7 @@ belongs in `.github/`, a script in `tools/`, a document in `docs/`.
 | `.github/markdownlint.yaml` | markdownlint rules that differ from `ci` |
 | `.github/dependabot.yml`, `.github/release.yml`, `.github/tool-versions.env` | GitHub and CI |
 | `.github/conventions.yaml` | conventions check, and the exceptions to this layout |
+| `.github/state-moves.yaml` | Terragrunt: the units whose state the owner moved ([code/terragrunt.md](https://github.com/bearclave/governance/blob/main/standards/code/terragrunt.md#moving-a-unit)) |
 | `.github/sentinel-lint.yaml` | Sentinel lint |
 | `.github/trivyignore.yaml` | accepted trivy findings, each with a reason and a review date |
 | `.github/pssa.psd1` | PSScriptAnalyzer settings |
@@ -48,7 +50,7 @@ English, plural, the same names everywhere:
 |---|---|
 | `src/` | code |
 | `tests/` | tests, mirroring `src/` |
-| `tools/` | scripts a person runs: build, generators, bootstrap, operations |
+| `tools/` | scripts a person runs for this repository: build, generators, bootstrap, operations |
 | `docs/` | longer documents (below) |
 | `_common/` | shared code that is neither a unit nor a module (Terragrunt includes, `_common/` of modules) |
 
@@ -67,13 +69,30 @@ Content folders of a pipeline:
 
 | Pipeline | Content folders |
 |---|---|
-| `terragrunt`, `terragrunt-home` | folders holding units (`mg-corp/`, `repositories/`, ...) |
-| `terraform-modules` | folders holding modules (`identity/`, `sentinel/`, ...) |
+| `terragrunt`, `terragrunt-home` | `infrastructure/` (required), every unit below it |
+| `terraform-modules` | folders holding modules, one per platform (`azure/`, `entra/`, `github/`, `routeros/`) |
 | `static-web-app` | `api/` (the Functions folder of the site) |
 | `content-sentinel` | `ARM/`, `terragrunt/` |
 | `ci` | `templates/` |
 
-A Terragrunt unit directory never moves: its path is its state key.
+A script belongs in `tools/` only when it serves this repository. Logic
+that the pipelines of several repositories run lives in `bearclave/ci`
+(`src/`, carried by the shared workflow); a script used across repositories
+or against a customer's tenant lives in the know-how repository; a step of
+one pipeline is not a script of its own.
+
+A Terragrunt repository (`terragrunt`, `terragrunt-home`) has **no `tools/`
+and no `deploy/`** (`forbidden` in `layout.yaml`):
+
+| Script | Where |
+|---|---|
+| run by the pipeline | `bearclave/ci` (`home-vpn.sh` of `terragrunt-home`) |
+| run by a person (new peer, new secret, an App) | the know-how repository, `tools/<repository>/` |
+| bootstrap | a procedure with its commands in `docs/setup.md`, never code |
+| files deployed outside Terraform | the repository of what they deploy (`app-nas`) |
+
+A Terragrunt unit directory moves only with its state
+([code/terragrunt.md](https://github.com/bearclave/governance/blob/main/standards/code/terragrunt.md#moving-a-unit)).
 
 Names of product content that is Czech by nature (the templates of
 `app-office-templates`) may stay Czech; the folders around them follow the

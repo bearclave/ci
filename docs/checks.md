@@ -12,7 +12,7 @@ of governance.
 | Step | Holds | Config |
 |---|---|---|
 | Title, branch, description, labels | Conventional Commit title (a bot's title over 72 characters only warns), `<type>/<slug>` branch, the six description sections for people and Apps (Dependabot excepted); sets `type:*`, `breaking`, `size:*`; assigns the author, or `vars.OWNER` when the author is an App (`src/pr_check.py`) | - |
-| Root layout | the root against `standards/layout.yaml` of governance (`src/layout.yaml`, a managed copy): required and allowed root files, the folders of the repository's group and pipeline, what `.github/` holds, the names in `docs/` (`src/layout_check.py`) | `layout: exceptions:` in `.github/conventions.yaml` |
+| Root layout | the root against `standards/layout.yaml` of governance (`src/layout.yaml`, a managed copy): required and allowed root files, the folders of the repository's group and pipeline (and those it forbids: `tools/` and `deploy/` in a Terragrunt repository), what `.github/` holds, the names in `docs/` (`src/layout_check.py`) | `layout: exceptions:` in `.github/conventions.yaml` |
 | To-dos and links | `todo-issue` and `markdown-links` of `src/conventions.py` (below) | `.github/conventions.yaml` |
 | Markdown | markdownlint (`markdownlint-cli2`, image pinned by digest) over the Markdown git tracks, with the rules of `src/markdownlint.yaml` | `.github/markdownlint.yaml`: its keys replace the defaults rule by rule |
 
@@ -58,13 +58,16 @@ exceptions:
 |---|---|---|
 | `variable-no-default` | a module variable has no `default`, and no `optional(type, default)` | `files` |
 | `variable-documented` | a module variable has a `description` and a `type` | `files` |
-| `module-source` | a unit takes its module from git with `modules_ref` | `pattern` |
-| `dependencies-in-common` | no `dependency` block in a unit, only in the shared directory | `dir` |
-| `mock-outputs` | every dependency has mocks, and the mocks never reach apply or destroy | `dir`, `mocks_file`, `forbidden_commands` |
+| `module-source` | a unit takes its module from git with `modules_ref`, in its own `terraform` block (`pattern`) or in the `_common/units/<module>.hcl` it includes (`common_pattern`, default `${<any>.modules}//<path>?ref=${<any>.modules_ref}`) | `pattern`, `common_pattern` |
+| `dependencies-in-common` | no `dependency` block in a unit, only in the shared directory or `_common/units/` | `dir` (or `dirs`) |
+| `mock-outputs` | every dependency (in the shared directory and `_common/units/`) has mocks, and the mocks never reach apply or destroy | `dir`, `mocks_file`, `forbidden_commands` |
 | `tags-required` | context files set their tags, with an allowed value | `files`, `allowed_values` |
 | `no-hardcoded-ids` | no subscription or tenant ID and no `/subscriptions/<id>` written out in a unit | `id_files` |
 | `no-hardcoded-location` | no region written out in a unit | `locations` |
 | `no-envcommon` | no `_envcommon` | - |
+| `unit-assets` | a file in the unit tree that is not HCL: only a name of `allowed` (default `definition.json`), directly next to a `terragrunt.hcl` that names it | `allowed`, `paths` (default `infrastructure/**`, plus every unit directory) |
+| `scope-layout` | under `root` (default `infrastructure`): `mg-*` holds `mg.hcl`, its unit, `global/`, `mg-*/`, `sub-*/`; `sub-*` holds `subscription.hcl`, its unit, `global/`, regions; a region `region.hcl` and `rg-*/`; `rg-*` `rg.hcl`, its unit and units; a folder with `device.hcl` that file and units; `global/` units only; a unit inside another unit fails | `root` |
+| `folder-dictionary` | a unit folder is named after its module, `<module>` or `<module>-<purpose>`; a `_common/units/` file `<module>.hcl`. `mg-*`, `sub-*`, `rg-*` hold the units of their scope; a folder named in the plural (`repositories/`) holds one unit per instance, named after it | `folders` (`{<module>: [<glob>]}`, e.g. `repository: ["*"]`) |
 | `lock-none-needs-reason` | `lock = "none"` in a resource group of the listed criticality has a comment on or above the line | `criticality` |
 | `todo-issue` (every repository) | a to-do comment names its issue: `TODO(#42): ...`; any tracked file but Markdown and binaries | `files`, `exclude` |
 | `markdown-links` (every repository) | a relative link or image in Markdown leads to a file or folder of the repository, and its `#anchor` to a heading of the linked Markdown; offline, nothing is fetched; links in code are skipped | `exclude` |

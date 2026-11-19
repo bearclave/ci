@@ -96,7 +96,7 @@ The environments, their branch policies and the variables are defined in
 | What | How often | How |
 |---|---|---|
 | Federated credentials | never: nothing secret | a new subject (renamed repository, environment) is a pull request in `iac-azure` |
-| GitHub App keys | once a year, or at once on suspicion | GitHub, the App's settings, Private keys, Generate; `az keyvault secret set --vault-name <vault> --name github-app-key --file <pem>`; delete the old key in GitHub and the file (`iac-github` `tools/github-apps.py`, `tools/bearclave-bot.py`) |
+| GitHub App keys | once a year, or at once on suspicion | GitHub, the App's settings, Private keys, Generate; `az keyvault secret set --vault-name <vault> --name github-app-key --file <pem>`; delete the old key in GitHub and the file (created by `tools/iac-github/github-apps.py` of the know-how repository) |
 | `MODULES_DEPLOY_KEY` | once a year, or at once on suspicion | `iac-github` [docs/deploy-keys.md](https://github.com/bearclave/iac-github/blob/main/docs/deploy-keys.md): new pair, the public half in code, `gh secret set` from stdin |
 
 Check what is federated where:

@@ -44,16 +44,59 @@ apply use) and its split into the plan jobs (`src/terragrunt/select-units.py`).
 - A pull request is compared with its base; `main` with the head of the last
   successful run on `main`, so the units of a failed or held-back apply stay
   selected until they are applied.
-- `root.hcl`, `account.hcl`, `_common/` select the whole tree; a context file
-  (`mg.hcl`, `subscription.hcl`, `region.hcl`, `rg.hcl`) the units at and
-  below it; any other file its nearest unit, with everything that unit
-  depends on.
-- A file outside every unit (the workflows, `tools/`) selects the whole tree,
-  except what never reaches a plan (the list of changes above): a push of a
-  README, an agent rule or `.github/conventions.yaml` plans nothing.
-- A deleted unit is planned and applied as a destroy from the base commit; a
-  moved unit fails (its state key would change).
+- `root.hcl` and `account.hcl` select the whole tree.
+- A file under `_common/` selects the units that include or read it, as
+  `terragrunt find --reading --include` reports them
+  (`_common/units/key-vault.hcl` plans the key vaults, `_common/deps/groups.hcl`
+  the units that read the groups). A file no unit reports - a template
+  `root.hcl` renders, a deleted file - selects the whole tree.
+- A context file (`mg.hcl`, `subscription.hcl`, `region.hcl`, `rg.hcl`,
+  `device.hcl`) selects the units at and below it and any other unit that
+  reads it.
+- Any other file selects its nearest unit, with everything that unit depends
+  on.
+- A file outside every unit (the workflows, the scripts) selects the whole
+  tree, except what never reaches a plan (the list of changes above): a push
+  of a README, an agent rule or `.github/conventions.yaml` plans nothing.
+- A deleted unit is planned and applied as a destroy from the base commit.
+- A moved unit is planned under its new path when its state came along
+  ([Moving a unit](#moving-a-unit)); otherwise the run fails.
 - A scheduled run selects the whole tree.
+
+Units live under `infrastructure/`; the state key, and every path the summary
+and the comments show, is the path without that prefix.
+
+## Moving a unit
+
+The state key is the unit's path without `infrastructure/`
+(`trimprefix(path_relative_to_include(), "infrastructure/")` in `root.hcl`).
+
+| Move | State | What the pipeline does |
+|---|---|---|
+| into `infrastructure/`, the rest of the path the same | same key | plans the new path; nothing to do |
+| a new path (rename) | the owner copies the blob `<from>/terraform.tfstate` to `<to>/terraform.tfstate` before the merge | plans `to`, does not destroy `from` |
+| into an existing unit (merge) | the owner moves the resources into the state of `to` (`import` blocks in `to`, `terraform state rm` in `from`) | plans `to`, does not destroy `from` |
+| anything else | - | fails: delete in one pull request, add in the next |
+
+A rename or a merge is listed in `.github/state-moves.yaml`, keys without
+`infrastructure/` and without the file name:
+
+```yaml
+moves:
+  - from: mg-corp/policy-assignments
+    to: mg-corp/global/policy-assignments
+  - from: mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/key-vault/certificate
+    to: mg-corp/mg-corp-platform/sub-mgmt-prod/weu/rg-security/key-vault
+```
+
+Each `from` once, `to` a unit of the head commit; an entry whose `from` is no
+unit gone in the change is ignored (it is stale after the merge and goes in a
+later pull request). The plan of every moved unit may create, destroy or
+replace nothing (`src/terragrunt/check-moves.py`): a create means the state
+did not come along, and the plan job fails before anything is applied.
+Several units may move into one (`from` differs, `to` the same). The old
+blobs stay; the run summary lists them for the owner to delete after the
+apply.
 
 ## validate
 
@@ -167,12 +210,25 @@ seen.
 
 | Input | Default there | Effect |
 |---|---|---|
-| `vpn-script` | `tools/home-vpn.sh` | plan and apply join the home network (`up`, `down`) with the repository's script; one plan job |
+| `vpn-script` | `home-vpn.sh` | plan and apply join the home network (`up`, `down`) with `src/terragrunt/home-vpn.sh` of ci (a path in the repository still works); one plan job |
 | `validate-sign-in` | `true` | validate signs in: the configuration reads the router's password while it is parsed |
-| `renewal-unit` | `router-hap/letsencrypt` | a scheduled run applies that unit when its plan proposes something (the certificate); a change anywhere else is drift and fails the run |
+| `renewal-unit` | `infrastructure/router/letsencrypt` | a scheduled run applies that unit when its plan proposes something (the certificate); a change anywhere else is drift and fails the run |
 | `environment` | `home-prod` | the apply's environment |
 
 The caller's concurrency group keeps every run apart: one WireGuard peer.
+
+`home-vpn.sh up` joins every device whose `infrastructure/<device>/device.hcl`
+says `managed = true`. It reads from the repository: peer `ci` and
+`wireguard` (`endpoint`, `listen_port`), the device's `hosts` entry (address,
+first name) and `webfig_port` in `_common/network.hcl`; `host` and the
+heredoc `ca_bundle` in `device.hcl`; `key_vault` in `account.hcl` (secrets
+`wg-key-ci`, `wg-psk-ci`); the server's key from the output `public_key` of
+`infrastructure/router/wireguard`. Every device's REST API has to answer
+before the plan.
+
+A unit whose `exclude` block keeps it out of a plan (a device with
+`managed = false`) is skipped by terragrunt and by the lock file check
+(`excluded` of the selection), and fails nothing.
 
 ## Drift
 
