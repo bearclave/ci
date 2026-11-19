@@ -229,7 +229,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `housekeeping.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test`, `housekeeping.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
 | `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 
