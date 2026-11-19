@@ -50,6 +50,12 @@ class CheckMoves(unittest.TestCase):
     def test_unit_of_another_job_is_skipped(self):
         self.assertEqual(self.check([], write=False).returncode, 0)
 
+    def test_same_key_move_may_create(self):
+        # Into infrastructure/ with the same key: the state did not move.
+        out = self.check([change("module.lock.azurerm_management_lock.this[0]", "create")],
+                         moved=[["mg/rg-x", "infrastructure/mg/rg-x"]])
+        self.assertEqual(out.returncode, 0, out.stdout)
+
     def test_a_unit_not_moved_may_create(self):
         out = self.check([change("a.this", "create")], moved=[["x", "y"]], write=False)
         self.assertEqual(out.returncode, 0)
