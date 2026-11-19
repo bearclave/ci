@@ -445,6 +445,24 @@ jobs:
             --json-dir="$PLAN_JSON" --trivy=trivy | tee plan.md
           cat plan.md >>"$GITHUB_STEP_SUMMARY"
 
+      - name: Plan fixtures (temporary)
+        if: always()
+        env:
+          PLAN_JSON: ${{ runner.temp }}/plan-json
+        run: |
+          cat >"$RUNNER_TEMP/sanitise-plan.py" <<'__CI_EOF__'
+          @@include tools/sanitise-plan.py@@
+          __CI_EOF__
+          python3 "$RUNNER_TEMP/sanitise-plan.py" "$PLAN_JSON" "$RUNNER_TEMP/fixtures" | tail -3
+
+      - name: Upload the fixtures (temporary)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fixtures-${{ github.run_id }}
+          path: ${{ runner.temp }}/fixtures
+          retention-days: 1
+
       - name: Upload the plan
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
