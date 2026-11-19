@@ -1,0 +1,64 @@
+# Opens a pull request in every repository that pins bearclave/ci to an older
+# release of the same major (src/ci_pins.py), as soon as a release is
+# published, as the GitHub App bearclave-bot. The owner approves and merges
+# each one after its plan. The job signs in to Azure as sp-ci-major-tag by
+# OIDC on the environment major-tag (release tags and main), like
+# major-tag.yml, and reads the App's key from kv-githubbot. No secret in
+# GitHub. A manual run is a dry run unless dry-run is unticked.
+name: ci-pins
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Release (vX.Y.Z) to bump the pins to
+        required: true
+        type: string
+      dry-run:
+        description: Only print the changes, open no pull request
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: ci-pins
+  cancel-in-progress: false
+
+jobs:
+  pins:
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: major-tag
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_MAJOR_TAG }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      RELEASE: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Sign in to Azure
+        run: |
+          set -euo pipefail
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
+
+      - name: Bump the pins
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ]; then
+            python3 src/ci_pins.py --dry-run "$RELEASE"
+          else
+            python3 src/ci_pins.py "$RELEASE"
+          fi
