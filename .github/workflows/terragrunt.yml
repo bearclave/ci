@@ -2645,6 +2645,13 @@ jobs:
 
           [ "$found" -eq 0 ] || exit 3
           __CI_EOF__
+          chmod +x "$d"/*
+
+      # A step of its own: actionlint deadlocks on a run script of more than about
+      # 64 KB (it feeds shellcheck through a pipe), so the scripts are split.
+      - name: Verification script
+        run: |
+          d="$RUNNER_TEMP/ci"
           cat >"$d/verify-apply.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
           """Verifies an apply: what the second plan, the Activity Log and the check
@@ -2976,7 +2983,7 @@ jobs:
           if __name__ == "__main__":
               sys.exit(main())
           __CI_EOF__
-          chmod +x "$d"/*
+          chmod +x "$d/verify-apply.py"
 
       - name: Tool versions
         id: versions
@@ -4576,6 +4583,13 @@ jobs:
 
           [ "$found" -eq 0 ] || exit 3
           __CI_EOF__
+          chmod +x "$d"/*
+
+      # A step of its own: actionlint deadlocks on a run script of more than about
+      # 64 KB (it feeds shellcheck through a pipe), so the scripts are split.
+      - name: Verification script
+        run: |
+          d="$RUNNER_TEMP/ci"
           cat >"$d/verify-apply.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
           """Verifies an apply: what the second plan, the Activity Log and the check
@@ -4907,7 +4921,7 @@ jobs:
           if __name__ == "__main__":
               sys.exit(main())
           __CI_EOF__
-          chmod +x "$d"/*
+          chmod +x "$d/verify-apply.py"
 
       - name: Tool versions
         id: versions
@@ -6751,6 +6765,13 @@ jobs:
 
           [ "$found" -eq 0 ] || exit 3
           __CI_EOF__
+          chmod +x "$d"/*
+
+      # A step of its own: actionlint deadlocks on a run script of more than about
+      # 64 KB (it feeds shellcheck through a pipe), so the scripts are split.
+      - name: Verification script
+        run: |
+          d="$RUNNER_TEMP/ci"
           cat >"$d/verify-apply.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
           """Verifies an apply: what the second plan, the Activity Log and the check
@@ -7082,7 +7103,7 @@ jobs:
           if __name__ == "__main__":
               sys.exit(main())
           __CI_EOF__
-          chmod +x "$d"/*
+          chmod +x "$d/verify-apply.py"
 
       - name: Tool versions
         id: versions
