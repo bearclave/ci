@@ -42,7 +42,7 @@ jobs:
       - name: Re-run the destroy check
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/ci"
@@ -52,4 +52,4 @@ jobs:
           __CI_EOF__
           # The caller's workflow file, e.g. ci.yml.
           wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
-          python3 "$d/destroy-approval.py" review "$PR_NUMBER" "$wf"
+          python3 "$d/destroy-approval.py" review "$HEAD_SHA" "$wf"

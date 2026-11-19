@@ -18,9 +18,9 @@ pull request comment, so "after" means after the plan job ended.
       (e.g. ci.yml) passed its destroy check BECAUSE the destroys were
       approved (the step STEP below succeeded), not because it had none.
 
-  destroy-approval.py review <number> <workflow>
+  destroy-approval.py review <head-sha> <workflow>
       On a submitted review: re-runs the failed destroy check of the last
-      completed pull request run of <workflow> for the head commit, so that it
+      completed pull request run of <workflow> for <head-sha>, so that it
       reads the new review. GitHub also re-runs the jobs that need it (the
       gate).
 
@@ -39,7 +39,10 @@ def api(path: str, method: str = "GET"):
     args = ["gh", "api", "-X", method, path]
     if method == "GET":
         args += ["--paginate", "--slurp"]
-    out = subprocess.run(args, capture_output=True, text=True, check=True).stdout
+    r = subprocess.run(args, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"::error::gh api {method} {path}: {r.stderr.strip()}")
+    out = r.stdout
     if method != "GET":
         return None
     pages = json.loads(out or "[]")
@@ -139,9 +142,8 @@ def cmd_main(repo: str, sha: str, workflow: str) -> int:
     return 0
 
 
-def cmd_review(repo: str, number: str, workflow: str) -> int:
-    pr = api(f"repos/{repo}/pulls/{number}")[0]
-    run = last_run(runs_of(repo, workflow, pr["head"]["sha"]))
+def cmd_review(repo: str, head_sha: str, workflow: str) -> int:
+    run = last_run(runs_of(repo, workflow, head_sha))
     if not run:
         print("No pull request run for the head commit yet.")
         return 0
