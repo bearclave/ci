@@ -34,6 +34,7 @@ jobs:
       command: |
         python3 -m unittest discover -s tests -v
         python3 src/pr_check.py --self-test
+        python3 src/housekeeping.py --self-test
         python3 src/layout_check.py --self-test
         pwsh -NoProfile -Command '$r = Invoke-Pester ./tests/m365 -PassThru -Output Detailed; if ($r.FailedCount -gt 0) { exit 1 }'
         tools/build.py --check

@@ -34,6 +34,7 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `static-web-app.yml` | `pipeline` | `app-web-*` | the site's checks, deploy to the Static Web App when the content changed |
 | `container.yml` | `pipeline` | `app-home` | lint and tests in the image, push to GHCR from `main` |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
+| `housekeeping.yml` | `housekeeping` | repositories that opt in | weekly: branches without a pull request over 30 days and pull requests without an update over 14 days, in one issue of the repository that is updated in place and closes itself (`src/housekeeping.py`); deletes nothing |
 | `conventions.yml`, `sentinel-lint.yml` | - | v1 callers only | the same checks as standalone workflows; v2 pipelines carry them as jobs |
 
 The organisation rulesets (in `bearclave/iac-github`) require three checks on
@@ -228,7 +229,7 @@ Edit the template, the fragment or `src/`, never the generated file, and run
 
 | Directory | Content | Tests |
 |---|---|---|
-| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test` |
+| `src/` | `conventions.py`, `sentinel_lint.py`, `pr_check.py`, `layout_check.py`, `housekeeping.py`, `install-tools.sh`, `pr-comment.sh`; `layout.yaml` (managed copy from governance) | `tests/test_*.py`, `pr_check.py --self-test`, `layout_check.py --self-test`, `housekeeping.py --self-test` |
 | `src/terragrunt/` | unit selection, plan summary and details, principal references, stale locks, analytic rules outside code, trivy over plans | `tests/terragrunt/` |
 | `src/m365/` | module install, type selection, plan outputs | `tests/m365/` (Pester) |
 
