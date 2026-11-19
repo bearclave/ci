@@ -1,13 +1,15 @@
 # The pipeline of a Terragrunt repository with Azure state (iac-azure,
 # iac-github):
 #
-# Pull request into main -> validate (fmt, HCL, terraform validate, lock
-#                           files), then plan over the affected units, under
-#                           the read-only identity, summarised into the pull
-#                           request; one that touches none of the relevant
-#                           paths skips both; conventions and Sentinel lint
-# Push to main            -> validate and plan again under the full identity,
-#                           then apply, but only if the plan proposes
+# Pull request into main -> select the affected units, then validate (fmt,
+#                           HCL, terraform validate, lock files) and plan
+#                           them side by side, the plan under the read-only
+#                           identity, summarised into the pull request; one
+#                           that touches none of the relevant paths skips
+#                           all of it; conventions and Sentinel lint
+# Push to main            -> select, validate and plan again, the plan under
+#                           the full identity, then apply, but only if
+#                           validate passed and the plan proposes
 #                           something and destroys or replaces nothing, or the
 #                           destroys were approved in the merged pull request;
 #                           then verify the apply (second plan, Activity Log,
@@ -208,16 +210,16 @@ jobs:
             echo "Nothing to plan: the change touches no unit, context file or workflow." >>"$GITHUB_STEP_SUMMARY"
           fi
 
-  # Everything that needs no sign-in to Azure, before a plan starts:
-  # formatting, the HCL, the unit selection, terraform validate of the
-  # selected units and the committed lock files. A mistake shows up here
-  # within a minute or two, not after the plan has waited for the state.
-  validate:
+  # What the run works on, in seconds and without signing in anywhere: the
+  # base commit, the principal references, the unit selection and its split
+  # into the plan jobs. validate and the plan jobs both start from it, side
+  # by side.
+  select:
     needs: changes
     # !cancelled() so that a failed changes job still validates and plans.
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: read
       # The base commit is the head of the last successful run on main.
@@ -229,13 +231,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          persist-credentials: false
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: bearclave/iac-modules
-          path: iac-modules
-          ssh-key: ${{ secrets.modules-deploy-key }}
           persist-credentials: false
 
       @@include templates/_fragments/scripts-terragrunt.yml@@
@@ -255,29 +250,8 @@ jobs:
           path: ${{ env.TOOLS_DIR }}
           key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
 
-      - name: Restore provider cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ github.workspace }}/.tgproviders
-          key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
-          restore-keys: providers-${{ runner.os }}-
-
       - name: Install terragrunt
         run: install-tools.sh terragrunt
-
-      - name: HCL formatting
-        run: |
-          terragrunt hcl fmt --check --diff || {
-            echo "::error title=HCL formatting::An .hcl file is not formatted (diff above). Run 'terragrunt hcl fmt' and commit the result."
-            exit 1
-          }
-
-      - name: HCL validation
-        run: |
-          terragrunt hcl validate || {
-            echo "::error title=HCL validation::An .hcl file does not parse or refers to something that does not exist (errors above)."
-            exit 1
-          }
 
       # A pull request is compared with its base branch. On main the base is
       # the head of the last successful run - its apply went through or had
@@ -375,6 +349,72 @@ jobs:
                 deleted: (if $i == 0 then $deleted else [] end)}]' <<<"$SELECTION")
           echo "shards=$shards" >>"$GITHUB_OUTPUT"
           jq -r '"Plan jobs: \(length)."' <<<"$shards" >>"$GITHUB_STEP_SUMMARY"
+
+  # Everything else that needs no sign-in to Azure: formatting, the HCL,
+  # terraform validate of the selected units and the committed lock files.
+  # It runs next to the plan jobs (terraform validate takes minutes on the
+  # two cores), and the gate, the plan comment and apply all wait for it:
+  # nothing merges or applies without it.
+  validate:
+    needs: [changes, select]
+    if: ${{ !cancelled() && needs.select.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bearclave/iac-modules
+          path: iac-modules
+          ssh-key: ${{ secrets.modules-deploy-key }}
+          persist-credentials: false
+
+      @@include templates/_fragments/scripts-terragrunt.yml@@
+
+      - name: Tool versions
+        id: versions
+        run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.versions.outputs.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Restore tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOLS_DIR }}
+          key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
+
+      - name: Restore provider cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.tgproviders
+          key: providers-${{ runner.os }}-${{ hashFiles('root.hcl') }}
+          restore-keys: providers-${{ runner.os }}-
+
+      - name: Install terragrunt
+        run: install-tools.sh terragrunt
+
+      - name: HCL formatting
+        run: |
+          terragrunt hcl fmt --check --diff || {
+            echo "::error title=HCL formatting::An .hcl file is not formatted (diff above). Run 'terragrunt hcl fmt' and commit the result."
+            exit 1
+          }
+
+      - name: HCL validation
+        run: |
+          terragrunt hcl validate || {
+            echo "::error title=HCL validation::An .hcl file does not parse or refers to something that does not exist (errors above)."
+            exit 1
+          }
+
       # terraform validate needs the providers and the modules, so each unit
       # is initialised without its backend (TF_CLI_ARGS_init, in the init
       # terragrunt runs before validate): nothing signs in to Azure. A
@@ -387,7 +427,7 @@ jobs:
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
           TG_EXPERIMENT: optional-dependency-outputs
           TF_CLI_ARGS_init: -backend=false
-          SELECTION: ${{ steps.units.outputs.selection }}
+          SELECTION: ${{ needs.select.outputs.selection }}
         run: |
           set -euo pipefail
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
@@ -432,21 +472,20 @@ jobs:
           done <<<"$changed"
           exit 1
 
-
-  # One share of the selection (validate's shards), as many side by side as
+  # One share of the selection (select's shards), as many side by side as
   # there are shares. Each leaves its plan.txt and what the comment shows of
   # its JSON plans for the plan job.
   plan-shard:
     name: plan (${{ matrix.shard.name }})
-    needs: [changes, validate]
-    # Only after validate has passed; it is skipped where nothing is relevant.
-    if: ${{ !cancelled() && needs.validate.result == 'success' && needs.validate.outputs.shards != '[]' }}
+    needs: [changes, select]
+    # Next to validate, not after it; skipped where nothing is relevant.
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.shards != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.validate.outputs.shards) }}
+        shard: ${{ fromJSON(needs.select.outputs.shards) }}
     permissions:
       contents: read
       id-token: write
@@ -548,7 +587,7 @@ jobs:
           TG_PROVIDER_CACHE: "1"
           TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
           TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
-          SELECTION: ${{ needs.validate.outputs.selection }}
+          SELECTION: ${{ needs.select.outputs.selection }}
           SHARD: ${{ toJSON(matrix.shard) }}
           PLAN_JSON: ${{ runner.temp }}/plan-json
         run: |
@@ -629,10 +668,11 @@ jobs:
           exit 1
 
   # The shares read back into one plan: one summary, one comment, and the
-  # verdict apply and destroy go by. It fails when a share did.
+  # verdict apply and destroy go by. It fails when a share did. It waits for
+  # validate too, whose result the comment shows.
   plan:
-    needs: [changes, validate, plan-shard]
-    if: ${{ !cancelled() && needs.validate.result == 'success' }}
+    needs: [changes, select, validate, plan-shard]
+    if: ${{ !cancelled() && needs.select.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -642,7 +682,7 @@ jobs:
       has_changes: ${{ steps.summary.outputs.has_changes }}
       has_destroys: ${{ steps.summary.outputs.has_destroys }}
       planned_at: ${{ steps.planned.outputs.at }}
-      selection: ${{ needs.validate.outputs.selection }}
+      selection: ${{ needs.select.outputs.selection }}
     steps:
       # Only the scripts this job runs; the rest stay with the plan jobs. A
       # step per large script: actionlint deadlocks on a run script of more
@@ -670,7 +710,7 @@ jobs:
       # A share that failed before its upload is missing here: the summary
       # covers the rest and the last step fails the job.
       - name: Download the shares
-        if: needs.validate.outputs.shards != '[]'
+        if: needs.select.outputs.shards != '[]'
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -686,7 +726,7 @@ jobs:
         id: summary
         if: always()
         env:
-          SHARDS: ${{ needs.validate.outputs.shards }}
+          SHARDS: ${{ needs.select.outputs.shards }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
           CHECKS: formatting and validation=${{ needs.validate.result }}
         run: |
@@ -806,10 +846,11 @@ jobs:
   # the manual run with allow-destroy. Otherwise the selection keeps those
   # units, since this run does not end as a success.
   apply:
-    needs: [plan, destroy]
+    needs: [validate, plan, destroy]
     if: >-
       !cancelled()
       && github.event_name != 'pull_request'
+      && needs.validate.result == 'success'
       && needs.plan.result == 'success'
       && needs.plan.outputs.has_changes == 'true'
       && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy
@@ -1193,7 +1234,7 @@ jobs:
   # green, so eight applies in a row never happened and nothing said so. An
   # apply that was due and did not succeed has to be red.
   gate:
-    needs: [conventions, sentinel, changes, validate, plan-shard, plan, destroy, apply, verify]
+    needs: [conventions, sentinel, changes, select, validate, plan-shard, plan, destroy, apply, verify]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1219,12 +1260,17 @@ jobs:
           ALLOW_DESTROY: ${{ inputs.allow-destroy }}
           DESTROY_APPROVED: ${{ needs.destroy.outputs.approved }}
           APPLY_RESULT: ${{ needs.apply.result }}
+          SELECT_RESULT: ${{ needs.select.result }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
           VERIFICATION: ${{ needs.apply.outputs.verification }}
           VERIFY_RESULT: ${{ needs.verify.result }}
         run: |
+          if [ "$SELECT_RESULT" != "success" ]; then
+            echo "::error::select ended as '$SELECT_RESULT', so nothing was planned"
+            exit 1
+          fi
           if [ "$VALIDATE_RESULT" != "success" ]; then
-            echo "::error::validate ended as '$VALIDATE_RESULT', so nothing was planned"
+            echo "::error::validate ended as '$VALIDATE_RESULT', so nothing was applied"
             exit 1
           fi
           if [ "$PLAN_RESULT" != "success" ]; then
