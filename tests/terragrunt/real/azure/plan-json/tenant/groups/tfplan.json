@@ -1,0 +1,629 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azuread_group.this[\"sg-azure-owners\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-owners",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-readers\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-sec-owners\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-sec-owners",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-security-contributors\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-security-contributors",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-security-readers\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-security-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-security-responders\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-security-responders",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-tfstate-contributors\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-tfstate-contributors",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-vault-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-vault-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-vault-auditors\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-vault-auditors",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-vault-fin-readers\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-vault-fin-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-vault-home-readers\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-vault-home-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-vault-ops-readers\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-vault-ops-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-vault-svc-readers\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-vault-svc-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-azure-vault-tech-readers\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-azure-vault-tech-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-ca-allow-unmanaged-device\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-ca-allow-unmanaged-device",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-ca-exclude-app-protection\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-ca-exclude-app-protection",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-ca-exclude-breakglass\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-ca-exclude-breakglass",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-ca-exclude-temporary\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-ca-exclude-temporary",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-device-macos\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-device-macos",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-device-windows\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-device-windows",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-application-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-application-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-compliance-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-compliance-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-conditional-access-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-conditional-access-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-exchange-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-exchange-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-global-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-global-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-global-readers\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-global-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-groups-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-groups-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-intune-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-intune-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-privileged-role-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-privileged-role-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-security-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-security-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-security-readers\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-security-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-sharepoint-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-sharepoint-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-teams-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-teams-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-entra-user-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-entra-user-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-license-m365-business-basic\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-license-m365-business-basic",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-license-m365-business-premium\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-license-m365-business-premium",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-license-m365-e5-security\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-license-m365-e5-security",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-persona-admins\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-persona-admins",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-persona-contractors\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-persona-contractors",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-persona-employees\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-persona-employees",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-persona-guests\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-persona-guests",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-purview-sifrovani\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-purview-sifrovani",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-site-ucetnictvi-guests\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-site-ucetnictvi-guests",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-team-backoffice\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-team-backoffice",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-team-delivery\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-team-delivery",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-team-management\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-team-management",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_group.this[\"sg-team-sales\"]",
+   "mode": "managed",
+   "type": "azuread_group",
+   "name": "this",
+   "index": "sg-team-sales",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "dynamic_group_names": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "group_ids": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

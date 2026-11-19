@@ -1,0 +1,888 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_key_vault_certificate.this[\"dsc-m365\"]",
+   "mode": "managed",
+   "type": "azurerm_key_vault_certificate",
+   "name": "this",
+   "index": "dsc-m365",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "certificate": [],
+     "certificate_attribute": [
+      {
+       "created": "2026-10-29T08:17:11Z",
+       "enabled": true,
+       "expires": "2028-09-29T08:17:11Z",
+       "not_before": "2026-10-29T08:07:11Z",
+       "recovery_level": "Recoverable",
+       "updated": "2026-10-29T08:17:11Z"
+      }
+     ],
+     "certificate_data": "(blob)",
+     "certificate_data_base64": "(blob)",
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {
+         "name": "Self"
+        }
+       ],
+       "key_properties": [
+        {
+         "curve": "",
+         "exportable": true,
+         "key_size": 2048,
+         "key_type": "RSA",
+         "reuse_key": false
+        }
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {
+           "action_type": "AutoRenew"
+          }
+         ],
+         "trigger": [
+          {
+           "days_before_expiry": 0,
+           "lifetime_percentage": 80
+          }
+         ]
+        }
+       ],
+       "secret_properties": [
+        {
+         "content_type": "application/x-pkcs12"
+        }
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          "1.3.6.1.5.5.7.3.2"
+         ],
+         "key_usage": [
+          "digitalSignature",
+          "keyEncipherment"
+         ],
+         "subject": "CN=sp-dsc-m365",
+         "subject_alternative_names": [
+          {
+           "dns_names": null,
+           "emails": null,
+           "upns": null
+          }
+         ],
+         "validity_in_months": 23
+        }
+       ]
+      }
+     ],
+     "id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/dsc-m365/342da3259291449daceee5cd02806473",
+     "key_vault_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001",
+     "name": "dsc-m365",
+     "resource_manager_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/dsc-m365/versions/342da3259291449daceee5cd02806473",
+     "resource_manager_versionless_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/dsc-m365",
+     "secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/dsc-m365/342da3259291449daceee5cd02806473",
+     "tags": {
+      "criticality": "high",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "thumbprint": "EDD81F597542E2EE750DC3B19B48E35A4853C210",
+     "timeouts": null,
+     "version": "342da3259291449daceee5cd02806473",
+     "versionless_id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/dsc-m365",
+     "versionless_secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/dsc-m365"
+    },
+    "after": {
+     "certificate": [],
+     "certificate_attribute": [
+      {
+       "created": "2026-10-29T08:17:11Z",
+       "enabled": true,
+       "expires": "2028-09-29T08:17:11Z",
+       "not_before": "2026-10-29T08:07:11Z",
+       "recovery_level": "Recoverable",
+       "updated": "2026-10-29T08:17:11Z"
+      }
+     ],
+     "certificate_data": "(blob)",
+     "certificate_data_base64": "(blob)",
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {
+         "name": "Self"
+        }
+       ],
+       "key_properties": [
+        {
+         "curve": "",
+         "exportable": true,
+         "key_size": 2048,
+         "key_type": "RSA",
+         "reuse_key": false
+        }
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {
+           "action_type": "AutoRenew"
+          }
+         ],
+         "trigger": [
+          {
+           "days_before_expiry": 0,
+           "lifetime_percentage": 80
+          }
+         ]
+        }
+       ],
+       "secret_properties": [
+        {
+         "content_type": "application/x-pkcs12"
+        }
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          "1.3.6.1.5.5.7.3.2"
+         ],
+         "key_usage": [
+          "digitalSignature",
+          "keyEncipherment"
+         ],
+         "subject": "CN=sp-dsc-m365",
+         "subject_alternative_names": [
+          {
+           "dns_names": null,
+           "emails": null,
+           "upns": null
+          }
+         ],
+         "validity_in_months": 23
+        }
+       ]
+      }
+     ],
+     "id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/dsc-m365/342da3259291449daceee5cd02806473",
+     "key_vault_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001",
+     "name": "dsc-m365",
+     "resource_manager_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/dsc-m365/versions/342da3259291449daceee5cd02806473",
+     "resource_manager_versionless_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/dsc-m365",
+     "secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/dsc-m365/342da3259291449daceee5cd02806473",
+     "tags": {
+      "criticality": "medium",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "thumbprint": "EDD81F597542E2EE750DC3B19B48E35A4853C210",
+     "timeouts": null,
+     "version": "342da3259291449daceee5cd02806473",
+     "versionless_id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/dsc-m365",
+     "versionless_secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/dsc-m365"
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "certificate": [],
+     "certificate_attribute": [
+      {}
+     ],
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {}
+       ],
+       "key_properties": [
+        {}
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {}
+         ],
+         "trigger": [
+          {}
+         ]
+        }
+       ],
+       "secret_properties": [
+        {}
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          false
+         ],
+         "key_usage": [
+          false,
+          false
+         ],
+         "subject_alternative_names": [
+          {}
+         ]
+        }
+       ]
+      }
+     ],
+     "tags": {}
+    },
+    "after_sensitive": {
+     "certificate": [],
+     "certificate_attribute": [
+      {}
+     ],
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {}
+       ],
+       "key_properties": [
+        {}
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {}
+         ],
+         "trigger": [
+          {}
+         ]
+        }
+       ],
+       "secret_properties": [
+        {}
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          false
+         ],
+         "key_usage": [
+          false,
+          false
+         ],
+         "subject_alternative_names": [
+          {}
+         ]
+        }
+       ]
+      }
+     ],
+     "tags": {}
+    }
+   }
+  },
+  {
+   "address": "azurerm_key_vault_certificate.this[\"syslog-nas\"]",
+   "mode": "managed",
+   "type": "azurerm_key_vault_certificate",
+   "name": "this",
+   "index": "syslog-nas",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "certificate": [],
+     "certificate_attribute": [
+      {
+       "created": "2026-10-28T15:34:42Z",
+       "enabled": true,
+       "expires": "2028-09-28T15:34:42Z",
+       "not_before": "2026-10-28T15:24:42Z",
+       "recovery_level": "Recoverable",
+       "updated": "2026-10-28T15:34:42Z"
+      }
+     ],
+     "certificate_data": "(blob)",
+     "certificate_data_base64": "(blob)",
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {
+         "name": "Self"
+        }
+       ],
+       "key_properties": [
+        {
+         "curve": "",
+         "exportable": true,
+         "key_size": 2048,
+         "key_type": "RSA",
+         "reuse_key": false
+        }
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {
+           "action_type": "AutoRenew"
+          }
+         ],
+         "trigger": [
+          {
+           "days_before_expiry": 0,
+           "lifetime_percentage": 80
+          }
+         ]
+        }
+       ],
+       "secret_properties": [
+        {
+         "content_type": "application/x-pkcs12"
+        }
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          "1.3.6.1.5.5.7.3.2"
+         ],
+         "key_usage": [
+          "digitalSignature",
+          "keyEncipherment"
+         ],
+         "subject": "CN=sp-syslog-home",
+         "subject_alternative_names": [
+          {
+           "dns_names": null,
+           "emails": null,
+           "upns": null
+          }
+         ],
+         "validity_in_months": 23
+        }
+       ]
+      }
+     ],
+     "id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/syslog-nas/51efcf3f21ed40b0b9cb4afa0cab494f",
+     "key_vault_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001",
+     "name": "syslog-nas",
+     "resource_manager_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/syslog-nas/versions/51efcf3f21ed40b0b9cb4afa0cab494f",
+     "resource_manager_versionless_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/syslog-nas",
+     "secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/syslog-nas/51efcf3f21ed40b0b9cb4afa0cab494f",
+     "tags": {
+      "criticality": "high",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "thumbprint": "A3CEE00BA664BF1E102AFF79744019E58102D108",
+     "timeouts": null,
+     "version": "51efcf3f21ed40b0b9cb4afa0cab494f",
+     "versionless_id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/syslog-nas",
+     "versionless_secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/syslog-nas"
+    },
+    "after": {
+     "certificate": [],
+     "certificate_attribute": [
+      {
+       "created": "2026-10-28T15:34:42Z",
+       "enabled": true,
+       "expires": "2028-09-28T15:34:42Z",
+       "not_before": "2026-10-28T15:24:42Z",
+       "recovery_level": "Recoverable",
+       "updated": "2026-10-28T15:34:42Z"
+      }
+     ],
+     "certificate_data": "(blob)",
+     "certificate_data_base64": "(blob)",
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {
+         "name": "Self"
+        }
+       ],
+       "key_properties": [
+        {
+         "curve": "",
+         "exportable": true,
+         "key_size": 2048,
+         "key_type": "RSA",
+         "reuse_key": false
+        }
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {
+           "action_type": "AutoRenew"
+          }
+         ],
+         "trigger": [
+          {
+           "days_before_expiry": 0,
+           "lifetime_percentage": 80
+          }
+         ]
+        }
+       ],
+       "secret_properties": [
+        {
+         "content_type": "application/x-pkcs12"
+        }
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          "1.3.6.1.5.5.7.3.2"
+         ],
+         "key_usage": [
+          "digitalSignature",
+          "keyEncipherment"
+         ],
+         "subject": "CN=sp-syslog-home",
+         "subject_alternative_names": [
+          {
+           "dns_names": null,
+           "emails": null,
+           "upns": null
+          }
+         ],
+         "validity_in_months": 23
+        }
+       ]
+      }
+     ],
+     "id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/syslog-nas/51efcf3f21ed40b0b9cb4afa0cab494f",
+     "key_vault_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001",
+     "name": "syslog-nas",
+     "resource_manager_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/syslog-nas/versions/51efcf3f21ed40b0b9cb4afa0cab494f",
+     "resource_manager_versionless_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/syslog-nas",
+     "secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/syslog-nas/51efcf3f21ed40b0b9cb4afa0cab494f",
+     "tags": {
+      "criticality": "medium",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "thumbprint": "A3CEE00BA664BF1E102AFF79744019E58102D108",
+     "timeouts": null,
+     "version": "51efcf3f21ed40b0b9cb4afa0cab494f",
+     "versionless_id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/syslog-nas",
+     "versionless_secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/syslog-nas"
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "certificate": [],
+     "certificate_attribute": [
+      {}
+     ],
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {}
+       ],
+       "key_properties": [
+        {}
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {}
+         ],
+         "trigger": [
+          {}
+         ]
+        }
+       ],
+       "secret_properties": [
+        {}
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          false
+         ],
+         "key_usage": [
+          false,
+          false
+         ],
+         "subject_alternative_names": [
+          {}
+         ]
+        }
+       ]
+      }
+     ],
+     "tags": {}
+    },
+    "after_sensitive": {
+     "certificate": [],
+     "certificate_attribute": [
+      {}
+     ],
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {}
+       ],
+       "key_properties": [
+        {}
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {}
+         ],
+         "trigger": [
+          {}
+         ]
+        }
+       ],
+       "secret_properties": [
+        {}
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          false
+         ],
+         "key_usage": [
+          false,
+          false
+         ],
+         "subject_alternative_names": [
+          {}
+         ]
+        }
+       ]
+      }
+     ],
+     "tags": {}
+    }
+   }
+  },
+  {
+   "address": "azurerm_key_vault_certificate.this[\"teams-asistent\"]",
+   "mode": "managed",
+   "type": "azurerm_key_vault_certificate",
+   "name": "this",
+   "index": "teams-asistent",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "certificate": [],
+     "certificate_attribute": [
+      {
+       "created": "2026-10-31T18:03:18Z",
+       "enabled": true,
+       "expires": "2028-09-30T18:03:17Z",
+       "not_before": "2026-10-31T17:53:17Z",
+       "recovery_level": "Recoverable",
+       "updated": "2026-10-31T18:03:18Z"
+      }
+     ],
+     "certificate_data": "(blob)",
+     "certificate_data_base64": "(blob)",
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {
+         "name": "Self"
+        }
+       ],
+       "key_properties": [
+        {
+         "curve": "",
+         "exportable": true,
+         "key_size": 2048,
+         "key_type": "RSA",
+         "reuse_key": false
+        }
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {
+           "action_type": "AutoRenew"
+          }
+         ],
+         "trigger": [
+          {
+           "days_before_expiry": 0,
+           "lifetime_percentage": 80
+          }
+         ]
+        }
+       ],
+       "secret_properties": [
+        {
+         "content_type": "application/x-pkcs12"
+        }
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          "1.3.6.1.5.5.7.3.2"
+         ],
+         "key_usage": [
+          "digitalSignature",
+          "keyEncipherment"
+         ],
+         "subject": "CN=sp-teams-asistent",
+         "subject_alternative_names": [
+          {
+           "dns_names": null,
+           "emails": null,
+           "upns": null
+          }
+         ],
+         "validity_in_months": 23
+        }
+       ]
+      }
+     ],
+     "id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/teams-asistent/8439a69eeebc41d19791f8c9ece469c8",
+     "key_vault_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001",
+     "name": "teams-asistent",
+     "resource_manager_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/teams-asistent/versions/8439a69eeebc41d19791f8c9ece469c8",
+     "resource_manager_versionless_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/teams-asistent",
+     "secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/teams-asistent/8439a69eeebc41d19791f8c9ece469c8",
+     "tags": {
+      "criticality": "high",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "thumbprint": "2892CDF5A0CBDBA48CE2E7EDE9E427D24295C44E",
+     "timeouts": null,
+     "version": "8439a69eeebc41d19791f8c9ece469c8",
+     "versionless_id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/teams-asistent",
+     "versionless_secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/teams-asistent"
+    },
+    "after": {
+     "certificate": [],
+     "certificate_attribute": [
+      {
+       "created": "2026-10-31T18:03:18Z",
+       "enabled": true,
+       "expires": "2028-09-30T18:03:17Z",
+       "not_before": "2026-10-31T17:53:17Z",
+       "recovery_level": "Recoverable",
+       "updated": "2026-10-31T18:03:18Z"
+      }
+     ],
+     "certificate_data": "(blob)",
+     "certificate_data_base64": "(blob)",
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {
+         "name": "Self"
+        }
+       ],
+       "key_properties": [
+        {
+         "curve": "",
+         "exportable": true,
+         "key_size": 2048,
+         "key_type": "RSA",
+         "reuse_key": false
+        }
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {
+           "action_type": "AutoRenew"
+          }
+         ],
+         "trigger": [
+          {
+           "days_before_expiry": 0,
+           "lifetime_percentage": 80
+          }
+         ]
+        }
+       ],
+       "secret_properties": [
+        {
+         "content_type": "application/x-pkcs12"
+        }
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          "1.3.6.1.5.5.7.3.2"
+         ],
+         "key_usage": [
+          "digitalSignature",
+          "keyEncipherment"
+         ],
+         "subject": "CN=sp-teams-asistent",
+         "subject_alternative_names": [
+          {
+           "dns_names": null,
+           "emails": null,
+           "upns": null
+          }
+         ],
+         "validity_in_months": 23
+        }
+       ]
+      }
+     ],
+     "id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/teams-asistent/8439a69eeebc41d19791f8c9ece469c8",
+     "key_vault_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001",
+     "name": "teams-asistent",
+     "resource_manager_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/teams-asistent/versions/8439a69eeebc41d19791f8c9ece469c8",
+     "resource_manager_versionless_id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.KeyVault/vaults/kv-security-mgmt-weu-001/certificates/teams-asistent",
+     "secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/teams-asistent/8439a69eeebc41d19791f8c9ece469c8",
+     "tags": {
+      "criticality": "medium",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "thumbprint": "2892CDF5A0CBDBA48CE2E7EDE9E427D24295C44E",
+     "timeouts": null,
+     "version": "8439a69eeebc41d19791f8c9ece469c8",
+     "versionless_id": "https://kv-security-mgmt-weu-001.vault.azure.net/certificates/teams-asistent",
+     "versionless_secret_id": "https://kv-security-mgmt-weu-001.vault.azure.net/secrets/teams-asistent"
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "certificate": [],
+     "certificate_attribute": [
+      {}
+     ],
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {}
+       ],
+       "key_properties": [
+        {}
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {}
+         ],
+         "trigger": [
+          {}
+         ]
+        }
+       ],
+       "secret_properties": [
+        {}
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          false
+         ],
+         "key_usage": [
+          false,
+          false
+         ],
+         "subject_alternative_names": [
+          {}
+         ]
+        }
+       ]
+      }
+     ],
+     "tags": {}
+    },
+    "after_sensitive": {
+     "certificate": [],
+     "certificate_attribute": [
+      {}
+     ],
+     "certificate_policy": [
+      {
+       "issuer_parameters": [
+        {}
+       ],
+       "key_properties": [
+        {}
+       ],
+       "lifetime_action": [
+        {
+         "action": [
+          {}
+         ],
+         "trigger": [
+          {}
+         ]
+        }
+       ],
+       "secret_properties": [
+        {}
+       ],
+       "x509_certificate_properties": [
+        {
+         "extended_key_usage": [
+          false
+         ],
+         "key_usage": [
+          false,
+          false
+         ],
+         "subject_alternative_names": [
+          {}
+         ]
+        }
+       ]
+      }
+     ],
+     "tags": {}
+    }
+   }
+  }
+ ],
+ "output_changes": {
+  "public_certificates": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "secret_ids": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

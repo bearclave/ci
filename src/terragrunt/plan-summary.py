@@ -397,8 +397,11 @@ def main(path: str, opts: dict) -> int:
             those = e["rows"]
             if compact and len(those) > 1:
                 those = [(f"{plural(len(those), 'change')}, see the details", NONE, NONE)]
-            for what, frm, to in those:
-                rows.append(f"| {e['icon']} | {e['kind']} | {name} | {cell(what)} | {frm} | {to} |")
+            # The rows after the first of a resource leave its kind and name
+            # out, so that one resource reads as one block.
+            for i, (what, frm, to) in enumerate(those):
+                kind, label = (e["kind"], name) if i == 0 else ("", "")
+                rows.append(f"| {e['icon']} | {kind} | {label} | {cell(what)} | {frm} | {to} |")
         if rows or not destructive:
             out += ["### Changes", ""]
         if rows:
@@ -451,8 +454,10 @@ def main(path: str, opts: dict) -> int:
 
         if status:
             out += ["**Status:** " + " · ".join(status), ""]
-        if not drift:
-            out += ["**Needed:** " + "; ".join(needed) + ".", ""]
+        if not drift and len(needed) == 1:
+            out += [f"**Needed:** {needed[0]}.", ""]
+        elif not drift:
+            out += ["**Needed:**", ""] + [f"- {n}" for n in needed] + [""]
 
         cut_notes = []
         body = []
@@ -511,6 +516,8 @@ def main(path: str, opts: dict) -> int:
                 over -= len(diffs[u][n]) + 1
             shown[u] = n
             text = render(shown)
+    if diffs and all(shown.get(u, len(d)) == 0 for u, d in diffs.items()):
+        text = render(shown, details=False)
     attempts = [dict(details=False), dict(details=False, error_lines=MAX_ERROR_LINES),
                 dict(details=False, error_lines=MAX_ERROR_LINES, compact=True)]
     for kwargs in attempts:

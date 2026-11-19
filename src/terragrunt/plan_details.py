@@ -222,7 +222,8 @@ REASONS = {
 MAX_VALUE = 60
 MAX_LIST = 4
 NONE = "—"
-RE_RESOURCE_ID = re.compile(r"/subscriptions/[^/\s]+(?:/resourceGroups/[^/\s]+)?/providers/\S+", re.I)
+RE_RESOURCE_ID = re.compile(r"/subscriptions/[^/\s]+(?:/resourceGroups/[^/\s]+)?(?:/providers/\S+)?"
+                            r"|/providers/Microsoft\.\S+", re.I)
 RE_ADDRESS = re.compile(r'(?:^|\.)(?:data\.)?([a-z0-9]+_[a-z0-9_]+)\.([A-Za-z0-9_-]+)(\[.+\])?$')
 
 
@@ -342,6 +343,7 @@ def fmt(value) -> str:
 def at(tree, path):
     """The value at a path in before/after or in a sensitive/unknown map."""
     for step in path:
+        tree = as_json(tree)
         if isinstance(tree, dict):
             tree = tree.get(step)
         elif isinstance(tree, list) and isinstance(step, int) and step < len(tree):

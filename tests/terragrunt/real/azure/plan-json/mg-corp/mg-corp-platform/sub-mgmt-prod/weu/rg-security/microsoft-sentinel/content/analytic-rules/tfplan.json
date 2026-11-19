@@ -1,0 +1,894 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azapi_resource.rule[\"0mega-sharepoint-online-ransomware\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "0mega-sharepoint-online-ransomware",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"account-created-and-deleted-in-short-timeframe\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "account-created-and-deleted-in-short-timeframe",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"addition-of-a-temporary-access-pass-to-a-privileged-account\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "addition-of-a-temporary-access-pass-to-a-privileged-account",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"admin-promotion-after-role-management-application-permission-grant\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "admin-promotion-after-role-management-application-permission-grant",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"anomalous-login-followed-by-teams-action\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "anomalous-login-followed-by-teams-action",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"application-id-uri-changed\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "application-id-uri-changed",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"attempts-to-sign-in-to-disabled-accounts\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "attempts-to-sign-in-to-disabled-accounts",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"authentication-methods-changed-for-account\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "authentication-methods-changed-for-account",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"azure-diagnostic-settings-deleted-from-a-resource\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "azure-diagnostic-settings-deleted-from-a-resource",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"azure-key-vault-access-timeseries-anomaly\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "azure-key-vault-access-timeseries-anomaly",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"azure-subscription-budget-deletion\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "azure-subscription-budget-deletion",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"brute-force-attack-against-cloud-app\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "brute-force-attack-against-cloud-app",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"bulk-changes-to-privileged-account-permissions\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "bulk-changes-to-privileged-account-permissions",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"creation-of-expensive-vms-in-azure-cloud\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "creation-of-expensive-vms-in-azure-cloud",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"credential-added-after-admin-consented-to-application\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "credential-added-after-admin-consented-to-application",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"custom-microsoft-entra-id-role-definition-create-or-edit-or-delete\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "custom-microsoft-entra-id-role-definition-create-or-edit-or-delete",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"data-ingestion-monitoring-for-abnormal-increase\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "data-ingestion-monitoring-for-abnormal-increase",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"detecting-impossible-travel-with-mailbox-permission-tampering-privilege-escalation-attempt\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "detecting-impossible-travel-with-mailbox-permission-tampering-privilege-escalation-attempt",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"detection-of-la-workspace-deletion-and-data-purge\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "detection-of-la-workspace-deletion-and-data-purge",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"distributed-password-cracking-attempts-in-microsoft-entra-id\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "distributed-password-cracking-attempts-in-microsoft-entra-id",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"exchange-auditlog-disabled\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "exchange-auditlog-disabled",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"exchange-workflow-mailitemsaccessed-operation-anomaly\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "exchange-workflow-mailitemsaccessed-operation-anomaly",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"external-guest-invitation-followed-by-microsoft-entra-id-powershell-signin\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "external-guest-invitation-followed-by-microsoft-entra-id-powershell-signin",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"first-access-credential-added-to-application-or-service-principal-where-no-credential-was-present\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "first-access-credential-added-to-application-or-service-principal-where-no-credential-was-present",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"home-nas-backup-failed\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "home-nas-backup-failed",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"home-nas-login-failures\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "home-nas-login-failures",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"home-new-device\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "home-new-device",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"home-router-change-outside-pipeline\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "home-router-change-outside-pipeline",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"home-router-unexpected-login\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "home-router-unexpected-login",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"home-syslog-source-silent\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "home-syslog-source-silent",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"key-vault-secret-read-outside-pipeline\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "key-vault-secret-read-outside-pipeline",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"mail-read-permissions-granted-to-application\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "mail-read-permissions-granted-to-application",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"mail-redirect-via-exo-transport-rule\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "mail-redirect-via-exo-transport-rule",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"mass-secret-retrieval-from-azure-key-vault\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "mass-secret-retrieval-from-azure-key-vault",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"member-assigned-to-microsoft-cloud-privileged-group\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "member-assigned-to-microsoft-cloud-privileged-group",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"mfa-disabled-for-a-user\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "mfa-disabled-for-a-user",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"microsoft-entra-id-break-glass-account-logon-monitoring\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "microsoft-entra-id-break-glass-account-logon-monitoring",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"microsoft-entra-id-conditional-access-policy-activity-monitoring\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "microsoft-entra-id-conditional-access-policy-activity-monitoring",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"microsoft-entra-id-privileged-account-has-been-updated\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "microsoft-entra-id-privileged-account-has-been-updated",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"microsoft-entra-id-role-assigned-via-iam-or-pim\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "microsoft-entra-id-role-assigned-via-iam-or-pim",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"microsoft-entra-id-role-management-permission-grant\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "microsoft-entra-id-role-management-permission-grant",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"microsoft-sentinel-content-modified-by-unapproved-caller\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "microsoft-sentinel-content-modified-by-unapproved-caller",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"microsoft-sentinel-health-degraded\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "microsoft-sentinel-health-degraded",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"microsoft-sentinel-playbook-run-failure\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "microsoft-sentinel-playbook-run-failure",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"modified-domain-federation-trust-settings\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "modified-domain-federation-trust-settings",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"multiple-admins-removed-from-roles\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "multiple-admins-removed-from-roles",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"multiple-user-mailboxes-forwarding-to-same-destination\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "multiple-user-mailboxes-forwarding-to-same-destination",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"new-access-credential-added-to-application-or-service-principal\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "new-access-credential-added-to-application-or-service-principal",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"new-isassignabletorole-group-has-been-created-in-microsoft-entra-id\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "new-isassignabletorole-group-has-been-created-in-microsoft-entra-id",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"office-policy-tampering\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "office-policy-tampering",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"password-spray-attack-against-microsoft-entra-id-application\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "password-spray-attack-against-microsoft-entra-id-application",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"possible-mfa-bombing\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "possible-mfa-bombing",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"rare-subscription-level-operations-in-azure\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "rare-subscription-level-operations-in-azure",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"sensitive-azure-key-vault-operations\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "sensitive-azure-key-vault-operations",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"sharepointfileoperation-via-previously-unseen-ips\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "sharepointfileoperation-via-previously-unseen-ips",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"sign-ins-from-ips-that-attempt-sign-ins-to-disabled-accounts\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "sign-ins-from-ips-that-attempt-sign-ins-to-disabled-accounts",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"suspicious-activity-on-azure-policy\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "suspicious-activity-on-azure-policy",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"suspicious-application-consent-similar-to-o365-attack-toolkit\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "suspicious-application-consent-similar-to-o365-attack-toolkit",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"suspicious-application-consent-similar-to-pwnauth\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "suspicious-application-consent-similar-to-pwnauth",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"suspicious-login-from-deleted-guest-account\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "suspicious-login-from-deleted-guest-account",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"terraform-state-accessed-outside-pipeline\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "terraform-state-accessed-outside-pipeline",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"the-password-of-microsoft-entra-id-privileged-account-has-been-reset\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "the-password-of-microsoft-entra-id-privileged-account-has-been-reset",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"unauthorized-devicecode-authentication\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "unauthorized-devicecode-authentication",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"unauthorized-mail-redirection-to-external-domain\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "unauthorized-mail-redirection-to-external-domain",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"user-added-to-microsoft-entra-id-privileged-groups-outside-of-pim\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "user-added-to-microsoft-entra-id-privileged-groups-outside-of-pim",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"user-state-changed-from-guest-to-member\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "user-state-changed-from-guest-to-member",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azapi_resource.rule[\"workspace-deletion-attempt\"]",
+   "mode": "managed",
+   "type": "azapi_resource",
+   "name": "rule",
+   "index": "workspace-deletion-attempt",
+   "provider_name": "registry.terraform.io/azure/azapi",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "count": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "ids": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "names": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

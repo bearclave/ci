@@ -1,0 +1,86 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_management_group.this",
+   "mode": "managed",
+   "type": "azurerm_management_group",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Owner/group:sg-azure-owners\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Owner/group:sg-azure-owners",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Owner/sp:sp-tf-platform\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Owner/sp:sp-tf-platform",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Reader/group:sg-azure-readers\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Reader/group:sg-azure-readers",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "module.rbac.azurerm_role_assignment.active[\"Reader/id:00000000-0000-0000-0000-000000000004\"]",
+   "module_address": "module.rbac",
+   "mode": "managed",
+   "type": "azurerm_role_assignment",
+   "name": "active",
+   "index": "Reader/id:00000000-0000-0000-0000-000000000004",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "subscription_ids": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

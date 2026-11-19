@@ -2,12 +2,14 @@
 # iac-github):
 #
 # Pull request into main -> plan over the affected units, under the read-only
-#                           identity, summarised into the pull request; one
-#                           that touches none of the relevant paths skips the
+#                           identity, as the plan comment of the pull request
+#                           (README, Plan and apply comments); one that
+#                           touches none of the relevant paths skips the
 #                           plan; conventions and Sentinel lint
 # Push to main            -> plan again under the full identity, then apply,
 #                           but only if the plan proposes something and
-#                           destroys or replaces nothing
+#                           destroys or replaces nothing; the apply comment
+#                           goes on the merged pull request
 # Manual run on main      -> the same; with allow-destroy it also applies what
 #                           destroys or replaces, which a push leaves waiting
 #
@@ -447,24 +449,6 @@ jobs:
             --checks="$CHECKS" --commit="$COMMIT" --changes-out=changes.json "${args[@]}" \
             | tee plan.md
           cat plan.md >>"$GITHUB_STEP_SUMMARY"
-
-      - name: Plan fixtures (temporary)
-        if: always()
-        env:
-          PLAN_JSON: ${{ runner.temp }}/plan-json
-        run: |
-          cat >"$RUNNER_TEMP/sanitise-plan.py" <<'__CI_EOF__'
-          @@include tools/sanitise-plan.py@@
-          __CI_EOF__
-          python3 "$RUNNER_TEMP/sanitise-plan.py" "$PLAN_JSON" "$RUNNER_TEMP/fixtures" | tail -3
-
-      - name: Upload the fixtures (temporary)
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: fixtures-${{ github.run_id }}
-          path: ${{ runner.temp }}/fixtures
-          retention-days: 1
 
       - name: Upload the plan
         if: always()

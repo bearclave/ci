@@ -911,8 +911,11 @@ jobs:
                       those = e["rows"]
                       if compact and len(those) > 1:
                           those = [(f"{plural(len(those), 'change')}, see the details", NONE, NONE)]
-                      for what, frm, to in those:
-                          rows.append(f"| {e['icon']} | {e['kind']} | {name} | {cell(what)} | {frm} | {to} |")
+                      # The rows after the first of a resource leave its kind and name
+                      # out, so that one resource reads as one block.
+                      for i, (what, frm, to) in enumerate(those):
+                          kind, label = (e["kind"], name) if i == 0 else ("", "")
+                          rows.append(f"| {e['icon']} | {kind} | {label} | {cell(what)} | {frm} | {to} |")
                   if rows or not destructive:
                       out += ["### Changes", ""]
                   if rows:
@@ -965,8 +968,10 @@ jobs:
 
                   if status:
                       out += ["**Status:** " + " · ".join(status), ""]
-                  if not drift:
-                      out += ["**Needed:** " + "; ".join(needed) + ".", ""]
+                  if not drift and len(needed) == 1:
+                      out += [f"**Needed:** {needed[0]}.", ""]
+                  elif not drift:
+                      out += ["**Needed:**", ""] + [f"- {n}" for n in needed] + [""]
 
                   cut_notes = []
                   body = []
@@ -1025,6 +1030,8 @@ jobs:
                           over -= len(diffs[u][n]) + 1
                       shown[u] = n
                       text = render(shown)
+              if diffs and all(shown.get(u, len(d)) == 0 for u, d in diffs.items()):
+                  text = render(shown, details=False)
               attempts = [dict(details=False), dict(details=False, error_lines=MAX_ERROR_LINES),
                           dict(details=False, error_lines=MAX_ERROR_LINES, compact=True)]
               for kwargs in attempts:
@@ -1292,8 +1299,9 @@ jobs:
               rows = []
               for e, res in results:
                   name = code(e["name"]) + (f"<br><sub>{code(e['unit'])}</sub>" if many else "")
-                  for what, frm, to in e["rows"] or [("changed", NONE, NONE)]:
-                      rows.append(f"| {e['icon']} | {e['kind']} | {name} | {past(what, frm, to)} | {res} |")
+                  for i, (what, frm, to) in enumerate(e["rows"] or [("changed", NONE, NONE)]):
+                      kind, label = (e["kind"], name) if i == 0 else ("", "")
+                      rows.append(f"| {e['icon']} | {kind} | {label} | {past(what, frm, to)} | {res} |")
 
               failed_blocks = {}
               for unit, u in units.items():
@@ -1597,7 +1605,8 @@ jobs:
           MAX_VALUE = 60
           MAX_LIST = 4
           NONE = "—"
-          RE_RESOURCE_ID = re.compile(r"/subscriptions/[^/\s]+(?:/resourceGroups/[^/\s]+)?/providers/\S+", re.I)
+          RE_RESOURCE_ID = re.compile(r"/subscriptions/[^/\s]+(?:/resourceGroups/[^/\s]+)?(?:/providers/\S+)?"
+                                      r"|/providers/Microsoft\.\S+", re.I)
           RE_ADDRESS = re.compile(r'(?:^|\.)(?:data\.)?([a-z0-9]+_[a-z0-9_]+)\.([A-Za-z0-9_-]+)(\[.+\])?$')
 
 
@@ -1717,6 +1726,7 @@ jobs:
           def at(tree, path):
               """The value at a path in before/after or in a sensitive/unknown map."""
               for step in path:
+                  tree = as_json(tree)
                   if isinstance(tree, dict):
                       tree = tree.get(step)
                   elif isinstance(tree, list) and isinstance(step, int) and step < len(tree):

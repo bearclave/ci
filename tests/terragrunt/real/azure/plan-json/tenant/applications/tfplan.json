@@ -1,0 +1,335 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azuread_application.this[\"Synology Active Backup for M365\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "Synology Active Backup for M365",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-doklady-sro\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-doklady-sro",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-dsc-m365\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-dsc-m365",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-swa-osvc-prod\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-swa-osvc-prod",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-swa-sro-prod\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-swa-sro-prod",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-syslog-home\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-syslog-home",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-teams-asistent\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-teams-asistent",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-tf-github\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-tf-github",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-tf-github-plan\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-tf-github-plan",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-tf-home\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-tf-home",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-tf-plan\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-tf-plan",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_application.this[\"sp-tf-platform\"]",
+   "mode": "managed",
+   "type": "azuread_application",
+   "name": "this",
+   "index": "sp-tf-platform",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"Synology Active Backup for M365\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "Synology Active Backup for M365",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-doklady-sro\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-doklady-sro",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-dsc-m365\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-dsc-m365",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-swa-osvc-prod\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-swa-osvc-prod",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-swa-sro-prod\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-swa-sro-prod",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-syslog-home\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-syslog-home",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-teams-asistent\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-teams-asistent",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-tf-github\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-tf-github",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-tf-github-plan\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-tf-github-plan",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-tf-home\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-tf-home",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-tf-plan\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-tf-plan",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  },
+  {
+   "address": "azuread_service_principal.this[\"sp-tf-platform\"]",
+   "mode": "managed",
+   "type": "azuread_service_principal",
+   "name": "this",
+   "index": "sp-tf-platform",
+   "provider_name": "registry.terraform.io/hashicorp/azuread",
+   "change": {
+    "actions": [
+     "no-op"
+    ]
+   }
+  }
+ ],
+ "output_changes": {
+  "application_resource_ids": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "client_ids": {
+   "actions": [
+    "no-op"
+   ]
+  },
+  "service_principal_object_ids": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}

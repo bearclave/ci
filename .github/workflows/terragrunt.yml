@@ -3,12 +3,14 @@
 # iac-github):
 #
 # Pull request into main -> plan over the affected units, under the read-only
-#                           identity, summarised into the pull request; one
-#                           that touches none of the relevant paths skips the
+#                           identity, as the plan comment of the pull request
+#                           (README, Plan and apply comments); one that
+#                           touches none of the relevant paths skips the
 #                           plan; conventions and Sentinel lint
 # Push to main            -> plan again under the full identity, then apply,
 #                           but only if the plan proposes something and
-#                           destroys or replaces nothing
+#                           destroys or replaces nothing; the apply comment
+#                           goes on the merged pull request
 # Manual run on main      -> the same; with allow-destroy it also applies what
 #                           destroys or replaces, which a push leaves waiting
 #
@@ -2096,8 +2098,11 @@ jobs:
                       those = e["rows"]
                       if compact and len(those) > 1:
                           those = [(f"{plural(len(those), 'change')}, see the details", NONE, NONE)]
-                      for what, frm, to in those:
-                          rows.append(f"| {e['icon']} | {e['kind']} | {name} | {cell(what)} | {frm} | {to} |")
+                      # The rows after the first of a resource leave its kind and name
+                      # out, so that one resource reads as one block.
+                      for i, (what, frm, to) in enumerate(those):
+                          kind, label = (e["kind"], name) if i == 0 else ("", "")
+                          rows.append(f"| {e['icon']} | {kind} | {label} | {cell(what)} | {frm} | {to} |")
                   if rows or not destructive:
                       out += ["### Changes", ""]
                   if rows:
@@ -2150,8 +2155,10 @@ jobs:
 
                   if status:
                       out += ["**Status:** " + " · ".join(status), ""]
-                  if not drift:
-                      out += ["**Needed:** " + "; ".join(needed) + ".", ""]
+                  if not drift and len(needed) == 1:
+                      out += [f"**Needed:** {needed[0]}.", ""]
+                  elif not drift:
+                      out += ["**Needed:**", ""] + [f"- {n}" for n in needed] + [""]
 
                   cut_notes = []
                   body = []
@@ -2210,6 +2217,8 @@ jobs:
                           over -= len(diffs[u][n]) + 1
                       shown[u] = n
                       text = render(shown)
+              if diffs and all(shown.get(u, len(d)) == 0 for u, d in diffs.items()):
+                  text = render(shown, details=False)
               attempts = [dict(details=False), dict(details=False, error_lines=MAX_ERROR_LINES),
                           dict(details=False, error_lines=MAX_ERROR_LINES, compact=True)]
               for kwargs in attempts:
@@ -2477,8 +2486,9 @@ jobs:
               rows = []
               for e, res in results:
                   name = code(e["name"]) + (f"<br><sub>{code(e['unit'])}</sub>" if many else "")
-                  for what, frm, to in e["rows"] or [("changed", NONE, NONE)]:
-                      rows.append(f"| {e['icon']} | {e['kind']} | {name} | {past(what, frm, to)} | {res} |")
+                  for i, (what, frm, to) in enumerate(e["rows"] or [("changed", NONE, NONE)]):
+                      kind, label = (e["kind"], name) if i == 0 else ("", "")
+                      rows.append(f"| {e['icon']} | {kind} | {label} | {past(what, frm, to)} | {res} |")
 
               failed_blocks = {}
               for unit, u in units.items():
@@ -2782,7 +2792,8 @@ jobs:
           MAX_VALUE = 60
           MAX_LIST = 4
           NONE = "—"
-          RE_RESOURCE_ID = re.compile(r"/subscriptions/[^/\s]+(?:/resourceGroups/[^/\s]+)?/providers/\S+", re.I)
+          RE_RESOURCE_ID = re.compile(r"/subscriptions/[^/\s]+(?:/resourceGroups/[^/\s]+)?(?:/providers/\S+)?"
+                                      r"|/providers/Microsoft\.\S+", re.I)
           RE_ADDRESS = re.compile(r'(?:^|\.)(?:data\.)?([a-z0-9]+_[a-z0-9_]+)\.([A-Za-z0-9_-]+)(\[.+\])?$')
 
 
@@ -2902,6 +2913,7 @@ jobs:
           def at(tree, path):
               """The value at a path in before/after or in a sensitive/unknown map."""
               for step in path:
+                  tree = as_json(tree)
                   if isinstance(tree, dict):
                       tree = tree.get(step)
                   elif isinstance(tree, list) and isinstance(step, int) and step < len(tree):
@@ -3603,122 +3615,6 @@ jobs:
             --checks="$CHECKS" --commit="$COMMIT" --changes-out=changes.json "${args[@]}" \
             | tee plan.md
           cat plan.md >>"$GITHUB_STEP_SUMMARY"
-
-      - name: Plan fixtures (temporary)
-        if: always()
-        env:
-          PLAN_JSON: ${{ runner.temp }}/plan-json
-        run: |
-          cat >"$RUNNER_TEMP/sanitise-plan.py" <<'__CI_EOF__'
-          #!/usr/bin/env python3
-          """Turns terraform plans in JSON into test fixtures that hold nothing secret.
-
-          Usage: tools/sanitise-plan.py <plan-json-dir> <out-dir>
-
-          <plan-json-dir> holds <unit>/tfplan.json (terragrunt's --json-out-dir). Each
-          plan is written to <out-dir>/<unit>/tfplan.json with only what the comments
-          read: resource_changes and the actions of output_changes. On the way:
-
-          - every value terraform marks sensitive becomes "(redacted)";
-          - every GUID becomes 00000000-0000-0000-0000-<n>, the same GUID the same n;
-          - every e-mail address becomes user<n>@example.com;
-          - a resource without a change keeps its address and actions but no values;
-          - prior_state, configuration, variables and planned_values are left out.
-          """
-          import json
-          import pathlib
-          import re
-          import sys
-
-          RE_GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
-          RE_MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-          KEEP = ("address", "previous_address", "module_address", "mode", "type", "name", "index",
-                  "provider_name", "action_reason")
-
-
-          class Masks:
-              def __init__(self):
-                  self.guids, self.mails = {}, {}
-
-              def text(self, value: str) -> str:
-                  value = RE_GUID.sub(lambda m: self.guid(m.group(0)), value)
-                  return RE_MAIL.sub(lambda m: self.mail(m.group(0)), value)
-
-              def guid(self, g: str) -> str:
-                  n = self.guids.setdefault(g.lower(), len(self.guids) + 1)
-                  return f"00000000-0000-0000-0000-{n:012d}"
-
-              def mail(self, m: str) -> str:
-                  n = self.mails.setdefault(m.lower(), len(self.mails) + 1)
-                  return f"user{n}@example.com"
-
-              def value(self, value, sensitive=None):
-                  if sensitive is True:
-                      return "(redacted)"
-                  if isinstance(value, dict):
-                      s = sensitive if isinstance(sensitive, dict) else {}
-                      return {self.text(k): self.value(v, s.get(k)) for k, v in value.items()}
-                  if isinstance(value, list):
-                      s = sensitive if isinstance(sensitive, list) else []
-                      return [self.value(v, s[i] if i < len(s) else None) for i, v in enumerate(value)]
-                  if isinstance(value, str):
-                      return self.text(value)
-                  return value
-
-
-          def sanitise(plan: dict, masks: Masks) -> dict:
-              out = {"format_version": plan.get("format_version"),
-                     "terraform_version": plan.get("terraform_version"),
-                     "resource_changes": [], "output_changes": {}}
-              for rc in plan.get("resource_changes") or []:
-                  change = rc.get("change") or {}
-                  actions = change.get("actions") or []
-                  item = {k: masks.value(rc[k]) for k in KEEP if k in rc}
-                  new = {"actions": actions}
-                  noop = actions == ["no-op"] and not change.get("importing") \
-                      and rc.get("previous_address") in (None, rc.get("address"))
-                  if not noop:
-                      new["before"] = masks.value(change.get("before"), change.get("before_sensitive"))
-                      new["after"] = masks.value(change.get("after"), change.get("after_sensitive"))
-                      for key in ("after_unknown", "before_sensitive", "after_sensitive", "replace_paths"):
-                          if key in change:
-                              new[key] = masks.value(change[key])
-                  if change.get("importing"):
-                      new["importing"] = {"id": masks.text(str(change["importing"].get("id", "")))}
-                  item["change"] = new
-                  out["resource_changes"].append(item)
-              for name, oc in (plan.get("output_changes") or {}).items():
-                  out["output_changes"][name] = {"actions": oc.get("actions")}
-              return out
-
-
-          def main(src: str, dst: str) -> int:
-              masks = Masks()
-              for path in sorted(pathlib.Path(src).rglob("tfplan.json")):
-                  unit = path.parent.relative_to(src)
-                  target = pathlib.Path(dst, unit, "tfplan.json")
-                  target.parent.mkdir(parents=True, exist_ok=True)
-                  plan = json.loads(path.read_text(encoding="utf-8"))
-                  target.write_text(json.dumps(sanitise(plan, masks), indent=1, ensure_ascii=False) + "\n",
-                                    encoding="utf-8")
-                  print(target)
-              return 0
-
-
-          if __name__ == "__main__":
-              if len(sys.argv) != 3:
-                  sys.exit(__doc__)
-              sys.exit(main(sys.argv[1], sys.argv[2]))
-          __CI_EOF__
-          python3 "$RUNNER_TEMP/sanitise-plan.py" "$PLAN_JSON" "$RUNNER_TEMP/fixtures" | tail -3
-
-      - name: Upload the fixtures (temporary)
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: fixtures-${{ github.run_id }}
-          path: ${{ runner.temp }}/fixtures
-          retention-days: 1
 
       - name: Upload the plan
         if: always()
@@ -4833,8 +4729,11 @@ jobs:
                       those = e["rows"]
                       if compact and len(those) > 1:
                           those = [(f"{plural(len(those), 'change')}, see the details", NONE, NONE)]
-                      for what, frm, to in those:
-                          rows.append(f"| {e['icon']} | {e['kind']} | {name} | {cell(what)} | {frm} | {to} |")
+                      # The rows after the first of a resource leave its kind and name
+                      # out, so that one resource reads as one block.
+                      for i, (what, frm, to) in enumerate(those):
+                          kind, label = (e["kind"], name) if i == 0 else ("", "")
+                          rows.append(f"| {e['icon']} | {kind} | {label} | {cell(what)} | {frm} | {to} |")
                   if rows or not destructive:
                       out += ["### Changes", ""]
                   if rows:
@@ -4887,8 +4786,10 @@ jobs:
 
                   if status:
                       out += ["**Status:** " + " · ".join(status), ""]
-                  if not drift:
-                      out += ["**Needed:** " + "; ".join(needed) + ".", ""]
+                  if not drift and len(needed) == 1:
+                      out += [f"**Needed:** {needed[0]}.", ""]
+                  elif not drift:
+                      out += ["**Needed:**", ""] + [f"- {n}" for n in needed] + [""]
 
                   cut_notes = []
                   body = []
@@ -4947,6 +4848,8 @@ jobs:
                           over -= len(diffs[u][n]) + 1
                       shown[u] = n
                       text = render(shown)
+              if diffs and all(shown.get(u, len(d)) == 0 for u, d in diffs.items()):
+                  text = render(shown, details=False)
               attempts = [dict(details=False), dict(details=False, error_lines=MAX_ERROR_LINES),
                           dict(details=False, error_lines=MAX_ERROR_LINES, compact=True)]
               for kwargs in attempts:
@@ -5214,8 +5117,9 @@ jobs:
               rows = []
               for e, res in results:
                   name = code(e["name"]) + (f"<br><sub>{code(e['unit'])}</sub>" if many else "")
-                  for what, frm, to in e["rows"] or [("changed", NONE, NONE)]:
-                      rows.append(f"| {e['icon']} | {e['kind']} | {name} | {past(what, frm, to)} | {res} |")
+                  for i, (what, frm, to) in enumerate(e["rows"] or [("changed", NONE, NONE)]):
+                      kind, label = (e["kind"], name) if i == 0 else ("", "")
+                      rows.append(f"| {e['icon']} | {kind} | {label} | {past(what, frm, to)} | {res} |")
 
               failed_blocks = {}
               for unit, u in units.items():
@@ -5519,7 +5423,8 @@ jobs:
           MAX_VALUE = 60
           MAX_LIST = 4
           NONE = "—"
-          RE_RESOURCE_ID = re.compile(r"/subscriptions/[^/\s]+(?:/resourceGroups/[^/\s]+)?/providers/\S+", re.I)
+          RE_RESOURCE_ID = re.compile(r"/subscriptions/[^/\s]+(?:/resourceGroups/[^/\s]+)?(?:/providers/\S+)?"
+                                      r"|/providers/Microsoft\.\S+", re.I)
           RE_ADDRESS = re.compile(r'(?:^|\.)(?:data\.)?([a-z0-9]+_[a-z0-9_]+)\.([A-Za-z0-9_-]+)(\[.+\])?$')
 
 
@@ -5639,6 +5544,7 @@ jobs:
           def at(tree, path):
               """The value at a path in before/after or in a sensitive/unknown map."""
               for step in path:
+                  tree = as_json(tree)
                   if isinstance(tree, dict):
                       tree = tree.get(step)
                   elif isinstance(tree, list) and isinstance(step, int) and step < len(tree):

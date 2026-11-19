@@ -180,8 +180,9 @@ def main(path: str, opts: dict) -> int:
     rows = []
     for e, res in results:
         name = code(e["name"]) + (f"<br><sub>{code(e['unit'])}</sub>" if many else "")
-        for what, frm, to in e["rows"] or [("changed", NONE, NONE)]:
-            rows.append(f"| {e['icon']} | {e['kind']} | {name} | {past(what, frm, to)} | {res} |")
+        for i, (what, frm, to) in enumerate(e["rows"] or [("changed", NONE, NONE)]):
+            kind, label = (e["kind"], name) if i == 0 else ("", "")
+            rows.append(f"| {e['icon']} | {kind} | {label} | {past(what, frm, to)} | {res} |")
 
     failed_blocks = {}
     for unit, u in units.items():

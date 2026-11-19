@@ -1,0 +1,130 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.15.8",
+ "resource_changes": [
+  {
+   "address": "azurerm_monitor_action_group.this",
+   "mode": "managed",
+   "type": "azurerm_monitor_action_group",
+   "name": "this",
+   "provider_name": "registry.terraform.io/hashicorp/azurerm",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "before": {
+     "arm_role_receiver": [],
+     "automation_runbook_receiver": [],
+     "azure_app_push_receiver": [],
+     "azure_function_receiver": [],
+     "email_receiver": [
+      {
+       "email_address": "user1@example.com",
+       "name": "security",
+       "use_common_alert_schema": true
+      }
+     ],
+     "enabled": true,
+     "event_hub_receiver": [],
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.Insights/actionGroups/ag-security-mgmt-weu-001",
+     "itsm_receiver": [],
+     "location": "global",
+     "logic_app_receiver": [],
+     "name": "ag-security-mgmt-weu-001",
+     "resource_group_name": "rg-security-mgmt-weu-001",
+     "short_name": "sec",
+     "sms_receiver": [],
+     "tags": {
+      "criticality": "high",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null,
+     "voice_receiver": [],
+     "webhook_receiver": []
+    },
+    "after": {
+     "arm_role_receiver": [],
+     "automation_runbook_receiver": [],
+     "azure_app_push_receiver": [],
+     "azure_function_receiver": [],
+     "email_receiver": [
+      {
+       "email_address": "user1@example.com",
+       "name": "security",
+       "use_common_alert_schema": true
+      }
+     ],
+     "enabled": true,
+     "event_hub_receiver": [],
+     "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-security-mgmt-weu-001/providers/Microsoft.Insights/actionGroups/ag-security-mgmt-weu-001",
+     "itsm_receiver": [],
+     "location": "global",
+     "logic_app_receiver": [],
+     "name": "ag-security-mgmt-weu-001",
+     "resource_group_name": "rg-security-mgmt-weu-001",
+     "short_name": "sec",
+     "sms_receiver": [],
+     "tags": {
+      "criticality": "medium",
+      "dataClassification": "confidential",
+      "entity": "shared",
+      "environment": "prod",
+      "managedBy": "terragrunt",
+      "owner": "Matej Hrabalek",
+      "region": "weu",
+      "workload": "security"
+     },
+     "timeouts": null,
+     "voice_receiver": [],
+     "webhook_receiver": []
+    },
+    "after_unknown": {},
+    "before_sensitive": {
+     "arm_role_receiver": [],
+     "automation_runbook_receiver": [],
+     "azure_app_push_receiver": [],
+     "azure_function_receiver": [],
+     "email_receiver": [
+      {}
+     ],
+     "event_hub_receiver": [],
+     "itsm_receiver": [],
+     "logic_app_receiver": [],
+     "sms_receiver": [],
+     "tags": {},
+     "voice_receiver": [],
+     "webhook_receiver": []
+    },
+    "after_sensitive": {
+     "arm_role_receiver": [],
+     "automation_runbook_receiver": [],
+     "azure_app_push_receiver": [],
+     "azure_function_receiver": [],
+     "email_receiver": [
+      {}
+     ],
+     "event_hub_receiver": [],
+     "itsm_receiver": [],
+     "logic_app_receiver": [],
+     "sms_receiver": [],
+     "tags": {},
+     "voice_receiver": [],
+     "webhook_receiver": []
+    }
+   }
+  }
+ ],
+ "output_changes": {
+  "id": {
+   "actions": [
+    "no-op"
+   ]
+  }
+ }
+}
