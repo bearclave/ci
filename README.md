@@ -24,7 +24,8 @@ short callers (templates in `bearclave/governance` `standards/templates/workflow
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck |
 | `pr.yml` | `pr` | every repository | Conventional Commit title (a bot's title over 72 characters only warns), `<type>/<slug>` branch, description sections; sets `type:*`, `breaking`, `size:*` labels and the assignee (`src/pr_check.py`); the root layout (`src/layout_check.py`, below) |
 | `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `.github` | an optional command of the repository, then the gate |
-| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, plan of the affected units with trivy and a PR comment, apply from `main`, destroys held back, gate |
+| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github` | conventions, Sentinel lint, plan of the affected units with trivy and a PR comment, `destroy / approved` (destroys and replaces need an approval given after the plan), apply from `main`, gate |
+| `destroy-review.yml` | `review` | `iac-azure`, `iac-github` | on a submitted approval, re-runs the failed `destroy / approved` check of the last pull request run |
 | `terragrunt-drift.yml` | `drift` | `iac-azure`, `iac-github` | weekly plan of the whole tree, trivy, analytic rules outside the code |
 | `terragrunt-home.yml` | `pipeline` | `iac-home` | conventions, plan and apply of the router through WireGuard, certificate renewal and drift on schedule |
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, tflint, trivy config, conventions |
