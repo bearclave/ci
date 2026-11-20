@@ -26,7 +26,7 @@
 #
 #   on:
 #     pull_request:
-#       branches: [main]
+#       branches: [main, staging]   # staging: the default branch of the applications
 #       types: [opened, edited, reopened, synchronize, ready_for_review]
 #   jobs:
 #     pr:
