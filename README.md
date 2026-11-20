@@ -23,14 +23,14 @@ name, never `secrets: inherit`). The header of each workflow shows its caller.
 | `pr.yml` | `pr` | every repository | title, branch, description sections (people and Apps), labels, assignee; the root layout; to-dos with their issue and relative links; the YAML of collections against their JSON Schema; markdownlint ([checks.md](docs/checks.md)) |
 | `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `vs-code-extensions`, `.github` | one job: ESLint where there is JavaScript, an optional command of the repository; the gate |
 | `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github`; `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-purview`, `iac-sentinel` | conventions, Sentinel lint, validate next to the plan of the affected units (read-only identity) with trivy and a plan comment, `destroy / approved`, apply from `main` in the environment, its verification, an apply comment, gate ([terragrunt.md](docs/terragrunt.md)) |
-| `terragrunt-home.yml` | `pipeline` | `iac-home` | the jobs of `terragrunt.yml` through WireGuard, with the certificate renewal on schedule |
+| `terragrunt-home.yml` | `pipeline` | `iac-home` | the jobs of `terragrunt.yml`; plan and apply on the NAS runner in the home network (`network-runner`) or through WireGuard from a GitHub runner, with the certificate renewal on schedule ([runners.md](docs/runners.md)) |
 | `destroy-review.yml` | `review` | `iac-azure`, `iac-github`, `iac-home` | on a submitted approval, re-runs the failed `destroy / approved` check |
 | `terragrunt-drift.yml` | `drift` | the repositories of `terragrunt.yml` | weekly plan of the whole tree as the read-only identity, trivy, failed check blocks, analytic rules outside the code |
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, `terraform test`, tflint, trivy config, README tables (terraform-docs `--output-check`), `docs/catalog.md` (`src/terraform/catalog.py --check`), conventions |
 | `m365-dsc.yml`, `m365-drift.yml` | `pipeline`, `drift` | `iac-m365` | Microsoft365DSC: plan, apply, weekly drift; retired, removed in a minor release once the last domain has moved to Terraform and `iac-m365` is archived |
 | `static-web-app.yml` | `pipeline` | `app-web-*` | site checks (with SEO), ESLint, the site's own checks; with `staging-swa-name` the environment model: a preview per pull request, the build deployed to staging from `staging` and the same build to production from `prod`, noindex outside production, smoke tests ([applications.md](docs/applications.md)); without it the deploy into `environment` when the content changed |
 | `promote.yml` | `promote` | the applications, by a click | a commit of `staging` to production as the App `bearclave-promote`: checks its staging run and build, fast-forwards `prod`, waits for the production run, then tags `vX.Y.Z` and publishes the release ([applications.md](docs/applications.md)) |
-| `container.yml` | `pipeline` | `app-home` | ESLint, lint and tests in the image; push to GHCR from `main` (`:main`) and from a release (`:vX.Y.Z`) |
+| `container.yml` | `pipeline` | `app-home` | ESLint, lint and tests in the image; with `environments`: `staging` pushes `:staging` and `:sha-<commit>` and deploys staging on the NAS, `prod` tags that image `:vX.Y.Z` (no rebuild) and deploys prod, smoke test of each; without: push from `main` (`:main`) and from a release (`:vX.Y.Z`) |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
 | `release.yml` | `release` | versioned repositories, by hand (no caller yet) | the next `vX.Y.Z` and its notes, and the commands of a signed release; publishes nothing |
 
@@ -61,11 +61,12 @@ src/                  the scripts the workflows carry or run; terragrunt/, terra
                       layout.yaml (managed copy from governance), markdownlint.yaml
 tests/                unit tests of src/, mirroring it
 tools/                build.py, sanitise-plan.py, move-major-tag.sh, bot-gh.py
-docs/                 identities.md, terragrunt.md, applications.md, checks.md,
-                      organisation-workflows.md, releasing.md
+docs/                 identities.md, runners.md, terragrunt.md, applications.md,
+                      checks.md, organisation-workflows.md, releasing.md
 ```
 
 - [docs/identities.md](docs/identities.md) - every identity the workflows and Apps use
+- [docs/runners.md](docs/runners.md) - which jobs run on GitHub's runners and which on the NAS, and why
 - [docs/terragrunt.md](docs/terragrunt.md) - the Terragrunt pipeline: jobs, identities, verification, comments
 - [docs/applications.md](docs/applications.md) - the applications: staging, previews, promote, production, rollback
 - [docs/checks.md](docs/checks.md) - pr / check, conventions, exceptions, Sentinel, site checks, ESLint

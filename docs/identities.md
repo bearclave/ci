@@ -19,8 +19,8 @@ the map; the code is the truth.
 | A plan runs as a read-only identity, federated on `pull_request` and on `ref:refs/heads/main` (the plan of a push, the weekly drift) | a pull request may come from any branch and may change the caller's workflow |
 | An identity that writes is federated **only** on `environment:<env>`; the environment's branch policy admits `main` (and release tags where a release runs) | no `pull_request`, no `ref:` subject reaches it |
 | One identity per purpose | a leaked token reaches one thing |
-| A GitHub App's key, App ID and installation ID live in a Key Vault that only its identities read | no App key in GitHub |
-| The one GitHub secret is `MODULES_DEPLOY_KEY` | a deploy key cannot be federated |
+| A GitHub App's key, App ID and installation ID live in a Key Vault that only its identities read | no App key in GitHub; the key of `bearclave-nas-runner` also on the NAS, which uses it (no workflow does) |
+| The GitHub secrets are `MODULES_DEPLOY_KEY` and the environment secret `DEPLOY_KEY` of `app-home` | an SSH key cannot be federated |
 
 The subject of a credential carries the repository's name and ID:
 `repo:bearclave@328058774/<repository>@<repository id>:<context>`. A
@@ -68,6 +68,7 @@ they go.
 | `bearclave-iac-github-read` | plan and drift of `iac-github` | `iac-github` plan jobs and `drift.yml` (`sp-tf-github-plan`) | the same areas, read; Organization administration write (GitHub needs it to read an organisation ruleset) | `kv-githubro-sec-weu-001` |
 | `bearclave-bot` | author of the agents' and the bots' pull requests; the major tag | `bot-gh` (`tools/bot-gh.py`, the owner and agents), `deps.yml`, `ci-pins.yml`, `major-tag.yml`, `project-sync.yml`, `housekeeping.yml` | contents, pull requests, issues, workflows write; organisation Projects write; checks, actions read; bypasses the ruleset `major-tags`. Each workflow narrows its installation token to what it needs | `kv-githubbot-sec-weu-001` |
 | `bearclave-promote` | moves `prod` of an application and tags its release | `promote.yml` in `app-web-bearclave`, `app-web-matejhrabalek` (installed only there) | Contents, Workflows write; Metadata read; the only bypass of the `prod` ruleset and a bypass of `v*` tag creation in those repositories | `kv-ghpromote-sec-weu-001` (`github-app-key`, `github-app-id`, `github-app-installation-id`) |
+| `bearclave-nas-runner` | registers the ephemeral runners of the NAS in the runner group `nas` | the launcher on the NAS (`app-nas` `deploy/runner/`), not a workflow | Organization: Self-hosted runners write; nothing on any repository. Its token is narrowed to that permission | on the NAS (`/volume1/@runner/app-key.pem`, root only) and in `kv-tech-sec-weu-001` (`github-app-runner-key`), which no workflow reads |
 | `claude` (Anthropic) | Claude Code cloud sessions | the repositories of the owner's cloud environments | contents, pull requests write ([setup.md](https://github.com/bearclave/iac-github/blob/main/docs/setup.md#2-github-apps)) | held by Anthropic |
 
 The installations are outside Terraform: `iac-github` `docs/setup.md` (2. GitHub Apps)
@@ -78,6 +79,7 @@ says what each may do and how to check it.
 | Secret | Repositories | What | Key |
 |---|---|---|---|
 | `MODULES_DEPLOY_KEY` | `iac-azure`, `iac-github`, `iac-home` | private half of a read-only deploy key of `iac-modules`, one per repository; the workflows check the modules out with it | public half in `iac-github` `repositories/iac-modules`, private half only in the secret |
+| `DEPLOY_KEY` | `app-home`, environment secret of `staging` and of `prod` (one key each) | SSH key of the NAS user `ci-deploy`; its forced command deploys `home-app` to that one environment and takes only the image tag (`app-nas` `docs/runner.md`). `container.yml` job `deploy`, on the NAS runner | public half in `/var/services/homes/ci-deploy/.ssh/authorized_keys` on the NAS, private half only in the environment secret |
 
 ## Environments
 
@@ -91,6 +93,7 @@ says what each may do and how to check it.
 | `staging` | `app-web-bearclave`, `app-web-matejhrabalek` | `staging` | `sp-swa-*-staging` |
 | `preview` | `app-web-bearclave`, `app-web-matejhrabalek` | `refs/pull/*/merge` (pull requests) | `sp-swa-*-staging` |
 | `promote` | `app-web-bearclave`, `app-web-matejhrabalek` | `staging` | `sp-ci-promote-*` (key of `bearclave-promote`) |
+| `staging`, `prod` | `app-home` | `staging`, `prod` | none in Azure: the environment secret `DEPLOY_KEY` |
 | `major-tag` | `ci` | `main`, tags `v*.*.*` | `sp-ci-major-tag` |
 | `deps` | `ci` | `main`, tags `v*.*.*` (`ci-pins.yml` runs on the release) | `sp-ci-deps` |
 | `project-sync` | `ci` | `main` | `sp-project-sync` |
@@ -105,6 +108,8 @@ The environments, their branch policies and the variables are defined in
 | Federated credentials | never: nothing secret | a new subject (renamed repository, environment) is a pull request in `iac-azure` |
 | GitHub App keys (`bearclave-promote` included) | once a year, or at once on suspicion | GitHub, the App's settings, Private keys, Generate; `az keyvault secret set --vault-name <vault> --name github-app-key --file <pem>`; delete the old key in GitHub and the file (created by `tools/iac-github/github-apps.py` of the know-how repository) |
 | `MODULES_DEPLOY_KEY` | once a year, or at once on suspicion | `iac-github` [docs/deploy-keys.md](https://github.com/bearclave/iac-github/blob/main/docs/deploy-keys.md): new pair, the public half in code, `gh secret set` from stdin |
+| `DEPLOY_KEY` of `app-home` | once a year, or at once on suspicion | `app-nas` [docs/runner.md](https://github.com/bearclave/app-nas/blob/main/docs/runner.md#rotation): new pair, the public half into `authorized_keys` on the NAS, `gh secret set --env <environment>` from stdin, the old line removed |
+| Key of `bearclave-nas-runner` | once a year, or at once on suspicion | as the other App keys, into `kv-tech-sec-weu-001` and the NAS (`app-nas` `docs/runner.md`) |
 
 Check what is federated where:
 

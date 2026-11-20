@@ -166,6 +166,10 @@ on:
         description: Script of the repository that joins (up) and leaves (down) the network the resources are in; empty for none
         type: string
         default: ""
+      network-runner:
+        description: runs-on of the jobs that reach the managed resources (plan shares, apply), as JSON
+        type: string
+        default: '"ubuntu-24.04"'
       renewal-unit:
         description: Unit a scheduled run applies when its plan proposes something (a certificate renewal); empty for none
         type: string
@@ -7782,7 +7786,11 @@ jobs:
     needs: [changes, select]
     # Next to validate, not after it; skipped where nothing is relevant.
     if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.shards != '[]' }}
-    runs-on: ubuntu-24.04
+    # The jobs that reach the managed resources (plan shares, apply) run where
+    # those are reachable: a GitHub runner, or the NAS runner on the home
+    # network for iac-home (network-runner, docs/runners.md). The other jobs
+    # stay on GitHub.
+    runs-on: ${{ fromJSON(inputs.network-runner) }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -10540,6 +10548,40 @@ jobs:
       - name: Install terragrunt and trivy
         run: install-tools.sh terragrunt trivy
 
+      # A self-hosted runner (the NAS, docs/runners.md) starts every job from the
+      # bare image ghcr.io/actions/actions-runner: bash, curl, jq, git, unzip,
+      # openssh-client, python3 and sudo, no Azure CLI. The job installs it here
+      # from Microsoft's apt repository, whose key is checked against its
+      # fingerprint and whose package is pinned. A GitHub-hosted runner has it in
+      # its image and skips the step. A bump of AZURE_CLI_VERSION is a pull request
+      # here, by hand: deps.yml does not read it.
+      - name: Tools of the self-hosted runner
+        if: runner.environment == 'self-hosted'
+        env:
+          AZURE_CLI_VERSION: 2.92.0
+          MICROSOFT_KEY_FINGERPRINT: BC528686B50D79E339D3721CEB3E94ADBE1229CF  # gitleaks:allow (public key fingerprint)
+        run: |
+          set -euo pipefail
+          if command -v az >/dev/null; then
+            az version --output tsv --query '"azure-cli"'
+            exit 0
+          fi
+          codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+          key="$RUNNER_TEMP/microsoft.asc"
+          curl -sSfL https://packages.microsoft.com/keys/microsoft.asc -o "$key"
+          fingerprint=$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" {print $10; exit}')
+          if [ "$fingerprint" != "$MICROSOFT_KEY_FINGERPRINT" ]; then
+            echo "::error::the key of packages.microsoft.com has the fingerprint $fingerprint, expected $MICROSOFT_KEY_FINGERPRINT"
+            exit 1
+          fi
+          sudo install -d -m 755 /etc/apt/keyrings
+          gpg --dearmor <"$key" | sudo tee /etc/apt/keyrings/microsoft.gpg >/dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $codename main" |
+            sudo tee /etc/apt/sources.list.d/azure-cli.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends "azure-cli=$AZURE_CLI_VERSION-1~$codename" >/dev/null
+          az version --output tsv --query '"azure-cli"'
+
       # A job killed while terraform holds a state lock leaves the lock behind
       # for good. Locks a runner took more than 70 minutes ago are released
       # here: no job runs that long (apply has the longest timeout, 60), so
@@ -10600,6 +10642,19 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq wireguard-tools >/dev/null
           if [ -x "$RUNNER_TEMP/ci/$VPN" ]; then "$RUNNER_TEMP/ci/$VPN" up; else "./$VPN" up; fi
+
+      # Without a VPN - the job runs on the network itself (network-runner, the NAS
+      # for iac-home) - nothing above has signed in to Azure, while the
+      # configuration reads its secrets from the vault as it is parsed
+      # (validate-sign-in).
+      - name: Sign in to Azure
+        if: inputs.vpn-script == '' && inputs.validate-sign-in
+        run: |
+          set -euo pipefail
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$ARM_CLIENT_ID" --tenant "$ARM_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
 
       # The units of this share that exist are planned from HEAD, in
       # dependency order among themselves. A deleted unit exists only in the
@@ -12426,7 +12481,7 @@ jobs:
             && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy
                 || needs.destroy.outputs.approved == 'true'))
       )
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(inputs.network-runner) }}
     timeout-minutes: 60
     environment: ${{ inputs.environment }}
     permissions:
@@ -15176,6 +15231,40 @@ jobs:
       - name: Install terragrunt
         run: install-tools.sh terragrunt
 
+      # A self-hosted runner (the NAS, docs/runners.md) starts every job from the
+      # bare image ghcr.io/actions/actions-runner: bash, curl, jq, git, unzip,
+      # openssh-client, python3 and sudo, no Azure CLI. The job installs it here
+      # from Microsoft's apt repository, whose key is checked against its
+      # fingerprint and whose package is pinned. A GitHub-hosted runner has it in
+      # its image and skips the step. A bump of AZURE_CLI_VERSION is a pull request
+      # here, by hand: deps.yml does not read it.
+      - name: Tools of the self-hosted runner
+        if: runner.environment == 'self-hosted'
+        env:
+          AZURE_CLI_VERSION: 2.92.0
+          MICROSOFT_KEY_FINGERPRINT: BC528686B50D79E339D3721CEB3E94ADBE1229CF  # gitleaks:allow (public key fingerprint)
+        run: |
+          set -euo pipefail
+          if command -v az >/dev/null; then
+            az version --output tsv --query '"azure-cli"'
+            exit 0
+          fi
+          codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+          key="$RUNNER_TEMP/microsoft.asc"
+          curl -sSfL https://packages.microsoft.com/keys/microsoft.asc -o "$key"
+          fingerprint=$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" {print $10; exit}')
+          if [ "$fingerprint" != "$MICROSOFT_KEY_FINGERPRINT" ]; then
+            echo "::error::the key of packages.microsoft.com has the fingerprint $fingerprint, expected $MICROSOFT_KEY_FINGERPRINT"
+            exit 1
+          fi
+          sudo install -d -m 755 /etc/apt/keyrings
+          gpg --dearmor <"$key" | sudo tee /etc/apt/keyrings/microsoft.gpg >/dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $codename main" |
+            sudo tee /etc/apt/sources.list.d/azure-cli.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends "azure-cli=$AZURE_CLI_VERSION-1~$codename" >/dev/null
+          az version --output tsv --query '"azure-cli"'
+
       # A repository that manages GitHub itself (iac-github) signs in to GitHub as
       # a GitHub App. Its private key, App ID and installation ID are in a Key
       # Vault the job's Azure identity may read: the read-only App's vault for a
@@ -15233,6 +15322,19 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq wireguard-tools >/dev/null
           if [ -x "$RUNNER_TEMP/ci/$VPN" ]; then "$RUNNER_TEMP/ci/$VPN" up; else "./$VPN" up; fi
+
+      # Without a VPN - the job runs on the network itself (network-runner, the NAS
+      # for iac-home) - nothing above has signed in to Azure, while the
+      # configuration reads its secrets from the vault as it is parsed
+      # (validate-sign-in).
+      - name: Sign in to Azure
+        if: inputs.vpn-script == '' && inputs.validate-sign-in
+        run: |
+          set -euo pipefail
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+          az login --service-principal --username "$ARM_CLIENT_ID" --tenant "$ARM_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
 
       # A minute of slack: the Activity Log stamps an operation when Azure
       # received it, the runner's clock may differ.

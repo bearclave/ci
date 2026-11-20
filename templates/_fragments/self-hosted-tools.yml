@@ -1,0 +1,33 @@
+# A self-hosted runner (the NAS, docs/runners.md) starts every job from the
+# bare image ghcr.io/actions/actions-runner: bash, curl, jq, git, unzip,
+# openssh-client, python3 and sudo, no Azure CLI. The job installs it here
+# from Microsoft's apt repository, whose key is checked against its
+# fingerprint and whose package is pinned. A GitHub-hosted runner has it in
+# its image and skips the step. A bump of AZURE_CLI_VERSION is a pull request
+# here, by hand: deps.yml does not read it.
+- name: Tools of the self-hosted runner
+  if: runner.environment == 'self-hosted'
+  env:
+    AZURE_CLI_VERSION: 2.92.0
+    MICROSOFT_KEY_FINGERPRINT: BC528686B50D79E339D3721CEB3E94ADBE1229CF  # gitleaks:allow (public key fingerprint)
+  run: |
+    set -euo pipefail
+    if command -v az >/dev/null; then
+      az version --output tsv --query '"azure-cli"'
+      exit 0
+    fi
+    codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+    key="$RUNNER_TEMP/microsoft.asc"
+    curl -sSfL https://packages.microsoft.com/keys/microsoft.asc -o "$key"
+    fingerprint=$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" {print $10; exit}')
+    if [ "$fingerprint" != "$MICROSOFT_KEY_FINGERPRINT" ]; then
+      echo "::error::the key of packages.microsoft.com has the fingerprint $fingerprint, expected $MICROSOFT_KEY_FINGERPRINT"
+      exit 1
+    fi
+    sudo install -d -m 755 /etc/apt/keyrings
+    gpg --dearmor <"$key" | sudo tee /etc/apt/keyrings/microsoft.gpg >/dev/null
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $codename main" |
+      sudo tee /etc/apt/sources.list.d/azure-cli.list >/dev/null
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq --no-install-recommends "azure-cli=$AZURE_CLI_VERSION-1~$codename" >/dev/null
+    az version --output tsv --query '"azure-cli"'

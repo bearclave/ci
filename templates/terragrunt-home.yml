@@ -13,10 +13,20 @@
 #                           drift and fails the run
 # Manual run on main      -> as a push
 #
-# The runner joins the home network with src/terragrunt/home-vpn.sh
-# (vpn-script up|down), which signs in to Azure, reads its keys from the
-# vault and maps the router's internal name. One router, one WireGuard peer:
-# the plan runs as one job, and the caller's concurrency group never lets two
+# Where the jobs that reach the devices (plan, apply) run - network-runner:
+#
+#   ["self-hosted", "nas"] with vpn-script ""  the NAS runner on the home
+#       network (docs/runners.md): the devices directly, the router's
+#       resolver for their names; the job signs in to Azure itself and
+#       installs the Azure CLI the image lacks (self-hosted-tools.yml)
+#   "ubuntu-24.04" (the default)  a GitHub runner that joins the home network
+#       with src/terragrunt/home-vpn.sh (vpn-script up|down), which signs in
+#       to Azure, reads the WireGuard keys from the vault and maps the
+#       devices' internal names; also the fallback when the NAS is down
+#
+# The other jobs (changes, select, validate, the comments, the gate) run on
+# GitHub either way. One router and one runner (or one WireGuard peer): the
+# plan runs as one job, and the caller's concurrency group never lets two
 # runs overlap, a pull request plan included.
 #
 # The configuration reads the router's password from the vault while it is
@@ -37,6 +47,8 @@
 #         client-id-apply: ${{ vars.AZURE_CLIENT_ID_APPLY }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 #         allow-destroy: ${{ inputs.allow_destroy == true }}
+#         network-runner: '["self-hosted", "nas"]'   # since v2.8; default the VPN
+#         vpn-script: ""
 #       secrets:
 #         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
 #     review:                    # destroy / approved after a later review
@@ -126,9 +138,13 @@ on:
         type: boolean
         default: true
       vpn-script:
-        description: Script that joins (up) and leaves (down) the home network; a script of ci by its name, or a path in the repository
+        description: Script that joins (up) and leaves (down) the home network; a script of ci by its name, or a path in the repository; empty on the NAS runner
         type: string
         default: home-vpn.sh
+      network-runner:
+        description: 'runs-on of the jobs that reach the devices (plan, apply), as JSON: "ubuntu-24.04" through the VPN, or ["self-hosted", "nas"] on the home network (with vpn-script empty)'
+        type: string
+        default: '"ubuntu-24.04"'
       renewal-unit:
         description: Unit a scheduled run applies when its plan proposes something (the certificate)
         type: string
