@@ -87,10 +87,24 @@ jobs:
         with:
           persist-credentials: false
 
+      # Terragrunt cannot authenticate its own git against a private repository,
+      # so the modules go on disk and TG_SOURCE_MAP points there. The map drops
+      # the ?ref= of a source, so the checkout itself takes modules_ref.
+      - name: Modules ref
+        id: modules-ref
+        run: |
+          ref=$(sed -nE 's/^[[:space:]]*modules_ref[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' account.hcl | head -n1)
+          if ! printf '%s' "$ref" | grep -qE '^[A-Za-z0-9._/-]+$'; then
+            echo "::error file=account.hcl::no valid modules_ref in account.hcl"
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bearclave/iac-modules
           path: iac-modules
+          ref: ${{ steps.modules-ref.outputs.ref }}
           ssh-key: ${{ secrets.modules-deploy-key }}
           persist-credentials: false
 
