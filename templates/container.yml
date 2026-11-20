@@ -1,4 +1,7 @@
-# The pipeline of a containerised application (app-home):
+# The pipeline of a containerised application (app-home). Two flows,
+# chosen by the input environments.
+#
+# environments: false (the default, the flow until v2.8):
 #
 #   pull request -> ESLint over the JavaScript of the repository, lint and
 #                   tests in the image's test stage, the image build (not
@@ -8,6 +11,25 @@
 #                   :<sha>, with APP_VERSION vX.Y.Z (a published release or a
 #                   pushed vX.Y.Z tag; the caller adds the trigger:
 #                   `release: types: [published]`)
+#
+# environments: true (default branch staging, prod moved by promote.yml):
+#
+#   pull request     -> the same checks and build, nothing published
+#   push to staging  -> the same, then the image goes to GHCR as :staging and
+#                       :sha-<commit>; deploy to the environment staging on
+#                       the NAS runner, smoke test of url-staging
+#   push to prod     -> no build: the image :sha-<commit> of that commit (built
+#                       when it was on staging) gets the tag vX.Y.Z that
+#                       promote.yml put on the commit; deploy to the
+#                       environment prod, smoke test of url-prod
+#
+# The deploy job runs on the NAS runner (deploy-runner, docs/runners.md) and
+# checks out nothing: it runs only the steps below. It signs in over SSH as
+# deploy-host with the environment secret DEPLOY_KEY, a key whose forced
+# command on the NAS deploys one application to one environment; the job
+# passes only the image tag, which the NAS checks again. The smoke test reads
+# <url>/healthz and wants JSON whose version is the deployed tag (the NAS
+# sets APP_VERSION to it).
 #
 # Only the docker CLI is used: the organisation allows no third-party actions.
 #
@@ -20,6 +42,15 @@
 #         packages: write
 #       with:
 #         image: ghcr.io/bearclave/home-app
+#         environments: true                                    # since v2.9
+#         deploy-host: ci-deploy@172.16.10.10
+#         deploy-host-key: ${{ vars.NAS_HOST_KEY }}
+#         url-staging: https://byt-staging.bearclave.cz
+#         url-prod: https://byt.bearclave.cz
+#       secrets:
+#         # An environment secret: empty here, the deploy job's environment
+#         # supplies it (GitHub passes it by name).
+#         DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
 #
 # The required check is "pipeline / gate".
 name: container
@@ -35,6 +66,34 @@ on:
         description: Dockerfile stage that runs lint and tests
         type: string
         default: test
+      environments:
+        description: The staging/prod flow (push to staging builds and deploys staging, push to prod retags and deploys prod); false keeps main and release tags
+        type: boolean
+        default: false
+      deploy-host:
+        description: SSH destination of the deployment, user@address (environments only)
+        type: string
+        default: ""
+      deploy-host-key:
+        description: Public host key of deploy-host, "<type> <base64>", checked by SSH (environments only)
+        type: string
+        default: ""
+      url-staging:
+        description: Base URL the smoke test reads after a deployment to staging
+        type: string
+        default: ""
+      url-prod:
+        description: Base URL the smoke test reads after a deployment to prod
+        type: string
+        default: ""
+      deploy-runner:
+        description: runs-on of the deploy job, as JSON
+        type: string
+        default: '["self-hosted", "nas"]'
+    secrets:
+      DEPLOY_KEY:
+        description: Environment secret of staging and prod - the SSH key of deploy-host (environments only)
+        required: false
 
 permissions:
   contents: read
@@ -45,8 +104,10 @@ defaults:
 
 jobs:
   # Lint and tests run inside the image's test stage, on the same Python and
-  # packages as the app.
+  # packages as the app. A push to prod builds nothing: it ships the image
+  # staging built.
   build:
+    if: ${{ !(inputs.environments && github.ref == 'refs/heads/prod') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -71,7 +132,9 @@ jobs:
   publish:
     if: >-
       github.event_name != 'pull_request'
-      && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+      && ((inputs.environments && github.ref == 'refs/heads/staging')
+          || (!inputs.environments
+              && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))))
     needs: [build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -83,26 +146,33 @@ jobs:
         with:
           persist-credentials: false
 
-      # A release tag names the version; main is :main.
+      # staging is :staging and :sha-<commit>; without environments a
+      # release tag names the version and main is :main.
       - name: Build
         env:
           IMAGE: ${{ inputs.image }}
+          ENVIRONMENTS: ${{ inputs.environments }}
         run: |
           set -euo pipefail
           short=${GITHUB_SHA::7}
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
+          if [ "$ENVIRONMENTS" = true ]; then
+            version=sha-$GITHUB_SHA
+            tags=(staging "sha-$GITHUB_SHA")
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
             if ! [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::$GITHUB_REF_NAME is not a release tag vX.Y.Z"
               exit 1
             fi
             version=$GITHUB_REF_NAME
-            tag=$GITHUB_REF_NAME
+            tags=("$GITHUB_REF_NAME" "$short")
           else
             version=$short
-            tag=main
+            tags=(main "$short")
           fi
-          docker build --build-arg "APP_VERSION=$version" -t "$IMAGE:$tag" -t "$IMAGE:$short" .
-          echo "Image \`$IMAGE:$tag\` and \`$IMAGE:$short\`, APP_VERSION $version." >>"$GITHUB_STEP_SUMMARY"
+          args=()
+          for t in "${tags[@]}"; do args+=(-t "$IMAGE:$t"); done
+          docker build --build-arg "APP_VERSION=$version" "${args[@]}" .
+          echo "Image \`$IMAGE\` as ${tags[*]}, APP_VERSION $version." >>"$GITHUB_STEP_SUMMARY"
 
       - name: Push
         env:
@@ -113,8 +183,133 @@ jobs:
           docker push --all-tags "$IMAGE"
           docker logout ghcr.io
 
+  # prod gets exactly what ran on staging: the image of the commit, under
+  # the version promote.yml tagged it with. Nothing is built.
+  retag:
+    if: inputs.environments && github.event_name == 'push' && github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # promote.yml pushes the tag together with prod or just before it; a
+      # few retries cover a tag that arrives a moment after the push.
+      - name: Version on the commit
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for _ in 1 2 3 4 5 6; do
+            versions=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" \
+              --jq '.[] | [.ref, .object.type, .object.sha] | @tsv' |
+              while IFS=$'\t' read -r ref type sha; do
+                # An annotated tag points at a tag object, which points at the commit.
+                [ "$type" = tag ] && sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
+                [ "$sha" = "$GITHUB_SHA" ] && echo "${ref#refs/tags/}"
+              done | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+            [ -n "$versions" ] && break
+            sleep 10
+          done
+          if [ -z "$versions" ]; then
+            echo "::error::no tag vX.Y.Z on $GITHUB_SHA: prod moves only by promote.yml, which tags the commit"
+            exit 1
+          fi
+          if [ "$(wc -l <<<"$versions")" -ne 1 ]; then
+            echo "::error::more than one version on $GITHUB_SHA: $(tr '\n' ' ' <<<"$versions")"
+            exit 1
+          fi
+          echo "version=$versions" >>"$GITHUB_OUTPUT"
+
+      - name: Tag the image of the commit
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ inputs.image }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if ! docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" >/dev/null; then
+            echo "::error::$IMAGE:sha-$GITHUB_SHA does not exist: the commit was not built on staging"
+            exit 1
+          fi
+          docker buildx imagetools create --tag "$IMAGE:$VERSION" "$IMAGE:sha-$GITHUB_SHA"
+          docker logout ghcr.io
+          echo "Image \`$IMAGE:sha-$GITHUB_SHA\` tagged \`$VERSION\`, not rebuilt." >>"$GITHUB_STEP_SUMMARY"
+
+  # On the NAS runner, in the environment of the branch; nothing of the
+  # repository is checked out or run here.
+  deploy:
+    needs: [publish, retag]
+    if: >-
+      !cancelled() && inputs.environments && github.event_name == 'push'
+      && ((github.ref == 'refs/heads/staging' && needs.publish.result == 'success')
+          || (github.ref == 'refs/heads/prod' && needs.retag.result == 'success'))
+    runs-on: ${{ fromJSON(inputs.deploy-runner) }}
+    timeout-minutes: 15
+    environment:
+      name: ${{ github.ref_name }}
+      url: ${{ github.ref_name == 'prod' && inputs.url-prod || inputs.url-staging }}
+    steps:
+      - name: Deploy
+        id: deploy
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ inputs.deploy-host }}
+          HOST_KEY: ${{ inputs.deploy-host-key }}
+          TAG: ${{ github.ref_name == 'prod' && needs.retag.outputs.version || format('sha-{0}', github.sha) }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_KEY" ] || [ -z "$DEPLOY_HOST" ] || [ -z "$HOST_KEY" ]; then
+            echo "::error::DEPLOY_KEY (secret of the environment $GITHUB_REF_NAME), deploy-host and deploy-host-key are needed"
+            exit 1
+          fi
+          dir="$RUNNER_TEMP/ssh"
+          install -d -m 700 "$dir"
+          install -m 600 /dev/null "$dir/key"
+          printf '%s\n' "$DEPLOY_KEY" >"$dir/key"
+          printf '%s %s\n' "${DEPLOY_HOST#*@}" "$HOST_KEY" >"$dir/known_hosts"
+          # The forced command on the NAS decides the application and the
+          # environment; the only word passed is the image tag.
+          ssh -i "$dir/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/known_hosts" \
+            -o ConnectTimeout=15 "$DEPLOY_HOST" "$TAG"
+          echo "tag=$TAG" >>"$GITHUB_OUTPUT"
+
+      - name: Forget the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ssh"
+
+      - name: Smoke test
+        env:
+          URL: ${{ github.ref_name == 'prod' && inputs.url-prod || inputs.url-staging }}
+          TAG: ${{ steps.deploy.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$URL" ]; then
+            echo "::error::no url-$GITHUB_REF_NAME for the smoke test"
+            exit 1
+          fi
+          body=""
+          for _ in $(seq 1 30); do
+            body=$(curl -sSf --max-time 10 "$URL/healthz" 2>/dev/null || true)
+            if [ "$(jq -r '.version // empty' <<<"$body" 2>/dev/null)" = "$TAG" ]; then
+              unit=$(jq -r '.unit // "n/a"' <<<"$body")
+              echo "$URL serves $TAG (unit: $unit)." | tee -a "$GITHUB_STEP_SUMMARY"
+              [ "$unit" = ok ] || [ "$unit" = n/a ] ||
+                echo "::warning::$URL is up, but reports unit: $unit"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$URL/healthz does not report version $TAG after 5 minutes (last answer: ${body:-none})"
+          exit 1
+
   gate:
-    needs: [build, publish]
+    needs: [build, publish, retag, deploy]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

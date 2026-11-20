@@ -165,6 +165,10 @@ on:
         description: Script of the repository that joins (up) and leaves (down) the network the resources are in; empty for none
         type: string
         default: ""
+      network-runner:
+        description: runs-on of the jobs that reach the managed resources (plan shares, apply), as JSON
+        type: string
+        default: '"ubuntu-24.04"'
       renewal-unit:
         description: Unit a scheduled run applies when its plan proposes something (a certificate renewal); empty for none
         type: string

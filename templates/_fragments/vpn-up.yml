@@ -14,3 +14,16 @@
     sudo apt-get update -qq
     sudo apt-get install -y -qq wireguard-tools >/dev/null
     if [ -x "$RUNNER_TEMP/ci/$VPN" ]; then "$RUNNER_TEMP/ci/$VPN" up; else "./$VPN" up; fi
+
+# Without a VPN - the job runs on the network itself (network-runner, the NAS
+# for iac-home) - nothing above has signed in to Azure, while the
+# configuration reads its secrets from the vault as it is parsed
+# (validate-sign-in).
+- name: Sign in to Azure
+  if: inputs.vpn-script == '' && inputs.validate-sign-in
+  run: |
+    set -euo pipefail
+    token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+      "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+    az login --service-principal --username "$ARM_CLIENT_ID" --tenant "$ARM_TENANT_ID" \
+      --federated-token "$token" --allow-no-subscriptions --output none

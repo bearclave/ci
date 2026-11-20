@@ -384,7 +384,11 @@ plan-shard:
   needs: [changes, select]
   # Next to validate, not after it; skipped where nothing is relevant.
   if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.shards != '[]' }}
-  runs-on: ubuntu-24.04
+  # The jobs that reach the managed resources (plan shares, apply) run where
+  # those are reachable: a GitHub runner, or the NAS runner on the home
+  # network for iac-home (network-runner, docs/runners.md). The other jobs
+  # stay on GitHub.
+  runs-on: ${{ fromJSON(inputs.network-runner) }}
   timeout-minutes: 20
   strategy:
     fail-fast: false
@@ -441,6 +445,8 @@ plan-shard:
 
     - name: Install terragrunt and trivy
       run: install-tools.sh terragrunt trivy
+
+    @@include templates/_fragments/self-hosted-tools.yml@@
 
     # A job killed while terraform holds a state lock leaves the lock behind
     # for good. Locks a runner took more than 70 minutes ago are released
@@ -792,7 +798,7 @@ apply:
           && (needs.plan.outputs.has_destroys != 'true' || inputs.allow-destroy
               || needs.destroy.outputs.approved == 'true'))
     )
-  runs-on: ubuntu-24.04
+  runs-on: ${{ fromJSON(inputs.network-runner) }}
   timeout-minutes: 60
   environment: ${{ inputs.environment }}
   permissions:
@@ -841,6 +847,8 @@ apply:
 
     - name: Install terragrunt
       run: install-tools.sh terragrunt
+
+    @@include templates/_fragments/self-hosted-tools.yml@@
 
     @@include templates/_fragments/github-app.yml@@
 

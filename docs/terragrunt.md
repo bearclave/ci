@@ -243,12 +243,18 @@ seen.
 
 | Input | Default there | Effect |
 |---|---|---|
-| `vpn-script` | `home-vpn.sh` | plan and apply join the home network (`up`, `down`) with `src/terragrunt/home-vpn.sh` of ci (a path in the repository still works); one plan job |
+| `network-runner` | `"ubuntu-24.04"` | `runs-on` of plan and apply, as JSON. `iac-home` passes `["self-hosted", "nas"]` with `vpn-script: ""`: both run on the NAS runner in the home network, sign in to Azure themselves and install the Azure CLI (`_fragments/self-hosted-tools.yml`); the other jobs stay on GitHub ([runners.md](runners.md)) |
+| `vpn-script` | `home-vpn.sh` | with a GitHub runner, plan and apply join the home network (`up`, `down`) with `src/terragrunt/home-vpn.sh` of ci (a path in the repository still works); one plan job. Empty on the NAS runner |
 | `validate-sign-in` | `true` | validate signs in: the configuration reads the router's password while it is parsed |
 | `renewal-unit` | `infrastructure/router/letsencrypt` | a scheduled run applies that unit when its plan proposes something (the certificate); a change anywhere else is drift and fails the run |
 | `environment` | `home-prod` | the apply's environment |
 
-The caller's concurrency group keeps every run apart: one WireGuard peer.
+The caller's concurrency group keeps every run apart: one NAS runner, or
+one WireGuard peer.
+
+On the NAS the devices are reached directly and their names come from the
+router's resolver. Through WireGuard (the fallback when the NAS is down:
+the caller drops `network-runner` and `vpn-script`):
 
 `home-vpn.sh up` joins every device whose `infrastructure/<device>/device.hcl`
 says `managed = true`. It reads from the repository: peer `ci` and
