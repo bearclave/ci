@@ -1,7 +1,7 @@
 # The pipeline of a containerised application (app-home). Two flows,
 # chosen by the input environments.
 #
-# environments: false (the default, the flow until v2.7):
+# environments: false (the default, the flow until v2.8):
 #
 #   pull request -> ESLint over the JavaScript of the repository, lint and
 #                   tests in the image's test stage, the image build (not
@@ -42,7 +42,7 @@
 #         packages: write
 #       with:
 #         image: ghcr.io/bearclave/home-app
-#         environments: true                                    # since v2.8
+#         environments: true                                    # since v2.9
 #         deploy-host: ci-deploy@172.16.10.10
 #         deploy-host-key: ${{ vars.NAS_HOST_KEY }}
 #         url-staging: https://byt-staging.bearclave.cz

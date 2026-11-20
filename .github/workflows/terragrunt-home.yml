@@ -48,7 +48,7 @@
 #         client-id-apply: ${{ vars.AZURE_CLIENT_ID_APPLY }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 #         allow-destroy: ${{ inputs.allow_destroy == true }}
-#         network-runner: '["self-hosted", "nas"]'   # since v2.8; default the VPN
+#         network-runner: '["self-hosted", "nas"]'   # since v2.9; default the VPN
 #         vpn-script: ""
 #       secrets:
 #         modules-deploy-key: ${{ secrets.MODULES_DEPLOY_KEY }}
