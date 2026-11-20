@@ -5,11 +5,14 @@ Usage: check-moves.py <selection.json> <plan-json-dir>
 
 <selection.json> is the output of select-units.py; for every [old, new] in
 its `moved`, the plan of the new path (<plan-json-dir>/<new>/tfplan.json)
-may not create, destroy or replace a managed resource. Imports, moves,
-updates and forgets are fine. A create means the state was not copied or
-moved before the merge, and the apply would build everything a second time
-next to the old resources. A unit without a JSON plan here is planned by
-another job and skipped.
+may not create, destroy or replace a managed resource while its state is
+empty. Imports, moves, updates and forgets are fine. A create on an empty
+state means the state was not copied or moved before the merge, and the
+apply would build everything a second time next to the old resources. A
+unit whose state already holds managed resources came with its state: its
+creates and destroys are ordinary changes (destroys still need their
+approval). A unit without a JSON plan here is planned by another job and
+skipped.
 """
 import json
 import os
@@ -28,6 +31,17 @@ def offending(plan: dict) -> list:
     return out
 
 
+def has_state(plan: dict) -> bool:
+    """Whether the state the plan started from holds a managed resource."""
+    stack = [((plan.get("prior_state") or {}).get("values") or {}).get("root_module") or {}]
+    while stack:
+        module = stack.pop()
+        if any(r.get("mode") == "managed" for r in module.get("resources") or []):
+            return True
+        stack.extend(module.get("child_modules") or [])
+    return False
+
+
 def check(selection: dict, json_dir: str) -> list:
     """Error messages, one per offending resource."""
     errors = []
@@ -41,6 +55,9 @@ def check(selection: dict, json_dir: str) -> list:
             continue
         with open(path, encoding="utf-8") as fh:
             plan = json.load(fh)
+        # The state came with the unit; later changes to it are ordinary.
+        if has_state(plan):
+            continue
         for address, actions in offending(plan):
             errors.append(f"{new} (moved from {old}): {address} would {actions}. "
                           "Move its state before the merge (.github/state-moves.yaml).")

@@ -19,12 +19,15 @@ def change(address, *actions, mode="managed"):
 
 
 class CheckMoves(unittest.TestCase):
-    def check(self, changes, moved=MOVED, write=True):
+    def check(self, changes, moved=MOVED, write=True, prior=None):
         with tempfile.TemporaryDirectory() as tmp:
             if write:
                 unit = pathlib.Path(tmp, "json", moved[0][1])
                 unit.mkdir(parents=True)
-                unit.joinpath("tfplan.json").write_text(json.dumps({"resource_changes": changes}))
+                plan = {"resource_changes": changes}
+                if prior:
+                    plan["prior_state"] = prior
+                unit.joinpath("tfplan.json").write_text(json.dumps(plan))
             selection = pathlib.Path(tmp, "selection.json")
             selection.write_text(json.dumps({"moved": moved}))
             return subprocess.run([sys.executable, str(SCRIPT), str(selection),
@@ -46,6 +49,19 @@ class CheckMoves(unittest.TestCase):
         out = self.check([change("a.this", "delete"), change("b.this", "delete", "create")])
         self.assertEqual(out.returncode, 1)
         self.assertEqual(out.stdout.count("::error"), 2)
+
+    def test_unit_with_its_state_may_create(self):
+        # The state was moved: a new resource in the unit is an ordinary create.
+        prior = {"values": {"root_module": {"child_modules": [{"resources": [
+            {"address": "module.kv.azurerm_key_vault.this", "mode": "managed"}]}]}}}
+        out = self.check([change("module.rbac.azurerm_role_assignment.active[\"x\"]", "create")],
+                         prior=prior)
+        self.assertEqual(out.returncode, 0, out.stdout)
+
+    def test_state_with_data_sources_only_counts_as_empty(self):
+        prior = {"values": {"root_module": {"resources": [{"address": "data.x.this", "mode": "data"}]}}}
+        out = self.check([change("a.this", "create")], prior=prior)
+        self.assertEqual(out.returncode, 1)
 
     def test_unit_of_another_job_is_skipped(self):
         self.assertEqual(self.check([], write=False).returncode, 0)
