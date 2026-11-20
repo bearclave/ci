@@ -23,6 +23,11 @@ PLANS=${1:?missing plan directory}
 REPORTS=${2:?missing report directory}
 IGNORE="$PWD/.github/trivyignore.yaml"
 [ -f "$IGNORE" ] || IGNORE="$PWD/.trivyignore.yaml"
+# A repository without accepted findings has no ignore file: scan with none.
+if [ ! -f "$IGNORE" ]; then
+  IGNORE=$(mktemp --suffix=.yaml)
+  echo '{}' >"$IGNORE"
+fi
 
 mkdir -p "$REPORTS"
 REPORTS=$(cd "$REPORTS" && pwd)
