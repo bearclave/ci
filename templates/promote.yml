@@ -10,6 +10,11 @@
 # the pull request titles since the last tag (src/release_version.py),
 # unless one is given.
 #
+# A container (container.yml with environments) has no build artifact: its
+# caller passes artifact: "", staging-job: deploy and prod-job: deploy. Its
+# production run deploys the image :sha-<commit>, and the tag pushed here
+# makes the caller's ci.yml (trigger push: tags: ['v*']) tag it :vX.Y.Z.
+#
 # The job signs in to Azure by OIDC as the repository's promote identity,
 # federated on the environment `promote` (deployment branches: staging), and
 # reads the key of bearclave-promote from its own vault

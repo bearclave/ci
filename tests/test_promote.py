@@ -91,6 +91,30 @@ class ProdRun(unittest.TestCase):
                 promote.wait_for_prod("o/r", "ci.yml", SHA, "prod", "t", 0, sleep=lambda s: None)
 
 
+class Container(unittest.TestCase):
+    """container.yml: the deploy job is `deploy` in both runs, and the run of
+    the release tag that promote pushes (head_branch vX.Y.Z) counts for
+    neither branch."""
+
+    def test_tag_run_counts_for_no_branch(self):
+        tag_run = run(branch="v1.2.0", run_id=9, created="2026-11-20T23:00:00Z")
+        self.assertIsNone(promote.pick_run([tag_run], "staging"))
+        self.assertEqual(promote.prod_state([tag_run], "prod")[0], "none")
+        prod_run = run(branch="prod", run_id=2)
+        self.assertEqual(promote.prod_state([prod_run, tag_run], "prod"), ("success", prod_run))
+
+    def test_deploy_job(self):
+        prod_jobs = [{"name": "pipeline / build", "conclusion": "skipped"},
+                     {"name": "pipeline / prod-image", "conclusion": "success"},
+                     {"name": "pipeline / version-tag", "conclusion": "skipped"},
+                     {"name": "pipeline / deploy", "conclusion": "success"},
+                     {"name": "pipeline / gate", "conclusion": "success"}]
+        promote.check_job(prod_jobs, "deploy")
+        skipped = [dict(j, conclusion="skipped") if j["name"].endswith("/ deploy") else j for j in prod_jobs]
+        with self.assertRaises(promote.Refused):
+            promote.check_job(skipped, "deploy")
+
+
 class CheckArtifact(unittest.TestCase):
     def art(self, name="site", expired=False, expires="2027-02-18T10:00:00Z"):
         return {"name": name, "expired": expired, "expires_at": expires, "created_at": "2026-11-20T10:00:00Z"}

@@ -13,10 +13,13 @@ Vault of its own). A promotion is a release:
    artifact that production will deploy is still there;
 2. fast-forwards prod to the commit; its push deploys the build of the
    same run - the production job of static-web-app.yml chooses it by the
-   same rule (pick_run, then the job);
+   same rule (pick_run, then the job); container.yml deploys the image
+   :sha-<commit> that staging pushed, so neither needs the version yet;
 3. waits for that production run and, only when it succeeded, tags the
    commit vX.Y.Z (annotated, by the App) and publishes the release with
-   notes generated from the pull requests.
+   notes generated from the pull requests. The tag's push makes
+   container.yml tag the image :vX.Y.Z too (the caller's run on the tag,
+   which neither counts as a staging nor as a production run).
 
 The version comes from src/release_version.py (VERSION, worked out in the
 step before). Every step is skipped when it is already done, so a rerun
