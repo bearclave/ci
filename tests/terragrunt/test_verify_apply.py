@@ -32,6 +32,13 @@ REPLAN_ERROR_LOG = """\
 """
 
 
+READS_ONLY_LOG = """\
+06:30:07.056 STDOUT [infrastructure/named-locations] terraform: No changes. Your infrastructure matches the configuration.
+06:30:08.100 STDOUT [infrastructure/policies] terraform:   # data.msgraph_resource.all will be read during apply
+06:30:08.100 STDOUT [infrastructure/policies] terraform: Plan: 0 to add, 0 to change, 0 to destroy.
+"""
+
+
 def plan(changes=(), outputs=None, checks=(), subscription=None):
     p = {"resource_changes": [{"address": a, "change": {"actions": acts}} for a, acts in changes],
          "output_changes": outputs or {}, "checks": list(checks)}
@@ -107,6 +114,32 @@ class VerifyApply(unittest.TestCase):
         v, _ = self.report(0, {"skipped": "none"})
         self.assertEqual(v["replan"]["result"], "changes")
         self.assertEqual(v["result"], "failed")
+
+    def test_exit_two_for_reads_only_passes(self):
+        # A data source nested in a check block is always read during apply,
+        # and terraform -detailed-exitcode counts that read as a change.
+        self.write_plan("infrastructure/policies", plan([("data.msgraph_resource.all", ["read"])],
+                                                        checks=[check("all", "pass")]))
+        self.write_plan("infrastructure/named-locations", plan([("msgraph_resource.a", ["no-op"])]))
+        log = self.write("replan.txt", READS_ONLY_LOG)
+        v, md = self.report(2, {"skipped": "none"}, replan_log=log)
+        self.assertEqual(v["replan"]["result"], "no-changes")
+        self.assertTrue(v["replan"]["reads_only"])
+        self.assertEqual(v["result"], "passed")
+        self.assertIn("but data source reads", md)
+
+    def test_exit_two_without_the_plan_of_a_unit_fails(self):
+        # The log names a unit whose plan is missing: its change cannot be ruled out.
+        self.write_plan("infrastructure/policies", plan([("data.msgraph_resource.all", ["read"])]))
+        log = self.write("replan.txt", READS_ONLY_LOG + "06:30:09.000 STDOUT [infrastructure/other] terraform: Plan: 1 to add\n")
+        v, _ = self.report(2, {"skipped": "none"}, replan_log=log)
+        self.assertEqual(v["replan"]["result"], "changes")
+        self.assertNotIn("reads_only", v["replan"])
+
+    def test_exit_two_without_a_log_fails(self):
+        self.write_plan("web/db", plan([("data.x.y", ["read"])]))
+        v, _ = self.report(2, {"skipped": "none"})
+        self.assertEqual(v["replan"]["result"], "changes")
 
     def test_replan_error_lists_errors(self):
         v, md = self.report(1, {"skipped": "none"}, replan_log=self.write("replan.txt", REPLAN_ERROR_LOG))
