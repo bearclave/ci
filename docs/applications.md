@@ -25,7 +25,8 @@ from the branch pushed, when `deploy-paths` changed).
 
 **The build** is the artifact `site` of the run: `site.tar` (`app/` from
 `app-location`, `api/` from `api-location`, `COMMIT` with the SHA) and its
-sha256, kept `artifact-retention-days` (90; a pull request's one day). A
+sha256, kept `artifact-retention-days` (30, the organisation's artifact
+retention; a pull request's one day). A
 static site compiles nothing, so the build is the tree of the commit; it is
 still built once and carried, so that production deploys exactly the bytes
 staging served. The deploy jobs check the sha256 and that `COMMIT` is the
@@ -69,7 +70,7 @@ Inputs of the environment model, besides those of the production SWA:
 | `staging-branch`, `prod-branch` | - | `staging`, `prod` |
 | `staging-environment`, `preview-environment` | - | `staging`, `preview` (empty: no previews) |
 | `preview-limit` | - | 3 |
-| `artifact-retention-days` | - | 90 |
+| `artifact-retention-days` | - | 30 |
 
 ## promote.yml
 

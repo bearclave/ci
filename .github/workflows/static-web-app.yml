@@ -138,9 +138,9 @@ on:
         type: number
         default: 3
       artifact-retention-days:
-        description: Days the build of a staging run is kept; a commit is promoted only while its build exists
+        description: Days the build of a staging run is kept (at most the organisation's artifact retention, 30 today); a commit is promoted only while its build exists
         type: number
-        default: 90
+        default: 30
       tenant-id:
         type: string
         required: true
