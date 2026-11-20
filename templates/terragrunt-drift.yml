@@ -86,12 +86,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: bearclave/iac-modules
-          path: iac-modules
-          ssh-key: ${{ secrets.modules-deploy-key }}
-          persist-credentials: false
+      @@include templates/_fragments/modules-checkout.yml@@
 
       @@include templates/_fragments/scripts-terragrunt.yml@@
 

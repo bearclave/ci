@@ -242,12 +242,7 @@ validate:
       with:
         persist-credentials: false
 
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        repository: bearclave/iac-modules
-        path: iac-modules
-        ssh-key: ${{ secrets.modules-deploy-key }}
-        persist-credentials: false
+    @@include templates/_fragments/modules-checkout.yml@@
 
     @@include templates/_fragments/scripts-terragrunt.yml@@
 
@@ -416,16 +411,7 @@ plan-shard:
         fetch-depth: 0
         persist-credentials: false
 
-    # Terragrunt cannot authenticate its own git against a private
-    # repository, so the modules are put on disk and the source is redirected
-    # there with TG_SOURCE_MAP. The deploy key is read-only and valid for
-    # iac-modules alone.
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        repository: bearclave/iac-modules
-        path: iac-modules
-        ssh-key: ${{ secrets.modules-deploy-key }}
-        persist-credentials: false
+    @@include templates/_fragments/modules-checkout.yml@@
 
     @@include templates/_fragments/scripts-terragrunt.yml@@
 
@@ -827,12 +813,7 @@ apply:
         fetch-depth: 0
         persist-credentials: false
 
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        repository: bearclave/iac-modules
-        path: iac-modules
-        ssh-key: ${{ secrets.modules-deploy-key }}
-        persist-credentials: false
+    @@include templates/_fragments/modules-checkout.yml@@
 
     @@include templates/_fragments/scripts-terragrunt.yml@@
 
