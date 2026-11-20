@@ -121,8 +121,7 @@ checks and shows the plan without signing in.
 tag of this repository, and an environment of an application must not
 reach it. `bearclave-promote` has the repository permissions Contents and
 Workflows (write) and Metadata (read), nothing else, and is installed only
-on `app-web-bearclave` and `app-web-matejhrabalek` (and `app-home` when it
-promotes). Its key, App ID and installation ID are the secrets
+on `app-home`, `app-web-bearclave` and `app-web-matejhrabalek`. Its key, App ID and installation ID are the secrets
 `github-app-key`, `github-app-id`, `github-app-installation-id` of the Key
 Vault `kv-ghpromote-sec-weu-001`, a vault of its own (input `vault`), which
 only the promote identities read (Key Vault Secrets User on that vault).
