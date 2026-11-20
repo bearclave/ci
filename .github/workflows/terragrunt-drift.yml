@@ -592,6 +592,10 @@ jobs:
               """Error messages, one per offending resource."""
               errors = []
               for old, new in selection.get("moved") or []:
+                  # Moved into infrastructure/ with the same key: the state never moved,
+                  # so a create there is an ordinary change, not a missing state.
+                  if old.removeprefix("infrastructure/") == new.removeprefix("infrastructure/"):
+                      continue
                   path = os.path.join(json_dir, new, "tfplan.json")
                   if not os.path.isfile(path):
                       continue
