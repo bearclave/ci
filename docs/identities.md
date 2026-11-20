@@ -46,7 +46,7 @@ a repository variable of the repository in the second column.
 | `sp-swa-sro-prod` | deploy of bearclave.cz | `app-web-bearclave`: `ci.yml` (`static-web-app.yml` job `deploy`, from v2.8 with staging `deploy-prod`) | `AZURE_CLIENT_ID` | `environment:prod` | Static Web App Secret Reader on its site |
 | `sp-swa-osvc-staging` | deploy of the staging site and the previews of matejhrabalek.cz (v2.8) | `app-web-matejhrabalek`: `ci.yml` (`static-web-app.yml` jobs `deploy-staging`, `preview`, `preview-cleanup`) | `AZURE_CLIENT_ID_STAGING` | `environment:staging`, `environment:preview` | on the staging SWA only: `Microsoft.Web/staticSites/read`, `listSecrets/action`, `builds/read`, `builds/delete` (the previews) |
 | `sp-swa-sro-staging` | the same for bearclave.cz | `app-web-bearclave`: as above | `AZURE_CLIENT_ID_STAGING` | `environment:staging`, `environment:preview` | as above, on its staging SWA |
-| `sp-ci-promote-web-osvc`, `sp-ci-promote-web-sro` | promotion of a site to production as `bearclave-bot` (v2.8) | `app-web-matejhrabalek`, `app-web-bearclave`: `promote.yml` | `AZURE_CLIENT_ID_PROMOTE` | `environment:promote` | Key Vault Secrets User on `kv-githubbot` |
+| `sp-ci-promote-web-osvc`, `sp-ci-promote-web-sro` | promotion of a site to production as `bearclave-promote` (v2.8) | `app-web-matejhrabalek`, `app-web-bearclave`: `promote.yml` | `AZURE_CLIENT_ID_PROMOTE` | `environment:promote`; recommended as a flexible credential that also requires `job_workflow_ref` of a released `ci` `promote.yml` ([applications.md](applications.md#the-app-and-its-key)) | Key Vault Secrets User on `kv-ghpromote-sec-weu-001` only, never on `kv-githubbot` |
 | `sp-dsc-m365` | Microsoft365DSC of `iac-m365` (to be retired, unchanged) | `iac-m365`: `ci.yml`, `drift.yml` | `AZURE_CLIENT_ID` | `pull_request`, `environment:m365-prod`, `ref:refs/heads/main` | Exchange, Intune, Compliance, SharePoint, Teams Administrator, Graph application permissions |
 
 `iac-m365` keeps one identity for plan and apply until the repository is
@@ -66,7 +66,8 @@ they go.
 |---|---|---|---|---|
 | `bearclave-iac-github` | apply of `iac-github` | `iac-github` job `apply` (`sp-tf-github`) | what `iac-github` manages, write ([github-apps.md](https://github.com/bearclave/iac-github/blob/main/docs/github-apps.md)) | `kv-github-sec-weu-001` |
 | `bearclave-iac-github-read` | plan and drift of `iac-github` | `iac-github` plan jobs and `drift.yml` (`sp-tf-github-plan`) | the same areas, read; Organization administration write (GitHub needs it to read an organisation ruleset) | `kv-githubro-sec-weu-001` |
-| `bearclave-bot` | author of the agents' and the bots' pull requests; the major tag; the promotion of applications | `bot-gh` (`tools/bot-gh.py`, the owner and agents), `deps.yml`, `ci-pins.yml`, `major-tag.yml`, `project-sync.yml`, `housekeeping.yml`, `promote.yml` | contents, pull requests, issues, workflows write; organisation Projects write; checks, actions read; bypasses the ruleset `major-tags`, and in the applications the `prod` branch ruleset and the creation of `v*` tags (`promote.yml`). Each workflow narrows its installation token to what it needs | `kv-githubbot-sec-weu-001` |
+| `bearclave-bot` | author of the agents' and the bots' pull requests; the major tag | `bot-gh` (`tools/bot-gh.py`, the owner and agents), `deps.yml`, `ci-pins.yml`, `major-tag.yml`, `project-sync.yml`, `housekeeping.yml` | contents, pull requests, issues, workflows write; organisation Projects write; checks, actions read; bypasses the ruleset `major-tags`. Each workflow narrows its installation token to what it needs | `kv-githubbot-sec-weu-001` |
+| `bearclave-promote` | moves `prod` of an application and tags its release | `promote.yml` in `app-web-bearclave`, `app-web-matejhrabalek` (installed only there) | Contents, Workflows write; Metadata read; the only bypass of the `prod` ruleset and a bypass of `v*` tag creation in those repositories | `kv-ghpromote-sec-weu-001` (`github-app-key`, `github-app-id`, `github-app-installation-id`) |
 | `claude` (Anthropic) | Claude Code cloud sessions | the repositories of the owner's cloud environments | contents, pull requests write ([github-apps.md](https://github.com/bearclave/iac-github/blob/main/docs/github-apps.md#claude)) | held by Anthropic |
 
 The installations are outside Terraform: `iac-github` `docs/github-apps.md`
@@ -89,7 +90,7 @@ says what each may do and how to check it.
 | `prod` | `app-web-bearclave`, `app-web-matejhrabalek` | `main`; with the environment model (v2.8) `prod` only | `sp-swa-*-prod` |
 | `staging` | `app-web-bearclave`, `app-web-matejhrabalek` | `staging` | `sp-swa-*-staging` |
 | `preview` | `app-web-bearclave`, `app-web-matejhrabalek` | `refs/pull/*/merge` (pull requests) | `sp-swa-*-staging` |
-| `promote` | `app-web-bearclave`, `app-web-matejhrabalek` | `staging` | `sp-ci-promote-*` |
+| `promote` | `app-web-bearclave`, `app-web-matejhrabalek` | `staging` | `sp-ci-promote-*` (key of `bearclave-promote`) |
 | `major-tag` | `ci` | `main`, tags `v*.*.*` | `sp-ci-major-tag` |
 | `deps` | `ci` | `main`, tags `v*.*.*` (`ci-pins.yml` runs on the release) | `sp-ci-deps` |
 | `project-sync` | `ci` | `main` | `sp-project-sync` |
@@ -102,7 +103,7 @@ The environments, their branch policies and the variables are defined in
 | What | How often | How |
 |---|---|---|
 | Federated credentials | never: nothing secret | a new subject (renamed repository, environment) is a pull request in `iac-azure` |
-| GitHub App keys | once a year, or at once on suspicion | GitHub, the App's settings, Private keys, Generate; `az keyvault secret set --vault-name <vault> --name github-app-key --file <pem>`; delete the old key in GitHub and the file (created by `tools/iac-github/github-apps.py` of the know-how repository) |
+| GitHub App keys (`bearclave-promote` included) | once a year, or at once on suspicion | GitHub, the App's settings, Private keys, Generate; `az keyvault secret set --vault-name <vault> --name github-app-key --file <pem>`; delete the old key in GitHub and the file (created by `tools/iac-github/github-apps.py` of the know-how repository) |
 | `MODULES_DEPLOY_KEY` | once a year, or at once on suspicion | `iac-github` [docs/deploy-keys.md](https://github.com/bearclave/iac-github/blob/main/docs/deploy-keys.md): new pair, the public half in code, `gh secret set` from stdin |
 
 Check what is federated where:

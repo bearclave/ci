@@ -197,6 +197,20 @@ jobs:
       # no JavaScript to lint.
       @@include templates/_fragments/eslint-steps.yml@@
 
+      # Production is deployed from this build unchanged and must be indexed:
+      # an X-Robots-Tag in the config fails here, before anything is promoted.
+      - name: No X-Robots-Tag in the config
+        if: inputs.staging-swa-name != ''
+        env:
+          CONFIG: ${{ inputs.app-location }}/staticwebapp.config.json
+        run: |
+          set -euo pipefail
+          [ -f "$CONFIG" ] || exit 0
+          if jq -e '(.globalHeaders // {}), (.routes // [] | .[] | .headers // {}) | keys[] | select(ascii_downcase == "x-robots-tag")' "$CONFIG" >/dev/null; then
+            echo "::error file=$CONFIG,title=noindex::the config sets X-Robots-Tag; staging adds it at deployment, the repository never carries it"
+            exit 1
+          fi
+
       # The one build of the commit: what staging, a preview and production
       # deploy. A tar keeps .well-known and every other hidden file.
       - name: Package the build
@@ -409,6 +423,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: ${{ inputs.staging-environment }}
+    # Deployments to an environment never overlap, whatever the caller's group.
+    concurrency:
+      group: deploy-staging-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -434,10 +452,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-prod-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
-      # The staging run of the commit and its artifact.
+      # The staging run of the commit, its jobs and its artifact.
       actions: read
     env:
       CLIENT_ID: ${{ inputs.client-id }}
@@ -449,8 +470,9 @@ jobs:
       PREVIEW: "false"
       BUILD_RUN: ""
     steps:
-      # The same choice as src/promote.py: the newest run of the commit on
-      # staging from a push or a manual run, which must have succeeded.
+      # The same choice as src/promote.py: the newest successful run of the
+      # commit on staging (push or manual), whose job deploy-staging succeeded.
+      # Only bearclave-promote moves prod, after it checked that run.
       - name: Find the staging build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -458,16 +480,18 @@ jobs:
         run: |
           set -euo pipefail
           wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
-          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?head_sha=$GITHUB_SHA&branch=$STAGING&per_page=100" \
-            --jq "[.workflow_runs[] | select(.head_branch == \"$STAGING\" and (.event == \"push\" or .event == \"workflow_dispatch\"))]
-                  | sort_by(.created_at, .id) | last // empty | \"\(.id) \(.status) \(.conclusion)\"")
-          read -r id status conclusion <<<"${run:-none none none}"
-          if [ "$id" = none ]; then
-            echo "::error title=deploy::$GITHUB_SHA has no run of $wf on $STAGING: production deploys only a build that staging ran. Promote with promote.yml."
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?head_sha=$GITHUB_SHA&branch=$STAGING&status=success&per_page=100" \
+            --jq "[.workflow_runs[] | select(.head_branch == \"$STAGING\" and .head_sha == \"$GITHUB_SHA\"
+                    and (.event == \"push\" or .event == \"workflow_dispatch\") and .conclusion == \"success\")]
+                  | sort_by(.created_at, .id) | last // empty | .id")
+          if [ -z "$id" ]; then
+            echo "::error title=deploy::$GITHUB_SHA has no successful run of $wf on $STAGING: production deploys only a build that staging ran. Promote with promote.yml."
             exit 1
           fi
-          if [ "$status" != completed ] || [ "$conclusion" != success ]; then
-            echo "::error title=deploy::the staging run $id of $GITHUB_SHA is $status/$conclusion, not a success"
+          deployed=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+            --jq '[.jobs[] | select((.name | split(" / ") | last) == "deploy-staging")] | if length > 0 and all(.conclusion == "success") then "yes" else "no" end')
+          if [ "$deployed" != yes ]; then
+            echo "::error title=deploy::the job deploy-staging of the staging run $id did not succeed"
             exit 1
           fi
           echo "BUILD_RUN=$id" >>"$GITHUB_ENV"
