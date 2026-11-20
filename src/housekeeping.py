@@ -55,6 +55,10 @@ query($owner: String!, $name: String!) {
 """
 
 
+# The production branch of an application (governance workflow.md), moved only by promote.yml.
+LONG_LIVED = "prod"
+
+
 def when(stamp: str) -> dt.datetime:
     return dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
@@ -65,7 +69,8 @@ def stale_branches(repo: dict, now: dt.datetime, days: int) -> list:
     out = []
     for ref in repo["refs"]["nodes"]:
         date = (ref.get("target") or {}).get("committedDate")
-        if ref["name"] == default or ref["associatedPullRequests"]["totalCount"] or not date:
+        # prod of an application lives as long as the default branch and never has a pull request.
+        if ref["name"] in (default, LONG_LIVED) or ref["associatedPullRequests"]["totalCount"] or not date:
             continue
         age = (now - when(date)).days
         if age > days:
