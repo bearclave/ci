@@ -127,7 +127,7 @@ promotes). Its key, App ID and installation ID are the secrets
 Vault `kv-ghpromote-sec-weu-001`, a vault of its own (input `vault`), which
 only the promote identities read (Key Vault Secrets User on that vault).
 The App is created by the owner (`promote-1-github-app.sh`, the procedure
-in `iac-github` `docs/github-apps.md`).
+in [`iac-github` docs/setup.md](https://github.com/bearclave/iac-github/blob/main/docs/setup.md#2-github-apps)).
 
 **Binding the identity to this workflow (recommended hardening).** The
 federated credential on `environment:promote` lets any job of the

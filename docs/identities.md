@@ -64,13 +64,13 @@ they go.
 
 | App | Purpose | Used by | Permissions | Key |
 |---|---|---|---|---|
-| `bearclave-iac-github` | apply of `iac-github` | `iac-github` job `apply` (`sp-tf-github`) | what `iac-github` manages, write ([github-apps.md](https://github.com/bearclave/iac-github/blob/main/docs/github-apps.md)) | `kv-github-sec-weu-001` |
+| `bearclave-iac-github` | apply of `iac-github` | `iac-github` job `apply` (`sp-tf-github`) | what `iac-github` manages, write ([setup.md](https://github.com/bearclave/iac-github/blob/main/docs/setup.md#2-github-apps)) | `kv-github-sec-weu-001` |
 | `bearclave-iac-github-read` | plan and drift of `iac-github` | `iac-github` plan jobs and `drift.yml` (`sp-tf-github-plan`) | the same areas, read; Organization administration write (GitHub needs it to read an organisation ruleset) | `kv-githubro-sec-weu-001` |
 | `bearclave-bot` | author of the agents' and the bots' pull requests; the major tag | `bot-gh` (`tools/bot-gh.py`, the owner and agents), `deps.yml`, `ci-pins.yml`, `major-tag.yml`, `project-sync.yml`, `housekeeping.yml` | contents, pull requests, issues, workflows write; organisation Projects write; checks, actions read; bypasses the ruleset `major-tags`. Each workflow narrows its installation token to what it needs | `kv-githubbot-sec-weu-001` |
 | `bearclave-promote` | moves `prod` of an application and tags its release | `promote.yml` in `app-web-bearclave`, `app-web-matejhrabalek` (installed only there) | Contents, Workflows write; Metadata read; the only bypass of the `prod` ruleset and a bypass of `v*` tag creation in those repositories | `kv-ghpromote-sec-weu-001` (`github-app-key`, `github-app-id`, `github-app-installation-id`) |
-| `claude` (Anthropic) | Claude Code cloud sessions | the repositories of the owner's cloud environments | contents, pull requests write ([github-apps.md](https://github.com/bearclave/iac-github/blob/main/docs/github-apps.md#claude)) | held by Anthropic |
+| `claude` (Anthropic) | Claude Code cloud sessions | the repositories of the owner's cloud environments | contents, pull requests write ([setup.md](https://github.com/bearclave/iac-github/blob/main/docs/setup.md#2-github-apps)) | held by Anthropic |
 
-The installations are outside Terraform: `iac-github` `docs/github-apps.md`
+The installations are outside Terraform: `iac-github` `docs/setup.md` (2. GitHub Apps)
 says what each may do and how to check it.
 
 ## Secret
