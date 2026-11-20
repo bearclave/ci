@@ -106,6 +106,23 @@ class CheckArtifact(unittest.TestCase):
                 promote.check_artifact(arts, "site", NOW)
 
 
+class WaitMinutes(unittest.TestCase):
+    def test_bounds(self):
+        self.assertEqual(promote.wait_minutes("20"), 20)
+        self.assertEqual(promote.wait_minutes(30), 30)
+        for bad in ("31", "-1", "x", None):
+            with self.subTest(bad), self.assertRaises(promote.Refused):
+                promote.wait_minutes(bad)
+
+
+class ProdJob(unittest.TestCase):
+    def test_green_run_with_a_skipped_deployment_is_not_released(self):
+        with self.assertRaises(promote.Refused):
+            promote.check_job([{"name": "pipeline / site", "conclusion": "skipped"},
+                               {"name": "pipeline / deploy-prod", "conclusion": "skipped"}], "deploy-prod")
+        promote.check_job([{"name": "pipeline / deploy-prod", "conclusion": "success"}], "deploy-prod")
+
+
 class Plan(unittest.TestCase):
     def plan(self, sha=SHA, prod=PROD, ancestor=True, on_staging=True, tags=(), version="v1.2.0",
              existing=("v1.1.0",)):
@@ -123,6 +140,11 @@ class Plan(unittest.TestCase):
     def test_rerun_after_the_tag(self):
         self.assertEqual(self.plan(prod=SHA, tags=("v1.2.0",), version=""),
                          {"move": None, "tag": None, "release": "v1.2.0"})
+
+    def test_already_released_commit_refuses_another_version(self):
+        with self.assertRaises(promote.Refused):
+            self.plan(prod=SHA, tags=("v1.2.0",), version="v1.3.0")
+        self.assertEqual(self.plan(prod=SHA, tags=("v1.2.0",), version="v1.2.0")["release"], "v1.2.0")
 
     def test_already_released_commit_moves_without_a_new_tag(self):
         self.assertEqual(self.plan(tags=("v1.1.0",), version=""),

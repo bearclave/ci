@@ -28,8 +28,9 @@ writing an installation token of the App limited to this repository, read
 from PROMOTE_VAULT by github_bot.Bot after the job signed in to Azure.
 
 Environment: GITHUB_REPOSITORY, GH_TOKEN, STAGING_BRANCH, PROD_BRANCH,
-WORKFLOW (the caller's pipeline file, e.g. ci.yml), STAGING_JOB (the job
-that deploys staging, e.g. deploy-staging), ARTIFACT (the build artifact;
+WORKFLOW (the caller's pipeline file, e.g. ci.yml), STAGING_JOB and
+PROD_JOB (the jobs that deploy staging and production, e.g. deploy-staging,
+deploy-prod; each must have succeeded), ARTIFACT (the build artifact;
 empty skips that check), VERSION, SHA (the checkout's HEAD), PROMOTE_VAULT,
 WAIT_MINUTES (for the production run).
 
@@ -52,6 +53,8 @@ VAULT = "kv-ghpromote-sec-weu-001"
 # branch to a commit that changes .github/workflows needs `workflows` too.
 TOKEN_PERMISSIONS = {"contents": "write", "workflows": "write", "metadata": "read"}
 POLL_SECONDS = 20
+# The job of promote.yml times out after 35 minutes; the wait has to end first.
+MAX_WAIT_MINUTES = 30
 
 
 class Refused(Exception):
@@ -122,6 +125,9 @@ def plan(sha: str, prod_sha: str, prod_is_ancestor: bool, on_staging: bool,
                       f"forward. To roll back, revert on staging and promote the revert.")
     move = None if prod_sha == sha else ("fast-forward" if prod_sha else "create")
     released = sorted((t for t in tags_at_sha if is_version(t)), key=parse)
+    if released and version and version not in released:
+        raise Refused(f"{sha[:7]} is already released as {released[-1]}; it gets no second version "
+                      f"({version}). Leave the version input empty to finish that release.")
     if released:
         # A rerun after the tag, or a commit released earlier: only what is missing.
         return {"move": move, "tag": None, "release": released[-1]}
@@ -133,6 +139,18 @@ def plan(sha: str, prod_sha: str, prod_is_ancestor: bool, on_staging: bool,
     if version in existing_tags:
         raise Refused(f"{version} already exists on another commit; give a higher version.")
     return {"move": move, "tag": version, "release": version}
+
+
+def wait_minutes(value) -> int:
+    """The minutes to wait for the production run, or Refused."""
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError):
+        raise Refused(f"wait-minutes '{value}' is not a number") from None
+    if not 0 <= minutes <= MAX_WAIT_MINUTES:
+        raise Refused(f"wait-minutes is {minutes}; it must be 0 to {MAX_WAIT_MINUTES}, because the job "
+                      f"times out after 35 minutes")
+    return minutes
 
 
 def prod_state(runs: list, branch: str):
@@ -193,7 +211,7 @@ def main(dry_run: bool) -> int:
     artifact = os.environ.get("ARTIFACT", "")
     version = os.environ.get("VERSION", "")
     vault = os.environ.get("PROMOTE_VAULT") or VAULT
-    minutes = int(os.environ.get("WAIT_MINUTES") or 20)
+    prod_job = os.environ.get("PROD_JOB", "")
     sha = os.environ.get("SHA") or git("rev-parse", "HEAD").stdout.strip()
     read = os.environ["GH_TOKEN"]
 
@@ -208,6 +226,7 @@ def main(dry_run: bool) -> int:
     try:
         if not SHA.fullmatch(sha):
             raise Refused(f"'{sha}' is not a full commit SHA")
+        minutes = wait_minutes(os.environ.get("WAIT_MINUTES") or 20)
         if not staging_sha:
             raise Refused(f"the branch {staging} does not exist")
         on_staging = is_ancestor(sha, staging_sha)
@@ -250,6 +269,10 @@ def main(dry_run: bool) -> int:
         gh.say(f"\n{prod} is at {sha[:7]}; waiting for its production run.")
     try:
         prod_run = wait_for_prod(repo, workflow, sha, prod, read, minutes)
+        if prod_job:
+            # A green run whose deployment was skipped deployed nothing.
+            jobs = gh.request("GET", f"/repos/{repo}/actions/runs/{prod_run['id']}/jobs?per_page=100", read)["jobs"]
+            check_job(jobs, prod_job)
     except Refused as e:
         print(f"::error title=promote::{e}")
         gh.say(f"\n**Not released:** {e}")

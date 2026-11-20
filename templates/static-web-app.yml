@@ -136,6 +136,10 @@ on:
         description: Preview environments the staging SWA allows (Free 3, Standard 10)
         type: number
         default: 3
+      staging-job:
+        description: Job that deploys staging (deploy-staging); production takes only a staging run in which it succeeded - the same name promote.yml checks
+        type: string
+        default: deploy-staging
       artifact-retention-days:
         description: Days the build of a staging run is kept (at most the organisation's artifact retention, 30 today); a commit is promoted only while its build exists
         type: number
@@ -471,27 +475,30 @@ jobs:
       BUILD_RUN: ""
     steps:
       # The same choice as src/promote.py: the newest successful run of the
-      # commit on staging (push or manual), whose job deploy-staging succeeded.
+      # commit on staging (push or manual), whose job staging-job succeeded.
       # Only bearclave-promote moves prod, after it checked that run.
       - name: Find the staging build
         env:
           GH_TOKEN: ${{ github.token }}
           STAGING: ${{ inputs.staging-branch }}
+          STAGING_JOB: ${{ inputs.staging-job }}
         run: |
           set -euo pipefail
           wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
           id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?head_sha=$GITHUB_SHA&branch=$STAGING&status=success&per_page=100" \
-            --jq "[.workflow_runs[] | select(.head_branch == \"$STAGING\" and .head_sha == \"$GITHUB_SHA\"
-                    and (.event == \"push\" or .event == \"workflow_dispatch\") and .conclusion == \"success\")]
-                  | sort_by(.created_at, .id) | last // empty | .id")
+            | jq -r --arg branch "$STAGING" --arg sha "$GITHUB_SHA" '[.workflow_runs[]
+                | select(.head_branch == $branch and .head_sha == $sha
+                    and (.event == "push" or .event == "workflow_dispatch") and .conclusion == "success")]
+              | sort_by(.created_at, .id) | last // empty | .id')
           if [ -z "$id" ]; then
             echo "::error title=deploy::$GITHUB_SHA has no successful run of $wf on $STAGING: production deploys only a build that staging ran. Promote with promote.yml."
             exit 1
           fi
           deployed=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
-            --jq '[.jobs[] | select((.name | split(" / ") | last) == "deploy-staging")] | if length > 0 and all(.conclusion == "success") then "yes" else "no" end')
+            | jq -r --arg job "$STAGING_JOB" '[.jobs[] | select((.name | split(" / ") | last) == $job)]
+              | if length > 0 and all(.conclusion == "success") then "yes" else "no" end')
           if [ "$deployed" != yes ]; then
-            echo "::error title=deploy::the job deploy-staging of the staging run $id did not succeed"
+            echo "::error title=deploy::the job $STAGING_JOB of the staging run $id did not succeed"
             exit 1
           fi
           echo "BUILD_RUN=$id" >>"$GITHUB_ENV"

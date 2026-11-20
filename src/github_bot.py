@@ -180,7 +180,7 @@ def jwt(app_id: str, pem: str) -> str:
 
 
 class Bot:
-    """Installation tokens of bearclave-bot, each limited to what a step needs."""
+    """Installation tokens of bearclave-bot (or of bearclave-promote from its own vault), each limited to what a step needs."""
 
     def __init__(self, vault: str = VAULT):
         # Another App (bearclave-promote) keeps the same three secrets in a

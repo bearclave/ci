@@ -77,8 +77,12 @@ on:
         description: Job of the pipeline that deploys staging; it must have succeeded in the staging run (empty skips the check)
         type: string
         default: deploy-staging
+      prod-job:
+        description: Job of the pipeline that deploys production; it must have succeeded in the production run before anything is tagged (empty skips the check)
+        type: string
+        default: deploy-prod
       wait-minutes:
-        description: How long to wait for the production run before giving up (nothing is tagged then)
+        description: How long to wait for the production run before giving up, 0 to 30 (nothing is tagged then)
         type: number
         default: 20
       vault:
@@ -190,6 +194,7 @@ jobs:
           WORKFLOW: ${{ inputs.workflow }}
           ARTIFACT: ${{ inputs.artifact }}
           STAGING_JOB: ${{ inputs.staging-job }}
+          PROD_JOB: ${{ inputs.prod-job }}
           WAIT_MINUTES: ${{ inputs.wait-minutes }}
           PROMOTE_VAULT: ${{ inputs.vault }}
           VERSION: ${{ steps.next.outputs.version }}

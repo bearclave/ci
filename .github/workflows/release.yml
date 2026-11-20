@@ -212,7 +212,7 @@ jobs:
                                   "for the bump (history from before the standards)."]
               if version:
                   summary += ["", "## Notes (preview; the release generates them from the labels)"] + notes(commits)
-              # An application is released by promote.yml as bearclave-bot, not by hand.
+              # An application is released by promote.yml as bearclave-promote, not by hand.
               if version and not os.environ.get("RELEASED_BY_PROMOTE"):
                   summary += ["", "## Signed tag by hand", "", "```bash",
                               "git switch main && git pull --ff-only",

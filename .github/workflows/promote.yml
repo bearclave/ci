@@ -78,8 +78,12 @@ on:
         description: Job of the pipeline that deploys staging; it must have succeeded in the staging run (empty skips the check)
         type: string
         default: deploy-staging
+      prod-job:
+        description: Job of the pipeline that deploys production; it must have succeeded in the production run before anything is tagged (empty skips the check)
+        type: string
+        default: deploy-prod
       wait-minutes:
-        description: How long to wait for the production run before giving up (nothing is tagged then)
+        description: How long to wait for the production run before giving up, 0 to 30 (nothing is tagged then)
         type: number
         default: 20
       vault:
@@ -297,7 +301,7 @@ jobs:
                                   "for the bump (history from before the standards)."]
               if version:
                   summary += ["", "## Notes (preview; the release generates them from the labels)"] + notes(commits)
-              # An application is released by promote.yml as bearclave-bot, not by hand.
+              # An application is released by promote.yml as bearclave-promote, not by hand.
               if version and not os.environ.get("RELEASED_BY_PROMOTE"):
                   summary += ["", "## Signed tag by hand", "", "```bash",
                               "git switch main && git pull --ff-only",
@@ -528,7 +532,7 @@ jobs:
 
 
           class Bot:
-              """Installation tokens of bearclave-bot, each limited to what a step needs."""
+              """Installation tokens of bearclave-bot (or of bearclave-promote from its own vault), each limited to what a step needs."""
 
               def __init__(self, vault: str = VAULT):
                   # Another App (bearclave-promote) keeps the same three secrets in a
@@ -589,8 +593,9 @@ jobs:
           from PROMOTE_VAULT by github_bot.Bot after the job signed in to Azure.
 
           Environment: GITHUB_REPOSITORY, GH_TOKEN, STAGING_BRANCH, PROD_BRANCH,
-          WORKFLOW (the caller's pipeline file, e.g. ci.yml), STAGING_JOB (the job
-          that deploys staging, e.g. deploy-staging), ARTIFACT (the build artifact;
+          WORKFLOW (the caller's pipeline file, e.g. ci.yml), STAGING_JOB and
+          PROD_JOB (the jobs that deploy staging and production, e.g. deploy-staging,
+          deploy-prod; each must have succeeded), ARTIFACT (the build artifact;
           empty skips that check), VERSION, SHA (the checkout's HEAD), PROMOTE_VAULT,
           WAIT_MINUTES (for the production run).
 
@@ -613,6 +618,8 @@ jobs:
           # branch to a commit that changes .github/workflows needs `workflows` too.
           TOKEN_PERMISSIONS = {"contents": "write", "workflows": "write", "metadata": "read"}
           POLL_SECONDS = 20
+          # The job of promote.yml times out after 35 minutes; the wait has to end first.
+          MAX_WAIT_MINUTES = 30
 
 
           class Refused(Exception):
@@ -683,6 +690,9 @@ jobs:
                                 f"forward. To roll back, revert on staging and promote the revert.")
               move = None if prod_sha == sha else ("fast-forward" if prod_sha else "create")
               released = sorted((t for t in tags_at_sha if is_version(t)), key=parse)
+              if released and version and version not in released:
+                  raise Refused(f"{sha[:7]} is already released as {released[-1]}; it gets no second version "
+                                f"({version}). Leave the version input empty to finish that release.")
               if released:
                   # A rerun after the tag, or a commit released earlier: only what is missing.
                   return {"move": move, "tag": None, "release": released[-1]}
@@ -694,6 +704,18 @@ jobs:
               if version in existing_tags:
                   raise Refused(f"{version} already exists on another commit; give a higher version.")
               return {"move": move, "tag": version, "release": version}
+
+
+          def wait_minutes(value) -> int:
+              """The minutes to wait for the production run, or Refused."""
+              try:
+                  minutes = int(value)
+              except (TypeError, ValueError):
+                  raise Refused(f"wait-minutes '{value}' is not a number") from None
+              if not 0 <= minutes <= MAX_WAIT_MINUTES:
+                  raise Refused(f"wait-minutes is {minutes}; it must be 0 to {MAX_WAIT_MINUTES}, because the job "
+                                f"times out after 35 minutes")
+              return minutes
 
 
           def prod_state(runs: list, branch: str):
@@ -754,7 +776,7 @@ jobs:
               artifact = os.environ.get("ARTIFACT", "")
               version = os.environ.get("VERSION", "")
               vault = os.environ.get("PROMOTE_VAULT") or VAULT
-              minutes = int(os.environ.get("WAIT_MINUTES") or 20)
+              prod_job = os.environ.get("PROD_JOB", "")
               sha = os.environ.get("SHA") or git("rev-parse", "HEAD").stdout.strip()
               read = os.environ["GH_TOKEN"]
 
@@ -769,6 +791,7 @@ jobs:
               try:
                   if not SHA.fullmatch(sha):
                       raise Refused(f"'{sha}' is not a full commit SHA")
+                  minutes = wait_minutes(os.environ.get("WAIT_MINUTES") or 20)
                   if not staging_sha:
                       raise Refused(f"the branch {staging} does not exist")
                   on_staging = is_ancestor(sha, staging_sha)
@@ -811,6 +834,10 @@ jobs:
                   gh.say(f"\n{prod} is at {sha[:7]}; waiting for its production run.")
               try:
                   prod_run = wait_for_prod(repo, workflow, sha, prod, read, minutes)
+                  if prod_job:
+                      # A green run whose deployment was skipped deployed nothing.
+                      jobs = gh.request("GET", f"/repos/{repo}/actions/runs/{prod_run['id']}/jobs?per_page=100", read)["jobs"]
+                      check_job(jobs, prod_job)
               except Refused as e:
                   print(f"::error title=promote::{e}")
                   gh.say(f"\n**Not released:** {e}")
@@ -865,6 +892,7 @@ jobs:
           WORKFLOW: ${{ inputs.workflow }}
           ARTIFACT: ${{ inputs.artifact }}
           STAGING_JOB: ${{ inputs.staging-job }}
+          PROD_JOB: ${{ inputs.prod-job }}
           WAIT_MINUTES: ${{ inputs.wait-minutes }}
           PROMOTE_VAULT: ${{ inputs.vault }}
           VERSION: ${{ steps.next.outputs.version }}
