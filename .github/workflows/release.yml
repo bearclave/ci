@@ -100,7 +100,7 @@ jobs:
           import tempfile
 
           TITLE = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?(?P<breaking>!)?: \S")
-          VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+          VERSION = re.compile(r"v([0-9]+)\.([0-9]+)\.([0-9]+)")
           FOOTER = re.compile(r"^BREAKING[ -]CHANGE: ", re.M)
           PATCH = ("fix", "perf", "refactor", "deps", "revert")
           NONE = ("docs", "test", "ci", "chore")
@@ -111,7 +111,7 @@ jobs:
 
 
           def parse(version: str) -> tuple:
-              m = VERSION.match(version)
+              m = VERSION.fullmatch(version)
               if not m:
                   raise ValueError(f"'{version}' is not vX.Y.Z")
               return tuple(int(x) for x in m.groups())
@@ -174,7 +174,7 @@ jobs:
 
 
           def last_tag() -> str:
-              tags = [t for t in git("tag", "--list", "v*.*.*", "--merged", "HEAD").split() if VERSION.match(t)]
+              tags = [t for t in git("tag", "--list", "v*.*.*", "--merged", "HEAD").split() if VERSION.fullmatch(t)]
               return max(tags, key=parse) if tags else ""
 
 
@@ -192,7 +192,9 @@ jobs:
               if wanted:
                   try:
                       parse(wanted)
-                      if previous and parse(wanted) <= parse(previous):
+                      # A rerun (promote.yml) of a commit already tagged with that version.
+                      here = git("tag", "--points-at", "HEAD").split()
+                      if previous and wanted not in here and parse(wanted) <= parse(previous):
                           raise ValueError(f"{wanted} is not above the last tag {previous}")
                   except ValueError as e:
                       print(f"::error::{e}")
@@ -210,6 +212,8 @@ jobs:
                                   "for the bump (history from before the standards)."]
               if version:
                   summary += ["", "## Notes (preview; the release generates them from the labels)"] + notes(commits)
+              # An application is released by promote.yml as bearclave-promote, not by hand.
+              if version and not os.environ.get("RELEASED_BY_PROMOTE"):
                   summary += ["", "## Signed tag by hand", "", "```bash",
                               "git switch main && git pull --ff-only",
                               f'git tag -s {version} -m "{version}" && git push origin {version}',

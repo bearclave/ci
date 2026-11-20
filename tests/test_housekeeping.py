@@ -72,6 +72,12 @@ class StaleTest(unittest.TestCase):
         found = hk.stale_branches(repo, dt.datetime.now(dt.timezone.utc), 30)
         self.assertEqual([n for n, _ in found], ["feat/old"])
 
+    def test_application_branches_are_not_stale(self):
+        repo = repository([ref("staging", 400), ref("prod", 60), ref("feat/old", 45)], [])
+        repo["defaultBranchRef"] = {"name": "staging"}
+        found = hk.stale_branches(repo, dt.datetime.now(dt.timezone.utc), 30)
+        self.assertEqual([n for n, _ in found], ["feat/old"])
+
     def test_pull_requests_and_blocked(self):
         repo = repository([], [pr(1, 20), pr(2, 2), pr(3, 40, ["status:blocked"])])
         stale, blocked = hk.stale_prs(repo, dt.datetime.now(dt.timezone.utc), 14)

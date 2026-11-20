@@ -2,17 +2,36 @@
 # The pipeline of a static website (app-web-bearclave, app-web-matejhrabalek):
 # the common site checks (src/site_checks.py: the config and its security
 # headers, the pages against the CSP, well-formed HTML, links), ESLint and the
-# site's own checks on every run, and on main a deployment into its Static
-# Web App - only when something under the deployed paths changed since the
-# last successful run - followed by a smoke test of the site's URL.
+# site's own checks, then the deployment. Two models, chosen by the inputs:
+#
+# Environments (staging-swa-name set; bearclave/governance standards/
+# workflow.md, Applications) - default branch `staging`, production `prod`:
+#
+#   pull request into staging -> checks, the build, a preview in the staging
+#                                SWA (pr<number>, noindex); closing it
+#                                deletes the preview
+#   push to staging           -> checks, the build (artifact `site`, a tar of
+#                                app and api with its sha256 and commit),
+#                                deployment into the staging SWA with noindex,
+#                                smoke test of staging-url
+#   push to prod              -> (the fast-forward of promote.yml) no build:
+#                                the artifact of the successful staging run of
+#                                the same commit is deployed into the
+#                                production SWA, smoke test of url
+#
+# Single environment (staging-swa-name empty; the callers before v2.8):
+# push to the branch -> deployment into the environment when something under
+# deploy-paths changed since the last successful run of that branch.
 #
 #   jobs:
 #     security:
+#       if: github.event.action != 'closed' && github.ref != 'refs/heads/prod'
 #       uses: bearclave/ci/.github/workflows/security.yml@v2
 #       permissions:
 #         contents: read
 #     pipeline:
 #       needs: security          # nothing is deployed past a failed scan
+#       if: ${{ !cancelled() && contains(fromJSON('["success", "skipped"]'), needs.security.result) }}
 #       uses: bearclave/ci/.github/workflows/static-web-app.yml@v2
 #       permissions:
 #         contents: read
@@ -23,16 +42,20 @@
 #         swa-resource-group: rg-web-sro-weu-001
 #         site-checks: |                   # optional: what only this site checks
 #           node --test tests/
-#         url: https://bearclave.cz/        # optional: the smoke test after a deployment
+#         url: https://bearclave.cz/        # the smoke test after a deployment
 #         environment: prod
 #         client-id: ${{ vars.AZURE_CLIENT_ID }}
+#         staging-swa-name: ${{ vars.STAGING_SWA_NAME }}
+#         staging-swa-resource-group: ${{ vars.STAGING_SWA_RESOURCE_GROUP }}
+#         staging-url: ${{ vars.STAGING_URL }}
+#         staging-client-id: ${{ vars.AZURE_CLIENT_ID_STAGING }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 #         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 #
-# The identity may deploy the site's Static Web App and nothing else. With an
-# environment it is federated on that environment (whose branch policy allows
-# main only); without one on main. Either way a run from a branch gets no
-# token. The required check is "pipeline / gate".
+# Each identity may deploy its one Static Web App and nothing else, federated
+# on its environment only: prod (deployment branch prod), staging (branch
+# staging) and preview (refs/pull/*/merge, the staging SWA again). A run from
+# any other branch gets no token. The required check is "pipeline / gate".
 name: static-web-app
 
 on:
@@ -71,13 +94,57 @@ on:
         type: string
         default: 2.0.10
       environment:
-        description: Environment of the deploy job (prod); empty deploys without one
+        description: Environment of the production deploy job (prod); empty deploys without one
         type: string
         default: ""
       client-id:
-        description: Client ID of the deploying identity
+        description: Client ID of the identity that deploys production
         type: string
         required: true
+      staging-swa-name:
+        description: Name of the staging Static Web App; set, it switches on the environment model (staging, previews, prod from the staging build)
+        type: string
+        default: ""
+      staging-swa-resource-group:
+        description: Its resource group
+        type: string
+        default: ""
+      staging-url:
+        description: URL of the staging site (its azurestaticapps.net name); empty takes the one the deployment prints
+        type: string
+        default: ""
+      staging-client-id:
+        description: Client ID of the identity that deploys staging and the previews
+        type: string
+        default: ""
+      staging-branch:
+        description: Branch deployed to staging (the default branch)
+        type: string
+        default: staging
+      prod-branch:
+        description: Branch deployed to production, moved only by promote.yml
+        type: string
+        default: prod
+      staging-environment:
+        description: Environment of the staging deploy job
+        type: string
+        default: staging
+      preview-environment:
+        description: Environment of the preview jobs of a pull request; empty means no previews
+        type: string
+        default: preview
+      preview-limit:
+        description: Preview environments the staging SWA allows (Free 3, Standard 10)
+        type: number
+        default: 3
+      staging-job:
+        description: Job that deploys staging (deploy-staging); production takes only a staging run in which it succeeded - the same name promote.yml checks
+        type: string
+        default: deploy-staging
+      artifact-retention-days:
+        description: Days the build of a staging run is kept (at most the organisation's artifact retention, 30 today); a commit is promoted only while its build exists
+        type: number
+        default: 30
       tenant-id:
         type: string
         required: true
@@ -93,7 +160,12 @@ defaults:
     shell: bash
 
 jobs:
+  # Not on a closed pull request and not on prod: production takes the build
+  # its commit got on staging, checked there.
   site:
+    if: >-
+      github.event.action != 'closed'
+      && !(inputs.staging-swa-name != '' && github.ref == format('refs/heads/{0}', inputs.prod-branch))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -568,19 +640,67 @@ jobs:
             tee -a "$GITHUB_STEP_SUMMARY"
           exit "$rc"
 
+      # Production is deployed from this build unchanged and must be indexed:
+      # an X-Robots-Tag in the config fails here, before anything is promoted.
+      - name: No X-Robots-Tag in the config
+        if: inputs.staging-swa-name != ''
+        env:
+          CONFIG: ${{ inputs.app-location }}/staticwebapp.config.json
+        run: |
+          set -euo pipefail
+          [ -f "$CONFIG" ] || exit 0
+          if jq -e '(.globalHeaders // {}), (.routes // [] | .[] | .headers // {}) | keys[] | select(ascii_downcase == "x-robots-tag")' "$CONFIG" >/dev/null; then
+            echo "::error file=$CONFIG,title=noindex::the config sets X-Robots-Tag; staging adds it at deployment, the repository never carries it"
+            exit 1
+          fi
+
+      # The one build of the commit: what staging, a preview and production
+      # deploy. A tar keeps .well-known and every other hidden file.
+      - name: Package the build
+        if: inputs.staging-swa-name != ''
+        env:
+          APP_LOCATION: ${{ inputs.app-location }}
+          API_LOCATION: ${{ inputs.api-location }}
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/stage"
+          mkdir -p "$stage/app" "$RUNNER_TEMP/build"
+          cp -a "$APP_LOCATION/." "$stage/app/"
+          if [ -d "$API_LOCATION" ]; then
+            mkdir -p "$stage/api"
+            cp -a "$API_LOCATION/." "$stage/api/"
+          fi
+          printf '%s\n' "$GITHUB_SHA" >"$stage/COMMIT"
+          tar -C "$stage" --sort=name -cf "$RUNNER_TEMP/build/site.tar" .
+          (cd "$RUNNER_TEMP/build" && sha256sum site.tar >site.tar.sha256)
+          echo "Build: $(cut -c1-12 "$RUNNER_TEMP/build/site.tar.sha256") (sha256 of site.tar)." >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the build
+        if: inputs.staging-swa-name != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site
+          path: |
+            ${{ runner.temp }}/build/site.tar
+            ${{ runner.temp }}/build/site.tar.sha256
+          if-no-files-found: error
+          # A pull request's build serves only its preview.
+          retention-days: ${{ github.event_name == 'pull_request' && 1 || inputs.artifact-retention-days }}
+
   # The site is deployed only when the content actually changed. The check is
   # a step rather than a path filter on the trigger, so that the checks run
   # on every push and every pull request.
+  # The single environment model (no staging-swa-name).
   deploy:
     needs: site
-    if: github.event_name != 'pull_request'
+    if: inputs.staging-swa-name == '' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: ${{ inputs.environment }}
     permissions:
       contents: read
       id-token: write
-      # The base commit is the head of the last successful run on main.
+      # The base commit is the head of the last successful run on this branch.
       actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -588,7 +708,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Compared with the head of the last successful run on main, not with the
+      # Compared with the head of the last successful run on the branch, not with the
       # previous push: a deployment that failed, or a run a newer push took the
       # place of, leaves its content to the next run instead of losing it.
       # Without such a run the site is deployed.
@@ -605,10 +725,10 @@ jobs:
           fi
           # The caller's workflow file, e.g. ci.yml.
           wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
-          BASE=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=main&status=success&per_page=50" \
+          BASE=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?branch=$GITHUB_REF_NAME&status=success&per_page=50" \
             --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")][0].head_sha // empty') || BASE=""
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            echo "No successful run on main to compare with; deploying." >>"$GITHUB_STEP_SUMMARY"
+            echo "No successful run on $GITHUB_REF_NAME to compare with; deploying." >>"$GITHUB_STEP_SUMMARY"
             echo "yes=true" >>"$GITHUB_OUTPUT"; exit 0
           fi
           echo "Compared with \`$BASE\`, the last successful run." >>"$GITHUB_STEP_SUMMARY"
@@ -673,8 +793,661 @@ jobs:
           fi
           echo "Smoke test: $URL answered 200." >>"$GITHUB_STEP_SUMMARY"
 
+  # A pull request into staging: its build in a preview environment of the
+  # staging SWA, noindex.
+  preview:
+    needs: site
+    if: >-
+      inputs.staging-swa-name != '' && inputs.preview-environment != ''
+      && github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.preview-environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLIENT_ID: ${{ inputs.staging-client-id }}
+      SWA_NAME: ${{ inputs.staging-swa-name }}
+      SWA_RG: ${{ inputs.staging-swa-resource-group }}
+      SWA_ENV: pr${{ github.event.pull_request.number }}
+      SITE_URL: ""
+      NOINDEX: "true"
+      PREVIEW: "true"
+      BUILD_RUN: ""
+    steps:
+      # The deployment of a built site (static-web-app.yml, environment model): the
+      # artifact `site` of a run - this one, or BUILD_RUN when the job found the
+      # staging run of its commit - checked against its sha256 and its commit,
+      # noindex added outside production, signed in, deployed into SWA_ENV of
+      # SWA_NAME, then the smoke test. The job sets in env: CLIENT_ID, SWA_NAME,
+      # SWA_RG, SWA_ENV (production or a preview name), SITE_URL (may be empty),
+      # NOINDEX (true outside production), PREVIEW (true for a pull request),
+      # BUILD_RUN (empty for this run).
+      - name: Build of this run
+        if: env.BUILD_RUN == ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: ${{ runner.temp }}/build
+
+      - name: Build of the staging run
+        if: env.BUILD_RUN != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: ${{ runner.temp }}/build
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+
+      # The same bytes the staging run built and tested, of the same commit: a
+      # production deployment never builds anything of its own.
+      - name: Unpack and verify the build
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/build"
+          sha256sum -c site.tar.sha256
+          mkdir -p "$RUNNER_TEMP/site"
+          tar -C "$RUNNER_TEMP/site" -xf site.tar
+          built=$(cat "$RUNNER_TEMP/site/COMMIT")
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] && [ "$built" != "$GITHUB_SHA" ]; then
+            echo "::error title=build::the artifact was built from $built, not $GITHUB_SHA"
+            exit 1
+          fi
+          {
+            echo "Build of \`$built\`, $(cut -c1-12 site.tar.sha256) (sha256 of site.tar)."
+            echo "Deploying into \`$SWA_NAME\`, environment \`$SWA_ENV\`."
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # Staging and previews are public on *.azurestaticapps.net and must stay out
+      # of search engines; production must never carry the header. The sites share
+      # one staticwebapp.config.json, so the header is added to the deployed copy
+      # here and never committed.
+      - name: Search engines
+        env:
+          CONFIG: ${{ runner.temp }}/site/app/staticwebapp.config.json
+        run: |
+          set -euo pipefail
+          python3 - "$CONFIG" <<'__CI_EOF__'
+          import json, os, sys
+          path, noindex = sys.argv[1], os.environ["NOINDEX"] == "true"
+          config = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
+          headers = config.setdefault("globalHeaders", {})
+          present = [k for k in headers if k.lower() == "x-robots-tag"]
+          if noindex:
+              for k in present:
+                  del headers[k]
+              headers["X-Robots-Tag"] = "noindex, nofollow"
+              with open(path, "w", encoding="utf-8") as f:
+                  json.dump(config, f, indent=2, ensure_ascii=False)
+              print("X-Robots-Tag: noindex, nofollow added to the deployed copy.")
+          elif present:
+              print(f"::error title=noindex::staticwebapp.config.json sets {present[0]}; production must be indexed")
+              sys.exit(1)
+          __CI_EOF__
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          tenant-id: ${{ inputs.tenant-id }}
+          subscription-id: ${{ inputs.subscription-id }}
+
+      # The Free plan has three preview environments. A pull request that finds them
+      # taken by others gets no preview (a warning): staging still checks the
+      # deployment before production.
+      - name: Room for the preview
+        id: room
+        if: env.PREVIEW == 'true'
+        env:
+          LIMIT: ${{ inputs.preview-limit }}
+        run: |
+          set -euo pipefail
+          envs=$(az staticwebapp environment list --name "$SWA_NAME" --resource-group "$SWA_RG" \
+            --query "[?buildId != 'default'].buildId" -o tsv 2>/dev/null) || envs=""
+          if grep -qx "$SWA_ENV" <<<"$envs"; then
+            echo "skip=false" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          taken=$(grep -c . <<<"$envs" || true)
+          if [ "$taken" -ge "$LIMIT" ]; then
+            echo "::warning title=preview::all $LIMIT preview environments of $SWA_NAME are taken ($(tr '\n' ' ' <<<"$envs")); no preview for this pull request"
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy
+        id: deploy
+        if: steps.room.outputs.skip != 'true'
+        env:
+          SWA_CLI: ${{ inputs.swa-cli-version }}
+        run: |
+          set -euo pipefail
+          TOKEN=$(az staticwebapp secrets list --name "$SWA_NAME" \
+            --resource-group "$SWA_RG" --query "properties.apiKey" -o tsv)
+          # The token is a deployment credential; without this it would end up
+          # in the log the moment any command echoes it.
+          echo "::add-mask::$TOKEN"
+          api=()
+          [ -d "$RUNNER_TEMP/site/api" ] && api=(--api-location "$RUNNER_TEMP/site/api")
+          npx -y "@azure/static-web-apps-cli@$SWA_CLI" deploy "$RUNNER_TEMP/site/app" \
+            "${api[@]}" \
+            --env "$SWA_ENV" \
+            --deployment-token "$TOKEN" \
+            --no-use-keychain | tee "$RUNNER_TEMP/deploy.log"
+          url=$(grep -oE 'https://[A-Za-z0-9.-]+\.azurestaticapps\.net' "$RUNNER_TEMP/deploy.log" | tail -1 || true)
+          echo "url=$url" >>"$GITHUB_OUTPUT"
+          [ -z "$url" ] || echo "Deployed: $url" >>"$GITHUB_STEP_SUMMARY"
+
+      # The CLI returns before the new content is served everywhere, so the test
+      # retries for about four minutes before the run turns red: the URL answers
+      # 200, the X-Robots-Tag header is there outside production and absent in it,
+      # and the front page is the index.html of this build.
+      - name: Smoke test
+        if: steps.room.outputs.skip != 'true'
+        env:
+          DEPLOYED: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          URL=${SITE_URL:-${DEPLOYED:+$DEPLOYED/}}
+          if [ -z "$URL" ]; then
+            echo "::warning title=smoke test::no url - the deployment is not checked"
+            exit 0
+          fi
+          want=""
+          if [[ "$URL" =~ ^https://[^/]+/?$ ]] && [ -f "$RUNNER_TEMP/site/app/index.html" ]; then
+            want=$(sha256sum <"$RUNNER_TEMP/site/app/index.html" | cut -d' ' -f1)
+          fi
+          problem="no answer"
+          for attempt in $(seq 1 16); do
+            : >"$RUNNER_TEMP/headers"; : >"$RUNNER_TEMP/body"
+            code=$(curl -sS -D "$RUNNER_TEMP/headers" -o "$RUNNER_TEMP/body" -w '%{http_code}' \
+              --max-time 15 "$URL") || code=000
+            robots=$(grep -ci '^x-robots-tag:.*noindex' "$RUNNER_TEMP/headers" || true)
+            got=$(sha256sum <"$RUNNER_TEMP/body" | cut -d' ' -f1)
+            if [ "$code" != 200 ]; then
+              problem="answered $code"
+            elif [ "$NOINDEX" = "true" ] && [ "$robots" = 0 ]; then
+              problem="has no X-Robots-Tag noindex"
+            elif [ "$NOINDEX" != "true" ] && [ "$robots" != 0 ]; then
+              problem="carries X-Robots-Tag noindex"
+            elif [ -n "$want" ] && [ "$got" != "$want" ]; then
+              problem="does not serve the index.html of this build yet"
+            else
+              problem=""
+              break
+            fi
+            echo "Attempt $attempt: $URL $problem."
+            sleep 15
+          done
+          if [ -n "$problem" ]; then
+            echo "::error title=smoke test::$URL $problem after the deployment"
+            exit 1
+          fi
+          echo "Smoke test: $URL answered 200${want:+ with the front page of this build}." >>"$GITHUB_STEP_SUMMARY"
+
+  # A closed pull request gives its preview environment back. A failure only
+  # warns: the pull request is done, and the next preview reports a full SWA.
+  preview-cleanup:
+    if: >-
+      inputs.staging-swa-name != '' && inputs.preview-environment != ''
+      && github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ inputs.preview-environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ inputs.staging-client-id }}
+          tenant-id: ${{ inputs.tenant-id }}
+          subscription-id: ${{ inputs.subscription-id }}
+
+      - name: Delete the preview
+        env:
+          SWA_NAME: ${{ inputs.staging-swa-name }}
+          SWA_RG: ${{ inputs.staging-swa-resource-group }}
+          SWA_ENV: pr${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Without --environment-name the command deletes the production
+          # environment of the SWA; only a preview name gets this far.
+          if ! [[ "$SWA_ENV" =~ ^pr[0-9]+$ ]]; then
+            echo "::error::refusing to delete environment '$SWA_ENV'"
+            exit 1
+          fi
+          if az staticwebapp environment delete --name "$SWA_NAME" --resource-group "$SWA_RG" \
+              --environment-name "$SWA_ENV" --yes --output none; then
+            echo "Preview $SWA_ENV deleted." >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=preview::$SWA_ENV of $SWA_NAME was not deleted (gone already, or the delete failed)"
+          fi
+
+  # A push to staging: the build of this run into the staging SWA, noindex.
+  deploy-staging:
+    needs: site
+    if: >-
+      inputs.staging-swa-name != '' && github.event_name != 'pull_request'
+      && github.ref == format('refs/heads/{0}', inputs.staging-branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.staging-environment }}
+    # Deployments to an environment never overlap, whatever the caller's group.
+    concurrency:
+      group: deploy-staging-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLIENT_ID: ${{ inputs.staging-client-id }}
+      SWA_NAME: ${{ inputs.staging-swa-name }}
+      SWA_RG: ${{ inputs.staging-swa-resource-group }}
+      SWA_ENV: production
+      SITE_URL: ${{ inputs.staging-url }}
+      NOINDEX: "true"
+      PREVIEW: "false"
+      BUILD_RUN: ""
+    steps:
+      # The deployment of a built site (static-web-app.yml, environment model): the
+      # artifact `site` of a run - this one, or BUILD_RUN when the job found the
+      # staging run of its commit - checked against its sha256 and its commit,
+      # noindex added outside production, signed in, deployed into SWA_ENV of
+      # SWA_NAME, then the smoke test. The job sets in env: CLIENT_ID, SWA_NAME,
+      # SWA_RG, SWA_ENV (production or a preview name), SITE_URL (may be empty),
+      # NOINDEX (true outside production), PREVIEW (true for a pull request),
+      # BUILD_RUN (empty for this run).
+      - name: Build of this run
+        if: env.BUILD_RUN == ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: ${{ runner.temp }}/build
+
+      - name: Build of the staging run
+        if: env.BUILD_RUN != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: ${{ runner.temp }}/build
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+
+      # The same bytes the staging run built and tested, of the same commit: a
+      # production deployment never builds anything of its own.
+      - name: Unpack and verify the build
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/build"
+          sha256sum -c site.tar.sha256
+          mkdir -p "$RUNNER_TEMP/site"
+          tar -C "$RUNNER_TEMP/site" -xf site.tar
+          built=$(cat "$RUNNER_TEMP/site/COMMIT")
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] && [ "$built" != "$GITHUB_SHA" ]; then
+            echo "::error title=build::the artifact was built from $built, not $GITHUB_SHA"
+            exit 1
+          fi
+          {
+            echo "Build of \`$built\`, $(cut -c1-12 site.tar.sha256) (sha256 of site.tar)."
+            echo "Deploying into \`$SWA_NAME\`, environment \`$SWA_ENV\`."
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # Staging and previews are public on *.azurestaticapps.net and must stay out
+      # of search engines; production must never carry the header. The sites share
+      # one staticwebapp.config.json, so the header is added to the deployed copy
+      # here and never committed.
+      - name: Search engines
+        env:
+          CONFIG: ${{ runner.temp }}/site/app/staticwebapp.config.json
+        run: |
+          set -euo pipefail
+          python3 - "$CONFIG" <<'__CI_EOF__'
+          import json, os, sys
+          path, noindex = sys.argv[1], os.environ["NOINDEX"] == "true"
+          config = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
+          headers = config.setdefault("globalHeaders", {})
+          present = [k for k in headers if k.lower() == "x-robots-tag"]
+          if noindex:
+              for k in present:
+                  del headers[k]
+              headers["X-Robots-Tag"] = "noindex, nofollow"
+              with open(path, "w", encoding="utf-8") as f:
+                  json.dump(config, f, indent=2, ensure_ascii=False)
+              print("X-Robots-Tag: noindex, nofollow added to the deployed copy.")
+          elif present:
+              print(f"::error title=noindex::staticwebapp.config.json sets {present[0]}; production must be indexed")
+              sys.exit(1)
+          __CI_EOF__
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          tenant-id: ${{ inputs.tenant-id }}
+          subscription-id: ${{ inputs.subscription-id }}
+
+      # The Free plan has three preview environments. A pull request that finds them
+      # taken by others gets no preview (a warning): staging still checks the
+      # deployment before production.
+      - name: Room for the preview
+        id: room
+        if: env.PREVIEW == 'true'
+        env:
+          LIMIT: ${{ inputs.preview-limit }}
+        run: |
+          set -euo pipefail
+          envs=$(az staticwebapp environment list --name "$SWA_NAME" --resource-group "$SWA_RG" \
+            --query "[?buildId != 'default'].buildId" -o tsv 2>/dev/null) || envs=""
+          if grep -qx "$SWA_ENV" <<<"$envs"; then
+            echo "skip=false" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          taken=$(grep -c . <<<"$envs" || true)
+          if [ "$taken" -ge "$LIMIT" ]; then
+            echo "::warning title=preview::all $LIMIT preview environments of $SWA_NAME are taken ($(tr '\n' ' ' <<<"$envs")); no preview for this pull request"
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy
+        id: deploy
+        if: steps.room.outputs.skip != 'true'
+        env:
+          SWA_CLI: ${{ inputs.swa-cli-version }}
+        run: |
+          set -euo pipefail
+          TOKEN=$(az staticwebapp secrets list --name "$SWA_NAME" \
+            --resource-group "$SWA_RG" --query "properties.apiKey" -o tsv)
+          # The token is a deployment credential; without this it would end up
+          # in the log the moment any command echoes it.
+          echo "::add-mask::$TOKEN"
+          api=()
+          [ -d "$RUNNER_TEMP/site/api" ] && api=(--api-location "$RUNNER_TEMP/site/api")
+          npx -y "@azure/static-web-apps-cli@$SWA_CLI" deploy "$RUNNER_TEMP/site/app" \
+            "${api[@]}" \
+            --env "$SWA_ENV" \
+            --deployment-token "$TOKEN" \
+            --no-use-keychain | tee "$RUNNER_TEMP/deploy.log"
+          url=$(grep -oE 'https://[A-Za-z0-9.-]+\.azurestaticapps\.net' "$RUNNER_TEMP/deploy.log" | tail -1 || true)
+          echo "url=$url" >>"$GITHUB_OUTPUT"
+          [ -z "$url" ] || echo "Deployed: $url" >>"$GITHUB_STEP_SUMMARY"
+
+      # The CLI returns before the new content is served everywhere, so the test
+      # retries for about four minutes before the run turns red: the URL answers
+      # 200, the X-Robots-Tag header is there outside production and absent in it,
+      # and the front page is the index.html of this build.
+      - name: Smoke test
+        if: steps.room.outputs.skip != 'true'
+        env:
+          DEPLOYED: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          URL=${SITE_URL:-${DEPLOYED:+$DEPLOYED/}}
+          if [ -z "$URL" ]; then
+            echo "::warning title=smoke test::no url - the deployment is not checked"
+            exit 0
+          fi
+          want=""
+          if [[ "$URL" =~ ^https://[^/]+/?$ ]] && [ -f "$RUNNER_TEMP/site/app/index.html" ]; then
+            want=$(sha256sum <"$RUNNER_TEMP/site/app/index.html" | cut -d' ' -f1)
+          fi
+          problem="no answer"
+          for attempt in $(seq 1 16); do
+            : >"$RUNNER_TEMP/headers"; : >"$RUNNER_TEMP/body"
+            code=$(curl -sS -D "$RUNNER_TEMP/headers" -o "$RUNNER_TEMP/body" -w '%{http_code}' \
+              --max-time 15 "$URL") || code=000
+            robots=$(grep -ci '^x-robots-tag:.*noindex' "$RUNNER_TEMP/headers" || true)
+            got=$(sha256sum <"$RUNNER_TEMP/body" | cut -d' ' -f1)
+            if [ "$code" != 200 ]; then
+              problem="answered $code"
+            elif [ "$NOINDEX" = "true" ] && [ "$robots" = 0 ]; then
+              problem="has no X-Robots-Tag noindex"
+            elif [ "$NOINDEX" != "true" ] && [ "$robots" != 0 ]; then
+              problem="carries X-Robots-Tag noindex"
+            elif [ -n "$want" ] && [ "$got" != "$want" ]; then
+              problem="does not serve the index.html of this build yet"
+            else
+              problem=""
+              break
+            fi
+            echo "Attempt $attempt: $URL $problem."
+            sleep 15
+          done
+          if [ -n "$problem" ]; then
+            echo "::error title=smoke test::$URL $problem after the deployment"
+            exit 1
+          fi
+          echo "Smoke test: $URL answered 200${want:+ with the front page of this build}." >>"$GITHUB_STEP_SUMMARY"
+
+  # A push to prod (the fast-forward of promote.yml): the build of the
+  # successful staging run of the same commit into the production SWA. No
+  # checks and no build here; the commit had them on staging.
+  deploy-prod:
+    if: >-
+      inputs.staging-swa-name != '' && github.event_name != 'pull_request'
+      && github.ref == format('refs/heads/{0}', inputs.prod-branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-prod-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+      # The staging run of the commit, its jobs and its artifact.
+      actions: read
+    env:
+      CLIENT_ID: ${{ inputs.client-id }}
+      SWA_NAME: ${{ inputs.swa-name }}
+      SWA_RG: ${{ inputs.swa-resource-group }}
+      SWA_ENV: production
+      SITE_URL: ${{ inputs.url }}
+      NOINDEX: "false"
+      PREVIEW: "false"
+      BUILD_RUN: ""
+    steps:
+      # The same choice as src/promote.py: the newest successful run of the
+      # commit on staging (push or manual), whose job staging-job succeeded.
+      # Only bearclave-promote moves prod, after it checked that run.
+      - name: Find the staging build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING: ${{ inputs.staging-branch }}
+          STAGING_JOB: ${{ inputs.staging-job }}
+        run: |
+          set -euo pipefail
+          wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?head_sha=$GITHUB_SHA&branch=$STAGING&status=success&per_page=100" \
+            | jq -r --arg branch "$STAGING" --arg sha "$GITHUB_SHA" '[.workflow_runs[]
+                | select(.head_branch == $branch and .head_sha == $sha
+                    and (.event == "push" or .event == "workflow_dispatch") and .conclusion == "success")]
+              | sort_by(.created_at, .id) | last // empty | .id')
+          if [ -z "$id" ]; then
+            echo "::error title=deploy::$GITHUB_SHA has no successful run of $wf on $STAGING: production deploys only a build that staging ran. Promote with promote.yml."
+            exit 1
+          fi
+          deployed=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+            | jq -r --arg job "$STAGING_JOB" '[.jobs[] | select((.name | split(" / ") | last) == $job)]
+              | if length > 0 and all(.conclusion == "success") then "yes" else "no" end')
+          if [ "$deployed" != yes ]; then
+            echo "::error title=deploy::the job $STAGING_JOB of the staging run $id did not succeed"
+            exit 1
+          fi
+          echo "BUILD_RUN=$id" >>"$GITHUB_ENV"
+          echo "Staging run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$id" >>"$GITHUB_STEP_SUMMARY"
+
+      # The deployment of a built site (static-web-app.yml, environment model): the
+      # artifact `site` of a run - this one, or BUILD_RUN when the job found the
+      # staging run of its commit - checked against its sha256 and its commit,
+      # noindex added outside production, signed in, deployed into SWA_ENV of
+      # SWA_NAME, then the smoke test. The job sets in env: CLIENT_ID, SWA_NAME,
+      # SWA_RG, SWA_ENV (production or a preview name), SITE_URL (may be empty),
+      # NOINDEX (true outside production), PREVIEW (true for a pull request),
+      # BUILD_RUN (empty for this run).
+      - name: Build of this run
+        if: env.BUILD_RUN == ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: ${{ runner.temp }}/build
+
+      - name: Build of the staging run
+        if: env.BUILD_RUN != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: ${{ runner.temp }}/build
+          run-id: ${{ env.BUILD_RUN }}
+          github-token: ${{ github.token }}
+
+      # The same bytes the staging run built and tested, of the same commit: a
+      # production deployment never builds anything of its own.
+      - name: Unpack and verify the build
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/build"
+          sha256sum -c site.tar.sha256
+          mkdir -p "$RUNNER_TEMP/site"
+          tar -C "$RUNNER_TEMP/site" -xf site.tar
+          built=$(cat "$RUNNER_TEMP/site/COMMIT")
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] && [ "$built" != "$GITHUB_SHA" ]; then
+            echo "::error title=build::the artifact was built from $built, not $GITHUB_SHA"
+            exit 1
+          fi
+          {
+            echo "Build of \`$built\`, $(cut -c1-12 site.tar.sha256) (sha256 of site.tar)."
+            echo "Deploying into \`$SWA_NAME\`, environment \`$SWA_ENV\`."
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # Staging and previews are public on *.azurestaticapps.net and must stay out
+      # of search engines; production must never carry the header. The sites share
+      # one staticwebapp.config.json, so the header is added to the deployed copy
+      # here and never committed.
+      - name: Search engines
+        env:
+          CONFIG: ${{ runner.temp }}/site/app/staticwebapp.config.json
+        run: |
+          set -euo pipefail
+          python3 - "$CONFIG" <<'__CI_EOF__'
+          import json, os, sys
+          path, noindex = sys.argv[1], os.environ["NOINDEX"] == "true"
+          config = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
+          headers = config.setdefault("globalHeaders", {})
+          present = [k for k in headers if k.lower() == "x-robots-tag"]
+          if noindex:
+              for k in present:
+                  del headers[k]
+              headers["X-Robots-Tag"] = "noindex, nofollow"
+              with open(path, "w", encoding="utf-8") as f:
+                  json.dump(config, f, indent=2, ensure_ascii=False)
+              print("X-Robots-Tag: noindex, nofollow added to the deployed copy.")
+          elif present:
+              print(f"::error title=noindex::staticwebapp.config.json sets {present[0]}; production must be indexed")
+              sys.exit(1)
+          __CI_EOF__
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          tenant-id: ${{ inputs.tenant-id }}
+          subscription-id: ${{ inputs.subscription-id }}
+
+      # The Free plan has three preview environments. A pull request that finds them
+      # taken by others gets no preview (a warning): staging still checks the
+      # deployment before production.
+      - name: Room for the preview
+        id: room
+        if: env.PREVIEW == 'true'
+        env:
+          LIMIT: ${{ inputs.preview-limit }}
+        run: |
+          set -euo pipefail
+          envs=$(az staticwebapp environment list --name "$SWA_NAME" --resource-group "$SWA_RG" \
+            --query "[?buildId != 'default'].buildId" -o tsv 2>/dev/null) || envs=""
+          if grep -qx "$SWA_ENV" <<<"$envs"; then
+            echo "skip=false" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          taken=$(grep -c . <<<"$envs" || true)
+          if [ "$taken" -ge "$LIMIT" ]; then
+            echo "::warning title=preview::all $LIMIT preview environments of $SWA_NAME are taken ($(tr '\n' ' ' <<<"$envs")); no preview for this pull request"
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy
+        id: deploy
+        if: steps.room.outputs.skip != 'true'
+        env:
+          SWA_CLI: ${{ inputs.swa-cli-version }}
+        run: |
+          set -euo pipefail
+          TOKEN=$(az staticwebapp secrets list --name "$SWA_NAME" \
+            --resource-group "$SWA_RG" --query "properties.apiKey" -o tsv)
+          # The token is a deployment credential; without this it would end up
+          # in the log the moment any command echoes it.
+          echo "::add-mask::$TOKEN"
+          api=()
+          [ -d "$RUNNER_TEMP/site/api" ] && api=(--api-location "$RUNNER_TEMP/site/api")
+          npx -y "@azure/static-web-apps-cli@$SWA_CLI" deploy "$RUNNER_TEMP/site/app" \
+            "${api[@]}" \
+            --env "$SWA_ENV" \
+            --deployment-token "$TOKEN" \
+            --no-use-keychain | tee "$RUNNER_TEMP/deploy.log"
+          url=$(grep -oE 'https://[A-Za-z0-9.-]+\.azurestaticapps\.net' "$RUNNER_TEMP/deploy.log" | tail -1 || true)
+          echo "url=$url" >>"$GITHUB_OUTPUT"
+          [ -z "$url" ] || echo "Deployed: $url" >>"$GITHUB_STEP_SUMMARY"
+
+      # The CLI returns before the new content is served everywhere, so the test
+      # retries for about four minutes before the run turns red: the URL answers
+      # 200, the X-Robots-Tag header is there outside production and absent in it,
+      # and the front page is the index.html of this build.
+      - name: Smoke test
+        if: steps.room.outputs.skip != 'true'
+        env:
+          DEPLOYED: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          URL=${SITE_URL:-${DEPLOYED:+$DEPLOYED/}}
+          if [ -z "$URL" ]; then
+            echo "::warning title=smoke test::no url - the deployment is not checked"
+            exit 0
+          fi
+          want=""
+          if [[ "$URL" =~ ^https://[^/]+/?$ ]] && [ -f "$RUNNER_TEMP/site/app/index.html" ]; then
+            want=$(sha256sum <"$RUNNER_TEMP/site/app/index.html" | cut -d' ' -f1)
+          fi
+          problem="no answer"
+          for attempt in $(seq 1 16); do
+            : >"$RUNNER_TEMP/headers"; : >"$RUNNER_TEMP/body"
+            code=$(curl -sS -D "$RUNNER_TEMP/headers" -o "$RUNNER_TEMP/body" -w '%{http_code}' \
+              --max-time 15 "$URL") || code=000
+            robots=$(grep -ci '^x-robots-tag:.*noindex' "$RUNNER_TEMP/headers" || true)
+            got=$(sha256sum <"$RUNNER_TEMP/body" | cut -d' ' -f1)
+            if [ "$code" != 200 ]; then
+              problem="answered $code"
+            elif [ "$NOINDEX" = "true" ] && [ "$robots" = 0 ]; then
+              problem="has no X-Robots-Tag noindex"
+            elif [ "$NOINDEX" != "true" ] && [ "$robots" != 0 ]; then
+              problem="carries X-Robots-Tag noindex"
+            elif [ -n "$want" ] && [ "$got" != "$want" ]; then
+              problem="does not serve the index.html of this build yet"
+            else
+              problem=""
+              break
+            fi
+            echo "Attempt $attempt: $URL $problem."
+            sleep 15
+          done
+          if [ -n "$problem" ]; then
+            echo "::error title=smoke test::$URL $problem after the deployment"
+            exit 1
+          fi
+          echo "Smoke test: $URL answered 200${want:+ with the front page of this build}." >>"$GITHUB_STEP_SUMMARY"
+
   gate:
-    needs: [site, deploy]
+    needs: [site, deploy, preview, preview-cleanup, deploy-staging, deploy-prod]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

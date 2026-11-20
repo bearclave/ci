@@ -28,7 +28,8 @@ name, never `secrets: inherit`). The header of each workflow shows its caller.
 | `terragrunt-drift.yml` | `drift` | the repositories of `terragrunt.yml` | weekly plan of the whole tree as the read-only identity, trivy, failed check blocks, analytic rules outside the code |
 | `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module, `terraform test`, tflint, trivy config, README tables (terraform-docs `--output-check`), `docs/catalog.md` (`src/terraform/catalog.py --check`), conventions |
 | `m365-dsc.yml`, `m365-drift.yml` | `pipeline`, `drift` | `iac-m365` | Microsoft365DSC: plan, apply, weekly drift; retired, removed in a minor release once the last domain has moved to Terraform and `iac-m365` is archived |
-| `static-web-app.yml` | `pipeline` | `app-web-*` | site checks (with SEO), ESLint, the site's own checks, deploy in the `environment` when the content changed, smoke test of `url` |
+| `static-web-app.yml` | `pipeline` | `app-web-*` | site checks (with SEO), ESLint, the site's own checks; with `staging-swa-name` the environment model: a preview per pull request, the build deployed to staging from `staging` and the same build to production from `prod`, noindex outside production, smoke tests ([applications.md](docs/applications.md)); without it the deploy into `environment` when the content changed |
+| `promote.yml` | `promote` | the applications, by a click | a commit of `staging` to production as the App `bearclave-promote`: checks its staging run and build, fast-forwards `prod`, waits for the production run, then tags `vX.Y.Z` and publishes the release ([applications.md](docs/applications.md)) |
 | `container.yml` | `pipeline` | `app-home` | ESLint, lint and tests in the image; push to GHCR from `main` (`:main`) and from a release (`:vX.Y.Z`) |
 | `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
 | `release.yml` | `release` | versioned repositories, by hand (no caller yet) | the next `vX.Y.Z` and its notes, and the commands of a signed release; publishes nothing |
@@ -60,12 +61,13 @@ src/                  the scripts the workflows carry or run; terragrunt/, terra
                       layout.yaml (managed copy from governance), markdownlint.yaml
 tests/                unit tests of src/, mirroring it
 tools/                build.py, sanitise-plan.py, move-major-tag.sh, bot-gh.py
-docs/                 identities.md, terragrunt.md, checks.md, organisation-workflows.md,
-                      releasing.md
+docs/                 identities.md, terragrunt.md, applications.md, checks.md,
+                      organisation-workflows.md, releasing.md
 ```
 
 - [docs/identities.md](docs/identities.md) - every identity the workflows and Apps use
 - [docs/terragrunt.md](docs/terragrunt.md) - the Terragrunt pipeline: jobs, identities, verification, comments
+- [docs/applications.md](docs/applications.md) - the applications: staging, previews, promote, production, rollback
 - [docs/checks.md](docs/checks.md) - pr / check, conventions, exceptions, Sentinel, site checks, ESLint
 - [docs/organisation-workflows.md](docs/organisation-workflows.md) - deps, pins, major tag, Projects, housekeeping, bot-gh
 - [docs/releasing.md](docs/releasing.md) - versions, pins of the tools, releasing and the major tag
