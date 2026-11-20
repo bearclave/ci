@@ -17,6 +17,7 @@ container side (`container.yml`, `app-home`) follows the same contract.
 | push to `staging` | checks, the build once, deployment to staging, smoke test | `staging`, staging identity |
 | push to `prod` (only the fast-forward of `promote.yml`) | the build of the staging run of the same commit to production, smoke test; nothing is built | `prod`, production identity |
 | manual run on `staging` or `prod` | the same as a push there (a redeployment) | as the push |
+| push of the tag `vX.Y.Z` (by `promote.yml`, after a green production run) | a container: the image of the commit gets the tag `:vX.Y.Z`; nothing is deployed. A website: no run (its caller has no tag trigger) | none (`GITHUB_TOKEN`, `packages: write`) |
 
 ## static-web-app.yml
 
@@ -85,6 +86,37 @@ Inputs of the environment model, besides those of the production SWA:
 | `preview-limit` | - | 3 |
 | `artifact-retention-days` | - | 30 |
 
+## container.yml
+
+The same contract for a container (`app-home`), with `environments: true`.
+The build is the image `:sha-<commit>` in GHCR, pushed by the staging run;
+there is no artifact, so the caller of `promote.yml` passes `artifact: ""`,
+`staging-job: deploy` and `prod-job: deploy`.
+
+| Event | Jobs | Does |
+|---|---|---|
+| push to `staging`, manual run on `staging` | `build`, `publish`, `deploy` | lint and tests, the image as `:staging` and `:sha-<commit>`, deployment to `staging`, smoke test |
+| push to `prod`, manual run on `prod` | `prod-image`, `deploy` | `:sha-<commit>` must exist (its digest goes to the summary); deployment of `:sha-<commit>` to `prod`, smoke test; nothing is built |
+| push of the tag `vX.Y.Z` (manual run on the tag: the same) | `version-tag` | the tagged commit must be on `prod`; `:sha-<commit>` is copied to `:vX.Y.Z` in the registry by digest (`docker buildx imagetools create`); an existing `:vX.Y.Z` of another digest fails, it never moves; nothing is built or deployed |
+
+**Why production does not wait for the version.** `promote.py` tags
+`vX.Y.Z` only after the production run is green (a version is what
+production runs). Production therefore deploys `:sha-<commit>`, the image
+staging ran, and the image gets its version when the tag is pushed: the
+caller's `ci.yml` has `push: tags: ['v*']`. The tag is pushed with the App's
+installation token, so its push starts a run (a push with `GITHUB_TOKEN`
+would not). Tagging the image in `promote.py` instead would need `packages:
+write` for the App and for the promote job, which neither has. The app
+reports `version` = `sha-<commit>` in production, as in staging; the release
+names the version.
+
+If the tag run fails, production is not affected: run `ci.yml` by hand on
+the tag `vX.Y.Z` (Actions, Run workflow, "Use workflow from" the tag). A
+manual rerun of a staging run of the same commit rebuilds and overwrites
+`:sha-<commit>` with an image of the same commit; if that happens between
+the production run and the tag, `:vX.Y.Z` names the rebuild. That is
+accepted: the same commit, deployed to staging and green.
+
 ## promote.yml
 
 Runs by hand from `staging` (`promote.yml` of the application,
@@ -109,6 +141,8 @@ repository (job concurrency `promote-<repository>`). `src/promote.py`:
    release with generated notes: a release is what production runs. A red
    or unfinished production run tags nothing; promote again once it is
    green (prod is already at the commit, so only the tag and release follow).
+   For a container, the tag's push makes `container.yml` tag the image
+   `:vX.Y.Z` ([container.yml](#containeryml)).
 
 Each step is skipped when it is done already, so a rerun completes the
 promotion; a given `version` already on the commit is accepted. `dry-run`

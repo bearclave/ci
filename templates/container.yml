@@ -19,9 +19,18 @@
 #                       :sha-<commit>; deploy to the environment staging on
 #                       the NAS runner, smoke test of url-staging
 #   push to prod     -> no build: the image :sha-<commit> of that commit (built
-#                       when it was on staging) gets the tag vX.Y.Z that
-#                       promote.yml put on the commit; deploy to the
-#                       environment prod, smoke test of url-prod
+#                       when it was on staging) must be in GHCR; deploy it to
+#                       the environment prod, smoke test of url-prod
+#   manual run       -> on staging or prod, the same as a push there (a
+#                       redeployment of the same commit)
+#   push of vX.Y.Z   -> no build, no deployment: :sha-<commit> of the tagged
+#                       commit also becomes :vX.Y.Z (a copy in the registry);
+#                       the caller adds the trigger `push: tags: ['v*']`
+#
+# Production does not wait for the version: promote.yml tags vX.Y.Z only
+# after the production run is green (a version is what production runs), so
+# prod deploys :sha-<commit> and the version tag of the image follows the git
+# tag. A failed production run gets no version, in git or in GHCR.
 #
 # The deploy job runs on the NAS runner (deploy-runner, docs/runners.md) and
 # checks out nothing: it runs only the steps below. It signs in over SSH as
@@ -33,6 +42,13 @@
 #
 # Only the docker CLI is used: the organisation allows no third-party actions.
 #
+#   on:
+#     pull_request:
+#       branches: [staging]
+#     push:
+#       branches: [staging, prod]
+#       tags: ['v*']                                           # since v2.9.1
+#     workflow_dispatch:
 #   jobs:
 #     pipeline:
 #       needs: security          # nothing is published past a failed scan
@@ -67,7 +83,7 @@ on:
         type: string
         default: test
       environments:
-        description: The staging/prod flow (push to staging builds and deploys staging, push to prod retags and deploys prod); false keeps main and release tags
+        description: The staging/prod flow (push to staging builds and deploys staging, push to prod deploys that image, a pushed vX.Y.Z tags it); false keeps main and release tags
         type: boolean
         default: false
       deploy-host:
@@ -104,10 +120,12 @@ defaults:
 
 jobs:
   # Lint and tests run inside the image's test stage, on the same Python and
-  # packages as the app. A push to prod builds nothing: it ships the image
-  # staging built.
+  # packages as the app. With environments, prod and a version tag build
+  # nothing: they use the image staging built.
   build:
-    if: ${{ !(inputs.environments && github.ref == 'refs/heads/prod') }}
+    if: >-
+      !(inputs.environments
+        && (github.ref == 'refs/heads/prod' || startsWith(github.ref, 'refs/tags/')))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -183,71 +201,99 @@ jobs:
           docker push --all-tags "$IMAGE"
           docker logout ghcr.io
 
-  # prod gets exactly what ran on staging: the image of the commit, under
-  # the version promote.yml tagged it with. Nothing is built.
-  retag:
-    if: inputs.environments && github.event_name == 'push' && github.ref == 'refs/heads/prod'
+  # prod gets exactly what ran on staging: the image of the commit, by the
+  # tag staging pushed. Nothing is built and no version is needed yet.
+  prod-image:
+    if: >-
+      inputs.environments && github.ref == 'refs/heads/prod'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: The staging image of the commit
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -euo pipefail
+          echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --format '{{json .Manifest}}' |
+            jq -r '.digest // empty' || true)
+          docker logout ghcr.io
+          if [ -z "$digest" ]; then
+            echo "::error::$IMAGE:sha-$GITHUB_SHA does not exist: the commit was not built on staging"
+            exit 1
+          fi
+          echo "Production deploys \`$IMAGE:sha-$GITHUB_SHA\` (\`$digest\`), built on staging, not rebuilt." >>"$GITHUB_STEP_SUMMARY"
+
+  # A release tag, pushed by promote.yml once production is green: the image
+  # production runs gets the version too. A copy in the registry from the
+  # digest; nothing is built or deployed. A manual run on the tag repeats it.
+  version-tag:
+    if: >-
+      inputs.environments && startsWith(github.ref, 'refs/tags/v')
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
       packages: write
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     steps:
-      # promote.yml pushes the tag together with prod or just before it; a
-      # few retries cover a tag that arrives a moment after the push.
-      - name: Version on the commit
-        id: version
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          for _ in 1 2 3 4 5 6; do
-            versions=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" \
-              --jq '.[] | [.ref, .object.type, .object.sha] | @tsv' |
-              while IFS=$'\t' read -r ref type sha; do
-                # An annotated tag points at a tag object, which points at the commit.
-                [ "$type" = tag ] && sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
-                [ "$sha" = "$GITHUB_SHA" ] && echo "${ref#refs/tags/}"
-              done | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
-            [ -n "$versions" ] && break
-            sleep 10
-          done
-          if [ -z "$versions" ]; then
-            echo "::error::no tag vX.Y.Z on $GITHUB_SHA: prod moves only by promote.yml, which tags the commit"
-            exit 1
-          fi
-          if [ "$(wc -l <<<"$versions")" -ne 1 ]; then
-            echo "::error::more than one version on $GITHUB_SHA: $(tr '\n' ' ' <<<"$versions")"
-            exit 1
-          fi
-          echo "version=$versions" >>"$GITHUB_OUTPUT"
-
       - name: Tag the image of the commit
         env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ${{ inputs.image }}
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          if ! docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" >/dev/null; then
-            echo "::error::$IMAGE:sha-$GITHUB_SHA does not exist: the commit was not built on staging"
+          version=$GITHUB_REF_NAME
+          if ! [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$version is not a release tag vX.Y.Z"
             exit 1
           fi
-          docker buildx imagetools create --tag "$IMAGE:$VERSION" "$IMAGE:sha-$GITHUB_SHA"
-          docker logout ghcr.io
-          echo "Image \`$IMAGE:sha-$GITHUB_SHA\` tagged \`$VERSION\`, not rebuilt." >>"$GITHUB_STEP_SUMMARY"
+          # The commit the tag names (an annotated tag is an object of its own).
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$version" --jq .sha)
+          # A version is what production runs: the commit is prod or behind it.
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...prod" --jq .status)
+          if [ "$status" != identical ] && [ "$status" != ahead ]; then
+            echo "::error::$version ($sha) is not on prod ($status): promote.yml tags only what production runs"
+            exit 1
+          fi
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          trap 'docker logout ghcr.io >/dev/null' EXIT
+          digest() {
+            docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' 2>/dev/null |
+              jq -r '.digest // empty' || true
+          }
+          source=$(digest "$IMAGE:sha-$sha")
+          if [ -z "$source" ]; then
+            echo "::error::$IMAGE:sha-$sha does not exist: the commit was not built on staging"
+            exit 1
+          fi
+          current=$(digest "$IMAGE:$version")
+          if [ "$current" = "$source" ]; then
+            echo "\`$IMAGE:$version\` is already \`$source\`." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ -n "$current" ]; then
+            # A version never moves, in git or in the registry.
+            echo "::error::$IMAGE:$version is already $current, not $source"
+            exit 1
+          fi
+          docker buildx imagetools create --tag "$IMAGE:$version" "$IMAGE@$source"
+          echo "\`$IMAGE:sha-$sha\` (\`$source\`) tagged \`$version\`, not rebuilt." >>"$GITHUB_STEP_SUMMARY"
 
   # On the NAS runner, in the environment of the branch; nothing of the
   # repository is checked out or run here.
   deploy:
-    needs: [publish, retag]
+    needs: [publish, prod-image]
     if: >-
-      !cancelled() && inputs.environments && github.event_name == 'push'
+      !cancelled() && inputs.environments
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       && ((github.ref == 'refs/heads/staging' && needs.publish.result == 'success')
-          || (github.ref == 'refs/heads/prod' && needs.retag.result == 'success'))
+          || (github.ref == 'refs/heads/prod' && needs.prod-image.result == 'success'))
     runs-on: ${{ fromJSON(inputs.deploy-runner) }}
     timeout-minutes: 15
     environment:
@@ -260,7 +306,7 @@ jobs:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
           DEPLOY_HOST: ${{ inputs.deploy-host }}
           HOST_KEY: ${{ inputs.deploy-host-key }}
-          TAG: ${{ github.ref_name == 'prod' && needs.retag.outputs.version || format('sha-{0}', github.sha) }}
+          TAG: sha-${{ github.sha }}
         run: |
           set -euo pipefail
           if [ -z "$DEPLOY_KEY" ] || [ -z "$DEPLOY_HOST" ] || [ -z "$HOST_KEY" ]; then
@@ -309,7 +355,7 @@ jobs:
           exit 1
 
   gate:
-    needs: [build, publish, retag, deploy]
+    needs: [build, publish, prod-image, version-tag, deploy]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
