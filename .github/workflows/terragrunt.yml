@@ -10562,6 +10562,9 @@ jobs:
           MICROSOFT_KEY_FINGERPRINT: BC528686B50D79E339D3721CEB3E94ADBE1229CF  # gitleaks:allow (public key fingerprint)
         run: |
           set -euo pipefail
+          # The NAS gives a job 1 GB: at most two units plan or apply at once
+          # (terragrunt's default is no limit).
+          echo "TG_PARALLELISM=2" >>"$GITHUB_ENV"
           if command -v az >/dev/null; then
             az version --output tsv --query '"azure-cli"'
             exit 0
@@ -15245,6 +15248,9 @@ jobs:
           MICROSOFT_KEY_FINGERPRINT: BC528686B50D79E339D3721CEB3E94ADBE1229CF  # gitleaks:allow (public key fingerprint)
         run: |
           set -euo pipefail
+          # The NAS gives a job 1 GB: at most two units plan or apply at once
+          # (terragrunt's default is no limit).
+          echo "TG_PARALLELISM=2" >>"$GITHUB_ENV"
           if command -v az >/dev/null; then
             az version --output tsv --query '"azure-cli"'
             exit 0
