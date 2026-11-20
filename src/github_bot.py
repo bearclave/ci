@@ -1,6 +1,7 @@
 """GitHub API and the sign-in as bearclave-bot, for the workflows of this
 repository that write to other repositories (deps.yml, ci-pins.yml,
-housekeeping.yml, project-sync.yml).
+housekeeping.yml, project-sync.yml); promote.yml signs in the same way as
+the App bearclave-promote, from its own vault.
 
 The job signs in to Azure by OIDC as the identity of its environment
 (docs/identities.md) and Bot reads the App's key, App ID and installation
@@ -152,11 +153,11 @@ def create_pull(repo: str, token: str, branch: str, base: str, title: str, body:
 
 # --- sign-in as bearclave-bot ---------------------------------------------------
 
-def secret(name: str) -> str:
-    r = subprocess.run(["az", "keyvault", "secret", "show", "--vault-name", VAULT, "--name", name,
+def secret(name: str, vault: str = VAULT) -> str:
+    r = subprocess.run(["az", "keyvault", "secret", "show", "--vault-name", vault, "--name", name,
                         "--query", "value", "-o", "tsv"], capture_output=True, text=True)
     if r.returncode != 0:
-        sys.exit(f"cannot read {name} from {VAULT}: {r.stderr.strip()}")
+        sys.exit(f"cannot read {name} from {vault}: {r.stderr.strip()}")
     return r.stdout.strip()
 
 
@@ -181,10 +182,12 @@ def jwt(app_id: str, pem: str) -> str:
 class Bot:
     """Installation tokens of bearclave-bot, each limited to what a step needs."""
 
-    def __init__(self):
-        self.app_id = secret("github-app-id")
-        self.installation = secret("github-app-installation-id")
-        self._pem = secret("github-app-key")
+    def __init__(self, vault: str = VAULT):
+        # Another App (bearclave-promote) keeps the same three secrets in a
+        # vault of its own.
+        self.app_id = secret("github-app-id", vault)
+        self.installation = secret("github-app-installation-id", vault)
+        self._pem = secret("github-app-key", vault)
 
     def token(self, permissions: dict, repositories=None) -> str:
         payload = {"permissions": permissions}

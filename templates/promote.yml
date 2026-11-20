@@ -1,18 +1,21 @@
 # Release of an application by a click (bearclave/governance
 # standards/workflow.md, Applications): the commit of staging (its head unless
 # a commit is given) goes to production. src/promote.py checks that the
-# caller's pipeline built it and deployed it to staging with a green smoke
-# test, and that the build artifact is still there; then, as the GitHub App
-# bearclave-bot, it fast-forwards prod to the commit (the push deploys that
-# same build to production), tags it vX.Y.Z and publishes the release. The
-# version comes from the pull request titles since the last tag
-# (src/release_version.py), unless one is given.
+# newest successful run of the caller's pipeline for the commit deployed
+# staging (its job deploy-staging) and that the build artifact is still
+# there; then, as the GitHub App bearclave-promote, it fast-forwards prod
+# (the production job deploys the build of that same run, chosen by the same
+# rule), waits for the production run of the push and, once it is green,
+# tags vX.Y.Z and publishes the release. The version comes from
+# the pull request titles since the last tag (src/release_version.py),
+# unless one is given.
 #
 # The job signs in to Azure by OIDC as the repository's promote identity,
-# federated on the environment `promote` (deployment branches: the default
-# branch only), and reads the App's key from kv-githubbot. No secret in
-# GitHub. The rulesets let only an owner and bearclave-bot move prod and
-# create v* tags.
+# federated on the environment `promote` (deployment branches: staging), and
+# reads the key of bearclave-promote from its own vault
+# (kv-ghpromote-sec-weu-001). That App is installed only on the applications,
+# so its key reaches nothing else; bearclave-bot's key is never read here.
+# The rulesets let only bearclave-promote move prod and create v* tags there.
 #
 # Caller, .github/workflows/promote.yml of an application:
 #
@@ -32,9 +35,6 @@
 #           type: boolean
 #           default: false
 #   permissions: {}
-#   concurrency:
-#     group: promote
-#     cancel-in-progress: false
 #   jobs:
 #     promote:
 #       uses: bearclave/ci/.github/workflows/promote.yml@v2
@@ -46,7 +46,6 @@
 #         sha: ${{ inputs.sha }}
 #         version: ${{ inputs.version }}
 #         dry-run: ${{ inputs.dry-run }}
-#         artifact: site                  # the build production deploys; empty skips the check
 #         client-id: ${{ vars.AZURE_CLIENT_ID_PROMOTE }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 name: promote
@@ -73,7 +72,19 @@ on:
       artifact:
         description: Name of the build artifact production deploys, checked in the staging run; empty skips the check
         type: string
-        default: ""
+        default: site
+      staging-job:
+        description: Job of the pipeline that deploys staging; it must have succeeded in the staging run (empty skips the check)
+        type: string
+        default: deploy-staging
+      wait-minutes:
+        description: How long to wait for the production run before giving up (nothing is tagged then)
+        type: number
+        default: 20
+      vault:
+        description: Key Vault with the key, App ID and installation ID of bearclave-promote
+        type: string
+        default: kv-ghpromote-sec-weu-001
       staging-branch:
         description: Branch that runs in staging (the default branch)
         type: string
@@ -87,7 +98,7 @@ on:
         type: string
         default: promote
       client-id:
-        description: Client ID of the promote identity (Key Vault Secrets User on kv-githubbot)
+        description: Client ID of the promote identity (Key Vault Secrets User on the vault of bearclave-promote)
         type: string
         required: true
       tenant-id:
@@ -104,8 +115,13 @@ defaults:
 jobs:
   promote:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # The wait for the production run included.
+    timeout-minutes: 35
     environment: ${{ inputs.environment }}
+    # One promotion of a repository at a time, whatever the caller does.
+    concurrency:
+      group: promote-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: read
       # The staging run of the commit and its artifacts.
@@ -115,9 +131,15 @@ jobs:
       STAGING_BRANCH: ${{ inputs.staging-branch }}
       PROD_BRANCH: ${{ inputs.prod-branch }}
     steps:
-      - name: Run from the staging branch
+      - name: Run from the staging branch, with a full commit SHA
+        env:
+          SHA_INPUT: ${{ inputs.sha }}
         run: |
           set -euo pipefail
+          if ! [[ "$SHA_INPUT" =~ ^([0-9a-f]{40})?$ ]]; then
+            echo "::error title=promote::sha must be empty or a full 40-character commit SHA"
+            exit 1
+          fi
           if [ "$GITHUB_REF" != "refs/heads/$STAGING_BRANCH" ]; then
             echo "::error title=promote::run it from $STAGING_BRANCH, not $GITHUB_REF"
             exit 1
@@ -167,6 +189,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW: ${{ inputs.workflow }}
           ARTIFACT: ${{ inputs.artifact }}
+          STAGING_JOB: ${{ inputs.staging-job }}
+          WAIT_MINUTES: ${{ inputs.wait-minutes }}
+          PROMOTE_VAULT: ${{ inputs.vault }}
           VERSION: ${{ steps.next.outputs.version }}
           DRY_RUN: ${{ inputs.dry-run }}
         run: |

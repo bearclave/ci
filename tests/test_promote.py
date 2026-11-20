@@ -8,6 +8,7 @@ import datetime
 import pathlib
 import sys
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -25,33 +26,69 @@ def run(branch="staging", event="push", status="completed", conclusion="success"
 
 
 class PickRun(unittest.TestCase):
-    def test_newest_push_or_manual_run_of_the_branch(self):
+    def test_newest_successful_push_or_manual_run_of_the_branch(self):
         runs = [run(run_id=1, created="2026-11-20T10:00:00Z"),
                 run(run_id=2, event="workflow_dispatch", created="2026-11-20T11:00:00Z"),
                 run(run_id=3, branch="prod", created="2026-11-20T12:00:00Z"),
-                run(run_id=4, event="pull_request", created="2026-11-20T13:00:00Z")]
+                run(run_id=4, event="pull_request", created="2026-11-20T13:00:00Z"),
+                run(run_id=5, conclusion="failure", created="2026-11-20T14:00:00Z"),
+                run(run_id=6, status="in_progress", conclusion=None, created="2026-11-20T15:00:00Z")]
         self.assertEqual(promote.pick_run(runs, "staging")["id"], 2)
 
     def test_none(self):
-        self.assertIsNone(promote.pick_run([run(branch="feat/x")], "staging"))
+        self.assertIsNone(promote.pick_run([run(branch="feat/x"), run(conclusion="cancelled")], "staging"))
 
 
 class CheckRun(unittest.TestCase):
-    def test_success(self):
+    def test_found(self):
         promote.check_run(run(), SHA, "staging", "ci.yml")
 
-    def test_refuses(self):
-        for name, r in {"missing": None, "running": run(status="in_progress", conclusion=None),
-                        "failed": run(conclusion="failure"), "cancelled": run(conclusion="cancelled")}.items():
-            with self.subTest(name), self.assertRaises(promote.Refused):
-                promote.check_run(r, SHA, "staging", "ci.yml")
-
-    def test_newer_failed_run_wins(self):
-        # A failed rerun after a green one: staging is not known good.
-        runs = [run(run_id=1), run(run_id=2, event="workflow_dispatch", conclusion="failure",
-                                   created="2026-11-20T11:00:00Z")]
+    def test_missing(self):
         with self.assertRaises(promote.Refused):
-            promote.check_run(promote.pick_run(runs, "staging"), SHA, "staging", "ci.yml")
+            promote.check_run(None, SHA, "staging", "ci.yml")
+
+
+class CheckJob(unittest.TestCase):
+    def test_deployed(self):
+        promote.check_job([{"name": "pipeline / site", "conclusion": "success"},
+                           {"name": "pipeline / deploy-staging", "conclusion": "success"}], "deploy-staging")
+
+    def test_refuses(self):
+        cases = {"missing": [{"name": "pipeline / site", "conclusion": "success"}],
+                 "skipped": [{"name": "pipeline / deploy-staging", "conclusion": "skipped"}],
+                 "similar name": [{"name": "pipeline / deploy-staging-x", "conclusion": "success"}]}
+        for name, jobs in cases.items():
+            with self.subTest(name), self.assertRaises(promote.Refused):
+                promote.check_job(jobs, "deploy-staging")
+
+
+class ProdRun(unittest.TestCase):
+    def test_states(self):
+        self.assertEqual(promote.prod_state([], "prod")[0], "none")
+        self.assertEqual(promote.prod_state([run(branch="staging")], "prod")[0], "none")
+        self.assertEqual(promote.prod_state([run(branch="prod", status="in_progress", conclusion=None)], "prod")[0],
+                         "pending")
+        self.assertEqual(promote.prod_state([run(branch="prod", conclusion="failure")], "prod")[0], "failure")
+
+    def test_newest_counts(self):
+        # A failed deployment, then a manual run that succeeded.
+        runs = [run(branch="prod", conclusion="failure", run_id=1, created="2026-11-20T10:00:00Z"),
+                run(branch="prod", event="workflow_dispatch", run_id=2, created="2026-11-20T11:00:00Z")]
+        self.assertEqual(promote.prod_state(runs, "prod"), ("success", runs[1]))
+
+    def test_wait(self):
+        answers = [[], [run(branch="prod", status="in_progress", conclusion=None)], [run(branch="prod")]]
+        with mock.patch.object(promote, "runs_of", side_effect=lambda *a: answers.pop(0)):
+            got = promote.wait_for_prod("o/r", "ci.yml", SHA, "prod", "t", 5, sleep=lambda s: None)
+        self.assertEqual(got["conclusion"], "success")
+
+    def test_wait_refuses_a_failed_run_and_a_timeout(self):
+        with mock.patch.object(promote, "runs_of", return_value=[run(branch="prod", conclusion="failure")]):
+            with self.assertRaises(promote.Refused):
+                promote.wait_for_prod("o/r", "ci.yml", SHA, "prod", "t", 5, sleep=lambda s: None)
+        with mock.patch.object(promote, "runs_of", return_value=[]):
+            with self.assertRaises(promote.Refused):
+                promote.wait_for_prod("o/r", "ci.yml", SHA, "prod", "t", 0, sleep=lambda s: None)
 
 
 class CheckArtifact(unittest.TestCase):
@@ -94,10 +131,12 @@ class Plan(unittest.TestCase):
     def test_refuses(self):
         cases = {
             "not a sha": {"sha": "abc"},
+            "sha with a newline": {"sha": SHA + "\n"},
             "not on staging": {"on_staging": False},
             "prod not an ancestor (backwards)": {"ancestor": False},
             "nothing to release": {"version": ""},
             "bad version": {"version": "1.2.0"},
+            "version with a newline": {"version": "v1.2.0\n"},
             "tag exists elsewhere": {"existing": ("v1.2.0",)},
         }
         for name, kwargs in cases.items():

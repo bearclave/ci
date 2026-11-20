@@ -105,6 +105,16 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual(self.run_main("v2.0.0")[1]["version"], "v2.0.0")
         self.assertEqual(self.run_main("v1.1.0")[0], 1)
         self.assertEqual(self.run_main("2.0")[0], 1)
+        self.assertEqual(self.run_main("v2.0.0\n")[0], 1)
+
+    def test_given_version_already_on_the_commit(self):
+        # A rerun of promote.yml after it tagged: the tag is at HEAD, not above it.
+        self.commit("fix: a (#1)")
+        self.git("tag", "v1.2.0")
+        self.commit("fix: b (#2)")
+        self.git("tag", "-a", "v1.2.1", "-m", "v1.2.1")
+        self.assertEqual(self.run_main("v1.2.1")[0], 0)
+        self.assertEqual(self.run_main("v1.2.0")[0], 1)
 
 
 if __name__ == "__main__":

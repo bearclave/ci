@@ -2,18 +2,21 @@
 # Release of an application by a click (bearclave/governance
 # standards/workflow.md, Applications): the commit of staging (its head unless
 # a commit is given) goes to production. src/promote.py checks that the
-# caller's pipeline built it and deployed it to staging with a green smoke
-# test, and that the build artifact is still there; then, as the GitHub App
-# bearclave-bot, it fast-forwards prod to the commit (the push deploys that
-# same build to production), tags it vX.Y.Z and publishes the release. The
-# version comes from the pull request titles since the last tag
-# (src/release_version.py), unless one is given.
+# newest successful run of the caller's pipeline for the commit deployed
+# staging (its job deploy-staging) and that the build artifact is still
+# there; then, as the GitHub App bearclave-promote, it fast-forwards prod
+# (the production job deploys the build of that same run, chosen by the same
+# rule), waits for the production run of the push and, once it is green,
+# tags vX.Y.Z and publishes the release. The version comes from
+# the pull request titles since the last tag (src/release_version.py),
+# unless one is given.
 #
 # The job signs in to Azure by OIDC as the repository's promote identity,
-# federated on the environment `promote` (deployment branches: the default
-# branch only), and reads the App's key from kv-githubbot. No secret in
-# GitHub. The rulesets let only an owner and bearclave-bot move prod and
-# create v* tags.
+# federated on the environment `promote` (deployment branches: staging), and
+# reads the key of bearclave-promote from its own vault
+# (kv-ghpromote-sec-weu-001). That App is installed only on the applications,
+# so its key reaches nothing else; bearclave-bot's key is never read here.
+# The rulesets let only bearclave-promote move prod and create v* tags there.
 #
 # Caller, .github/workflows/promote.yml of an application:
 #
@@ -33,9 +36,6 @@
 #           type: boolean
 #           default: false
 #   permissions: {}
-#   concurrency:
-#     group: promote
-#     cancel-in-progress: false
 #   jobs:
 #     promote:
 #       uses: bearclave/ci/.github/workflows/promote.yml@v2
@@ -47,7 +47,6 @@
 #         sha: ${{ inputs.sha }}
 #         version: ${{ inputs.version }}
 #         dry-run: ${{ inputs.dry-run }}
-#         artifact: site                  # the build production deploys; empty skips the check
 #         client-id: ${{ vars.AZURE_CLIENT_ID_PROMOTE }}
 #         tenant-id: ${{ vars.AZURE_TENANT_ID }}
 name: promote
@@ -74,7 +73,19 @@ on:
       artifact:
         description: Name of the build artifact production deploys, checked in the staging run; empty skips the check
         type: string
-        default: ""
+        default: site
+      staging-job:
+        description: Job of the pipeline that deploys staging; it must have succeeded in the staging run (empty skips the check)
+        type: string
+        default: deploy-staging
+      wait-minutes:
+        description: How long to wait for the production run before giving up (nothing is tagged then)
+        type: number
+        default: 20
+      vault:
+        description: Key Vault with the key, App ID and installation ID of bearclave-promote
+        type: string
+        default: kv-ghpromote-sec-weu-001
       staging-branch:
         description: Branch that runs in staging (the default branch)
         type: string
@@ -88,7 +99,7 @@ on:
         type: string
         default: promote
       client-id:
-        description: Client ID of the promote identity (Key Vault Secrets User on kv-githubbot)
+        description: Client ID of the promote identity (Key Vault Secrets User on the vault of bearclave-promote)
         type: string
         required: true
       tenant-id:
@@ -105,8 +116,13 @@ defaults:
 jobs:
   promote:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # The wait for the production run included.
+    timeout-minutes: 35
     environment: ${{ inputs.environment }}
+    # One promotion of a repository at a time, whatever the caller does.
+    concurrency:
+      group: promote-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: read
       # The staging run of the commit and its artifacts.
@@ -116,9 +132,15 @@ jobs:
       STAGING_BRANCH: ${{ inputs.staging-branch }}
       PROD_BRANCH: ${{ inputs.prod-branch }}
     steps:
-      - name: Run from the staging branch
+      - name: Run from the staging branch, with a full commit SHA
+        env:
+          SHA_INPUT: ${{ inputs.sha }}
         run: |
           set -euo pipefail
+          if ! [[ "$SHA_INPUT" =~ ^([0-9a-f]{40})?$ ]]; then
+            echo "::error title=promote::sha must be empty or a full 40-character commit SHA"
+            exit 1
+          fi
           if [ "$GITHUB_REF" != "refs/heads/$STAGING_BRANCH" ]; then
             echo "::error title=promote::run it from $STAGING_BRANCH, not $GITHUB_REF"
             exit 1
@@ -163,7 +185,7 @@ jobs:
           import tempfile
 
           TITLE = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?(?P<breaking>!)?: \S")
-          VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+          VERSION = re.compile(r"v([0-9]+)\.([0-9]+)\.([0-9]+)")
           FOOTER = re.compile(r"^BREAKING[ -]CHANGE: ", re.M)
           PATCH = ("fix", "perf", "refactor", "deps", "revert")
           NONE = ("docs", "test", "ci", "chore")
@@ -174,7 +196,7 @@ jobs:
 
 
           def parse(version: str) -> tuple:
-              m = VERSION.match(version)
+              m = VERSION.fullmatch(version)
               if not m:
                   raise ValueError(f"'{version}' is not vX.Y.Z")
               return tuple(int(x) for x in m.groups())
@@ -237,7 +259,7 @@ jobs:
 
 
           def last_tag() -> str:
-              tags = [t for t in git("tag", "--list", "v*.*.*", "--merged", "HEAD").split() if VERSION.match(t)]
+              tags = [t for t in git("tag", "--list", "v*.*.*", "--merged", "HEAD").split() if VERSION.fullmatch(t)]
               return max(tags, key=parse) if tags else ""
 
 
@@ -255,7 +277,9 @@ jobs:
               if wanted:
                   try:
                       parse(wanted)
-                      if previous and parse(wanted) <= parse(previous):
+                      # A rerun (promote.yml) of a commit already tagged with that version.
+                      here = git("tag", "--points-at", "HEAD").split()
+                      if previous and wanted not in here and parse(wanted) <= parse(previous):
                           raise ValueError(f"{wanted} is not above the last tag {previous}")
                   except ValueError as e:
                       print(f"::error::{e}")
@@ -324,7 +348,8 @@ jobs:
           cat >"$RUNNER_TEMP/promote/github_bot.py" <<'__CI_EOF__'
           """GitHub API and the sign-in as bearclave-bot, for the workflows of this
           repository that write to other repositories (deps.yml, ci-pins.yml,
-          housekeeping.yml, project-sync.yml).
+          housekeeping.yml, project-sync.yml); promote.yml signs in the same way as
+          the App bearclave-promote, from its own vault.
 
           The job signs in to Azure by OIDC as the identity of its environment
           (docs/identities.md) and Bot reads the App's key, App ID and installation
@@ -476,11 +501,11 @@ jobs:
 
           # --- sign-in as bearclave-bot ---------------------------------------------------
 
-          def secret(name: str) -> str:
-              r = subprocess.run(["az", "keyvault", "secret", "show", "--vault-name", VAULT, "--name", name,
+          def secret(name: str, vault: str = VAULT) -> str:
+              r = subprocess.run(["az", "keyvault", "secret", "show", "--vault-name", vault, "--name", name,
                                   "--query", "value", "-o", "tsv"], capture_output=True, text=True)
               if r.returncode != 0:
-                  sys.exit(f"cannot read {name} from {VAULT}: {r.stderr.strip()}")
+                  sys.exit(f"cannot read {name} from {vault}: {r.stderr.strip()}")
               return r.stdout.strip()
 
 
@@ -505,10 +530,12 @@ jobs:
           class Bot:
               """Installation tokens of bearclave-bot, each limited to what a step needs."""
 
-              def __init__(self):
-                  self.app_id = secret("github-app-id")
-                  self.installation = secret("github-app-installation-id")
-                  self._pem = secret("github-app-key")
+              def __init__(self, vault: str = VAULT):
+                  # Another App (bearclave-promote) keeps the same three secrets in a
+                  # vault of its own.
+                  self.app_id = secret("github-app-id", vault)
+                  self.installation = secret("github-app-installation-id", vault)
+                  self._pem = secret("github-app-key", vault)
 
               def token(self, permissions: dict, repositories=None) -> str:
                   payload = {"permissions": permissions}
@@ -538,32 +565,36 @@ jobs:
           bearclave/governance standards/workflow.md (applications) is the rule: the
           default branch `staging` is what runs in staging, `prod` is what runs in
           production and moves only forward, by this script as the GitHub App
-          bearclave-bot. A promotion is a release:
+          bearclave-promote (installed only on the applications; its key in a Key
+          Vault of its own). A promotion is a release:
 
-          1. checks: the commit is on staging, prod is its ancestor (a fast-forward),
-             the newest finished run of the caller's pipeline for the commit on
-             staging succeeded (build, staging deployment and smoke test), and the
-             build artifact that production will deploy is still there;
-          2. fast-forwards prod to the commit (the push deploys that same build to
-             production, in the caller's pipeline);
-          3. tags the commit vX.Y.Z (annotated, by the bot) and publishes a release
-             with notes generated from the pull requests.
+          1. checks: the commit is on staging and prod is its ancestor (a
+             fast-forward); the newest successful run of the caller's pipeline for the
+             commit on staging has a successful staging deployment job; the build
+             artifact that production will deploy is still there;
+          2. fast-forwards prod to the commit; its push deploys the build of the
+             same run - the production job of static-web-app.yml chooses it by the
+             same rule (pick_run, then the job);
+          3. waits for that production run and, only when it succeeded, tags the
+             commit vX.Y.Z (annotated, by the App) and publishes the release with
+             notes generated from the pull requests.
 
           The version comes from src/release_version.py (VERSION, worked out in the
           step before). Every step is skipped when it is already done, so a rerun
           after a failure finishes the job: a prod already at the commit is not moved
           again, a commit already tagged is not tagged twice.
 
-          Reading uses GH_TOKEN (the run's own token, actions and contents read);
-          writing an installation token of bearclave-bot limited to this repository,
-          read from Key Vault by github_bot.Bot after the job signed in to Azure.
+          Reading uses GH_TOKEN (the run's own token: actions, contents read);
+          writing an installation token of the App limited to this repository, read
+          from PROMOTE_VAULT by github_bot.Bot after the job signed in to Azure.
 
           Environment: GITHUB_REPOSITORY, GH_TOKEN, STAGING_BRANCH, PROD_BRANCH,
-          WORKFLOW (the caller's pipeline file, e.g. ci.yml), ARTIFACT (name of the
-          build artifact; empty skips that check), VERSION, SHA (the commit, the
-          checkout's HEAD).
+          WORKFLOW (the caller's pipeline file, e.g. ci.yml), STAGING_JOB (the job
+          that deploys staging, e.g. deploy-staging), ARTIFACT (the build artifact;
+          empty skips that check), VERSION, SHA (the checkout's HEAD), PROMOTE_VAULT,
+          WAIT_MINUTES (for the production run).
 
-          Usage: promote.py            check, then write as bearclave-bot
+          Usage: promote.py            check, then write as bearclave-promote
                  promote.py --dry-run  check and say what would happen
           """
           import datetime
@@ -571,39 +602,53 @@ jobs:
           import re
           import subprocess
           import sys
+          import time
 
           import github_bot as gh
 
-          VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
-          SHA = re.compile(r"^[0-9a-f]{40}$")
+          VERSION = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")
+          SHA = re.compile(r"[0-9a-f]{40}")
+          VAULT = "kv-ghpromote-sec-weu-001"
           # What the installation token may do, on this repository only. Moving a
           # branch to a commit that changes .github/workflows needs `workflows` too.
           TOKEN_PERMISSIONS = {"contents": "write", "workflows": "write", "metadata": "read"}
+          POLL_SECONDS = 20
 
 
           class Refused(Exception):
               """The commit may not be promoted; the message says why and what to do."""
 
 
+          def is_version(tag: str) -> bool:
+              return bool(VERSION.fullmatch(tag or ""))
+
+
+          def parse(tag: str) -> tuple:
+              return tuple(int(x) for x in tag[1:].split("."))
+
+
           def pick_run(runs: list, branch: str):
-              """The newest run of the commit on branch, from a push or a manual run."""
-              mine = [r for r in runs if r.get("head_branch") == branch
-                      and r.get("event") in ("push", "workflow_dispatch")]
-              return max(mine, key=lambda r: (r.get("created_at", ""), r.get("id", 0)), default=None)
+              """The newest successful run of the commit on branch, from a push or a manual run."""
+              good = [r for r in runs if r.get("head_branch") == branch
+                      and r.get("event") in ("push", "workflow_dispatch")
+                      and r.get("status") == "completed" and r.get("conclusion") == "success"]
+              return max(good, key=lambda r: (r.get("created_at", ""), r.get("id", 0)), default=None)
 
 
           def check_run(run, sha: str, branch: str, workflow: str) -> None:
-              """Refused unless the run exists, is finished and succeeded."""
               if run is None:
-                  raise Refused(f"no run of {workflow} for {sha[:7]} on {branch}: the commit was never "
-                                f"deployed to staging (a newer push may have taken its place). Promote the "
-                                f"head of {branch} instead.")
-              if run.get("status") != "completed":
-                  raise Refused(f"run {run.get('html_url')} of {sha[:7]} on {branch} is still "
-                                f"{run.get('status')}; promote once it has finished.")
-              if run.get("conclusion") != "success":
-                  raise Refused(f"run {run.get('html_url')} of {sha[:7]} on {branch} ended "
-                                f"{run.get('conclusion')}: staging did not get this commit. Fix it on {branch} first.")
+                  raise Refused(f"no successful run of {workflow} for {sha[:7]} on {branch}: staging never got "
+                                f"this commit (a newer push may have taken its place). Promote the head of {branch}.")
+
+
+          def check_job(jobs: list, name: str) -> None:
+              """Refused unless the run's job `name` (in a caller: `pipeline / name`) succeeded."""
+              mine = [j for j in jobs if j.get("name", "").split(" / ")[-1] == name]
+              if not mine:
+                  raise Refused(f"the staging run has no job '{name}': it did not deploy staging.")
+              if not all(j.get("conclusion") == "success" for j in mine):
+                  raise Refused(f"the job '{name}' of the staging run did not succeed "
+                                f"({', '.join(str(j.get('conclusion')) for j in mine)}).")
 
 
           def check_artifact(artifacts: list, name: str, now: datetime.datetime) -> dict:
@@ -628,8 +673,8 @@ jobs:
           def plan(sha: str, prod_sha: str, prod_is_ancestor: bool, on_staging: bool,
                    tags_at_sha: list, version: str, existing_tags: list) -> dict:
               """What to do: {'move': 'create'|'fast-forward'|None, 'tag': vX.Y.Z|None,
-              'release': vX.Y.Z|None}, or Refused."""
-              if not SHA.match(sha):
+              'release': vX.Y.Z}, or Refused."""
+              if not SHA.fullmatch(sha or ""):
                   raise Refused(f"'{sha}' is not a full commit SHA")
               if not on_staging:
                   raise Refused(f"{sha[:7]} is not on the staging branch; only a commit of staging is promoted.")
@@ -637,22 +682,30 @@ jobs:
                   raise Refused(f"prod ({prod_sha[:7]}) is not an ancestor of {sha[:7]}: prod moves only "
                                 f"forward. To roll back, revert on staging and promote the revert.")
               move = None if prod_sha == sha else ("fast-forward" if prod_sha else "create")
-              released = sorted((t for t in tags_at_sha if VERSION.match(t)), key=parse)
+              released = sorted((t for t in tags_at_sha if is_version(t)), key=parse)
               if released:
                   # A rerun after the tag, or a commit released earlier: only what is missing.
                   return {"move": move, "tag": None, "release": released[-1]}
               if not version:
                   raise Refused("nothing since the last release calls for one (only docs, test, ci or chore); "
                                 "give the version input (vX.Y.Z) to release anyway.")
-              if not VERSION.match(version):
+              if not is_version(version):
                   raise Refused(f"'{version}' is not vX.Y.Z")
               if version in existing_tags:
                   raise Refused(f"{version} already exists on another commit; give a higher version.")
               return {"move": move, "tag": version, "release": version}
 
 
-          def parse(tag: str) -> tuple:
-              return tuple(int(x) for x in VERSION.match(tag).groups())
+          def prod_state(runs: list, branch: str):
+              """(state, run) of the newest production run of the commit: 'none',
+              'pending', 'success' or 'failure'."""
+              mine = [r for r in runs if r.get("head_branch") == branch and r.get("event") in ("push", "workflow_dispatch")]
+              run = max(mine, key=lambda r: (r.get("created_at", ""), r.get("id", 0)), default=None)
+              if run is None:
+                  return "none", None
+              if run.get("status") != "completed":
+                  return "pending", run
+              return ("success" if run.get("conclusion") == "success" else "failure"), run
 
 
           # --- git and GitHub --------------------------------------------------------------
@@ -670,13 +723,38 @@ jobs:
               return git("merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
 
 
+          def runs_of(repo: str, workflow: str, sha: str, branch: str, token: str) -> list:
+              return gh.request("GET", f"/repos/{repo}/actions/workflows/{workflow}/runs"
+                                       f"?head_sha={sha}&branch={branch}&per_page=100", token)["workflow_runs"]
+
+
+          def wait_for_prod(repo: str, workflow: str, sha: str, prod: str, token: str, minutes: int, sleep=time.sleep):
+              """The successful production run of the commit, or Refused."""
+              deadline = time.monotonic() + minutes * 60
+              while True:
+                  state, run = prod_state(runs_of(repo, workflow, sha, prod, token), prod)
+                  if state == "success":
+                      return run
+                  if state == "failure":
+                      raise Refused(f"the production run {run.get('html_url')} ended {run.get('conclusion')}: "
+                                    f"nothing is tagged. Fix it (a transient error: run {workflow} by hand on "
+                                    f"{prod}), then promote again - prod is already at the commit.")
+                  if time.monotonic() > deadline:
+                      raise Refused(f"the production run of {sha[:7]} did not finish within {minutes} minutes "
+                                    f"({state}); promote again once it is green, it then tags.")
+                  sleep(POLL_SECONDS)
+
+
           def main(dry_run: bool) -> int:
               repo = os.environ["GITHUB_REPOSITORY"]
               staging = os.environ["STAGING_BRANCH"]
               prod = os.environ.get("PROD_BRANCH") or "prod"
               workflow = os.environ["WORKFLOW"]
+              staging_job = os.environ.get("STAGING_JOB", "")
               artifact = os.environ.get("ARTIFACT", "")
               version = os.environ.get("VERSION", "")
+              vault = os.environ.get("PROMOTE_VAULT") or VAULT
+              minutes = int(os.environ.get("WAIT_MINUTES") or 20)
               sha = os.environ.get("SHA") or git("rev-parse", "HEAD").stdout.strip()
               read = os.environ["GH_TOKEN"]
 
@@ -689,14 +767,18 @@ jobs:
               gh.say()
               gh.say(f"- {staging}: {staging_sha[:7] or 'missing'}, {prod}: {prod_sha[:7] or 'not created yet'}")
               try:
+                  if not SHA.fullmatch(sha):
+                      raise Refused(f"'{sha}' is not a full commit SHA")
                   if not staging_sha:
                       raise Refused(f"the branch {staging} does not exist")
                   on_staging = is_ancestor(sha, staging_sha)
-                  runs = gh.request("GET", f"/repos/{repo}/actions/workflows/{workflow}/runs"
-                                           f"?head_sha={sha}&branch={staging}&per_page=100", read)["workflow_runs"]
-                  run = pick_run(runs, staging)
+                  run = pick_run(runs_of(repo, workflow, sha, staging, read), staging)
                   check_run(run, sha, staging, workflow)
-                  gh.say(f"- Staging run: {run['html_url']} ({run['conclusion']})")
+                  gh.say(f"- Staging run: {run['html_url']}")
+                  if staging_job:
+                      jobs = gh.request("GET", f"/repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100", read)["jobs"]
+                      check_job(jobs, staging_job)
+                      gh.say(f"- Its job {staging_job}: success")
                   if artifact:
                       arts = gh.request("GET", f"/repos/{repo}/actions/runs/{run['id']}/artifacts?per_page=100",
                                         read)["artifacts"]
@@ -712,21 +794,28 @@ jobs:
                   return 1
 
               gh.say(f"- {prod}: {todo['move'] or 'already at the commit'}")
-              gh.say(f"- Tag: {todo['tag'] or 'already tagged ' + todo['release']}")
+              gh.say(f"- Tag: {todo['tag'] or 'already tagged ' + todo['release']}, once production is deployed")
               gh.say(f"- Release: {todo['release']}")
               if dry_run:
                   gh.say("\nDry run: nothing written.")
                   return 0
 
-              token = gh.Bot().token(TOKEN_PERMISSIONS, [repo.split("/", 1)[1]])
-              # prod first: a tag marks what reached production, never what might.
+              token = gh.Bot(vault).token(TOKEN_PERMISSIONS, [repo.split("/", 1)[1]])
+              print(f"::add-mask::{token}")
               if todo["move"] == "create":
                   gh.request("POST", f"/repos/{repo}/git/refs", token, {"ref": f"refs/heads/{prod}", "sha": sha})
               elif todo["move"] == "fast-forward":
                   # force false: GitHub refuses anything but a fast-forward.
                   gh.request("PATCH", f"/repos/{repo}/git/refs/heads/{prod}", token, {"sha": sha, "force": False})
               if todo["move"]:
-                  gh.say(f"\n{prod} is at {sha[:7]}; its push deploys the build of the staging run to production.")
+                  gh.say(f"\n{prod} is at {sha[:7]}; waiting for its production run.")
+              try:
+                  prod_run = wait_for_prod(repo, workflow, sha, prod, read, minutes)
+              except Refused as e:
+                  print(f"::error title=promote::{e}")
+                  gh.say(f"\n**Not released:** {e}")
+                  return 1
+              gh.say(f"Production run: {prod_run['html_url']} (success)")
               if todo["tag"]:
                   tag = gh.request("POST", f"/repos/{repo}/git/tags", token,
                                    {"tag": todo["tag"], "message": todo["tag"], "object": sha, "type": "commit"})
@@ -775,6 +864,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW: ${{ inputs.workflow }}
           ARTIFACT: ${{ inputs.artifact }}
+          STAGING_JOB: ${{ inputs.staging-job }}
+          WAIT_MINUTES: ${{ inputs.wait-minutes }}
+          PROMOTE_VAULT: ${{ inputs.vault }}
           VERSION: ${{ steps.next.outputs.version }}
           DRY_RUN: ${{ inputs.dry-run }}
         run: |
