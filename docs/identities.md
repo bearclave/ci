@@ -51,6 +51,8 @@ Graph.
 | `sp-tf-intune` | apply of `iac-intune` | `iac-intune`: `ci.yml` job `apply` | `AZURE_CLIENT_ID_APPLY` | `environment:intune-prod` | Graph `DeviceManagementApps.ReadWrite.All`, `DeviceManagementConfiguration.ReadWrite.All`, `DeviceManagementServiceConfig.ReadWrite.All`, `DeviceManagementRBAC.Read.All`, `Group.Read.All` (never managed devices); no Entra role; Storage Blob Data Contributor on `tfstate-intune` |
 | `sp-tf-exchange-plan` | plan of `iac-exchange`: pull request, push, weekly drift | `iac-exchange`: `ci.yml`, `drift.yml` | `AZURE_CLIENT_ID_PLAN` | `pull_request`, `ref:refs/heads/main` | Global Reader, Security Reader; Exchange `Exchange.ManageAsApp`; Graph `Application.Read.All`, `Group.Read.All`; Storage Blob Data Contributor on `tfstate-exchange` |
 | `sp-tf-exchange` | apply of `iac-exchange`: Exchange Online and Defender for Office 365 | `iac-exchange`: `ci.yml` job `apply` | `AZURE_CLIENT_ID_APPLY` | `environment:exchange-prod` | Exchange Administrator; Exchange `Exchange.ManageAsApp`; Graph `Application.Read.All`, `Group.Read.All`; Storage Blob Data Contributor on `tfstate-exchange` |
+| `sp-tf-purview-plan` | plan of `iac-purview`: pull request, push, weekly drift | `iac-purview`: `ci.yml`, `drift.yml` | `AZURE_CLIENT_ID_PLAN` | `pull_request`, `ref:refs/heads/main` | Global Reader; Exchange `Exchange.ManageAsApp` (Security & Compliance PowerShell app-only); Graph `Group.Read.All`; Storage Blob Data Contributor on `tfstate-purview` |
+| `sp-tf-purview` | apply of `iac-purview`: sensitivity labels and their policies, DLP, retention and alert policies | `iac-purview`: `ci.yml` job `apply` | `AZURE_CLIENT_ID_APPLY` | `environment:purview-prod` | Compliance Administrator; Exchange `Exchange.ManageAsApp` (Security & Compliance PowerShell app-only); Graph `Group.Read.All`; Storage Blob Data Contributor on `tfstate-purview` |
 | `sp-tf-sentinel-plan` | plan of `iac-sentinel`: pull request, push, weekly drift | `iac-sentinel`: `ci.yml`, `drift.yml` | `AZURE_CLIENT_ID_PLAN` | `pull_request`, `ref:refs/heads/main` | Microsoft Sentinel Reader, Log Analytics Reader and Reader on `rg-security`, Reader on `rg-soar`; Security Reader (Entra diagnostic setting); Graph `Application.Read.All`, `Group.Read.All`, `User.Read.All` (watchlists); Storage Blob Data Contributor on `tfstate-sentinel` |
 | `sp-tf-sentinel` | apply of `iac-sentinel` | `iac-sentinel`: `ci.yml` job `apply` | `AZURE_CLIENT_ID_APPLY` | `environment:sentinel-prod` | Microsoft Sentinel Contributor and Log Analytics Contributor on `rg-security`, Logic App Contributor on `rg-soar`, Security Reader on `sub-mgmt-prod`, `sub-osvc-prod`, `sub-sro-prod` (Defender for Cloud connectors); Security Administrator (Entra diagnostic setting, connectors); Graph as the plan; Storage Blob Data Contributor on `tfstate-sentinel` |
 | `sp-ci-major-tag` | moves `v2` to a published release | `ci`: `major-tag.yml` | `AZURE_CLIENT_ID_MAJOR_TAG` | `environment:major-tag` | Key Vault Secrets User on `kv-githubbot` (signs in as `bearclave-bot`) |
@@ -62,12 +64,8 @@ Graph.
 | `sp-swa-sro-staging` | the same for bearclave.cz | `app-web-bearclave`: as above | `AZURE_CLIENT_ID_STAGING` | `environment:staging`, `environment:preview` | as above, on its staging SWA |
 | `sp-ci-promote-web-osvc`, `sp-ci-promote-web-sro` | promotion of a site to production as `bearclave-promote` (v2.8) | `app-web-matejhrabalek`, `app-web-bearclave`: `promote.yml` | `AZURE_CLIENT_ID_PROMOTE` | `environment:promote`; recommended as a flexible credential that also requires `job_workflow_ref` of a released `ci` `promote.yml` ([applications.md](applications.md#the-app-and-its-key)) | Key Vault Secrets User on `kv-ghpromote-sec-weu-001` only, never on `kv-githubbot` |
 | `sp-ci-promote-home` | promotion of `app-home` to production as `bearclave-promote` (v2.9) | `app-home`: `promote.yml` | `AZURE_CLIENT_ID_PROMOTE` | `environment:promote`; recommended as a flexible credential that also requires `job_workflow_ref` of a released `ci` `promote.yml` ([applications.md](applications.md#the-app-and-its-key)) | Key Vault Secrets User on `kv-ghpromote-sec-weu-001` only, never on `kv-githubbot` |
-| `sp-dsc-m365` | Microsoft365DSC of `iac-m365` (to be retired): Purview, the audit log, Teams tenant settings, CAS mailbox plans, RBAC for Applications of `sp-doklady-sro`, tenant notification addresses | `iac-m365`: `ci.yml`, `drift.yml` | `AZURE_CLIENT_ID` | `pull_request`, `environment:m365-prod`, `ref:refs/heads/main` | Compliance, Exchange and Teams Administrator; Exchange `Exchange.ManageAsApp`; Graph `Application.Read.All`, `Group.Read.All`, `Organization.ReadWrite.All`; no Intune, SharePoint or Entra policy rights; signs in with a certificate in `kv-security` |
 
-`iac-m365` keeps one identity for plan and apply until the repository is
-retired: the known exception to the rules above.
-
-Two more known exceptions, both until they are moved:
+Two known exceptions, both until they are moved:
 
 - `sp-project-sync` keeps its credential on `ref:refs/heads/main` of
   `ops-tools`, whose `project-sync.yml` still runs; it goes when that
@@ -96,7 +94,7 @@ says what each may do and how to check it.
 
 | Secret | Repositories | What | Key |
 |---|---|---|---|
-| `MODULES_DEPLOY_KEY` | every Terragrunt repository: `iac-azure`, `iac-github`, `iac-home`, `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-sentinel` | private half of a read-only deploy key of `iac-modules`, one per repository; the workflows check the modules out with it | public half in `iac-github` `repositories/iac-modules`, private half only in the secret |
+| `MODULES_DEPLOY_KEY` | every Terragrunt repository: `iac-azure`, `iac-github`, `iac-home`, `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-purview`, `iac-sentinel` | private half of a read-only deploy key of `iac-modules`, one per repository; the workflows check the modules out with it | public half in `iac-github` `repositories/iac-modules`, private half only in the secret |
 | `DEPLOY_KEY` | `app-home`, environment secret of `staging` and of `prod` (one key each) | SSH key of the NAS user `ci-deploy`; its forced command deploys `home-app` to that one environment and takes only the image tag (`app-nas` `docs/runner.md`). `container.yml` job `deploy`, on the NAS runner | public half in `/var/services/homes/ci-deploy/.ssh/authorized_keys` on the NAS, private half only in the environment secret |
 
 ## Environments
@@ -110,8 +108,8 @@ says what each may do and how to check it.
 | `conditional-access-prod` | `iac-conditional-access` | `main` | `sp-tf-conditional-access` |
 | `intune-prod` | `iac-intune` | `main` | `sp-tf-intune` |
 | `exchange-prod` | `iac-exchange` | `main` | `sp-tf-exchange` |
+| `purview-prod` | `iac-purview` | `main` | `sp-tf-purview` |
 | `sentinel-prod` | `iac-sentinel` | `main` | `sp-tf-sentinel` |
-| `m365-prod` | `iac-m365` | `main` | `sp-dsc-m365` |
 | `prod` | `app-web-bearclave`, `app-web-matejhrabalek` | `prod` | `sp-swa-*-prod` |
 | `staging` | `app-web-bearclave`, `app-web-matejhrabalek` | `staging` | `sp-swa-*-staging` |
 | `preview` | `app-web-bearclave`, `app-web-matejhrabalek` | `refs/pull/*/merge` (pull requests) | `sp-swa-*-staging` |
