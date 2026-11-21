@@ -142,6 +142,12 @@ or their pin is bumped.
   runner image (governance `toolchain.md`); its tests are in `tests/`.
 - A workflow step that runs a large script gets a step of its own: actionlint
   deadlocks on a `run:` of more than about 64 KB.
+- A generated workflow stays under 512 KiB: GitHub reads every file in
+  `.github/workflows` on a push to this repository and fails a larger one as
+  "a workflow file issue" (#48), so `build.py` refuses it. A job includes only
+  the script fragments it runs (`scripts-select.yml`, `scripts-plan.yml`,
+  `scripts-vpn.yml`, `scripts-verify.yml`); `scripts-terragrunt.yml` has them
+  all, for `terragrunt-drift.yml`.
 - The configs a workflow reads in the caller are listed in
   [checks.md](docs/checks.md#paths-the-workflows-read-in-the-caller).
 

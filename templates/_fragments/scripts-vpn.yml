@@ -1,0 +1,9 @@
+# The VPN script of the jobs that join the home network (vpn-script
+# home-vpn.sh, vpn-up.yml): plan-shard and apply.
+- name: VPN script
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/home-vpn.sh" <<'__CI_EOF__'
+    @@include src/terragrunt/home-vpn.sh@@
+    __CI_EOF__
+    chmod +x "$d/home-vpn.sh"
