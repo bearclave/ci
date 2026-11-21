@@ -1,0 +1,32 @@
+# The scripts of the plan of a share (plan-shard in terragrunt-jobs.yml, and
+# terragrunt-drift.yml); scripts-select.yml says why each job carries its own.
+- name: Plan scripts
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/release-stale-locks.py" <<'__CI_EOF__'
+    @@include src/terragrunt/release-stale-locks.py@@
+    __CI_EOF__
+    cat >"$d/check-moves.py" <<'__CI_EOF__'
+    @@include src/terragrunt/check-moves.py@@
+    __CI_EOF__
+    cat >"$d/trivy-plans.sh" <<'__CI_EOF__'
+    @@include src/terragrunt/trivy-plans.sh@@
+    __CI_EOF__
+    chmod +x "$d"/*
+
+# The plan comment's two scripts, a step each: actionlint deadlocks on a run
+# script of more than about 64 KB (it feeds shellcheck through a pipe).
+- name: Plan summary script
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/plan-summary.py" <<'__CI_EOF__'
+    @@include src/terragrunt/plan-summary.py@@
+    __CI_EOF__
+    chmod +x "$d/plan-summary.py"
+
+- name: Plan details script
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/plan_details.py" <<'__CI_EOF__'
+    @@include src/terragrunt/plan_details.py@@
+    __CI_EOF__
