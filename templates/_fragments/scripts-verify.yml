@@ -1,0 +1,9 @@
+# The verification of an apply (apply in terragrunt-jobs.yml, and the checks
+# of terragrunt-drift.yml), a step of its own for actionlint (scripts-plan.yml).
+- name: Verification script
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/verify-apply.py" <<'__CI_EOF__'
+    @@include src/terragrunt/verify-apply.py@@
+    __CI_EOF__
+    chmod +x "$d/verify-apply.py"
