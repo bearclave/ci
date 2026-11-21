@@ -162,26 +162,31 @@ only the promote identities read (Key Vault Secrets User on that vault).
 The App is created by the owner (`promote-1-github-app.sh`, the procedure
 in [`iac-github` docs/setup.md](https://github.com/bearclave/iac-github/blob/main/docs/setup.md#2-github-apps)).
 
-**Binding the identity to this workflow (recommended hardening).** The
-federated credential on `environment:promote` lets any job of the
-application in that environment sign in. An Entra flexible federated
-credential (preview) can require, besides the subject and the repository
-ID, that the job runs a released `promote.yml` of `ci`:
+**The identity is bound to this workflow.** A plain federated credential
+on `environment:promote` would let any job of the application in that
+environment sign in (bearclave/ci#40). The promote identities therefore
+have an Entra flexible federated identity credential (preview, Graph beta;
+`github.jobWorkflowRef` of `entra/applications` in `iac-modules`, set in
+`iac-identity`) that requires, besides the subject, the repository and
+owner IDs and a released `promote.yml` of `ci`:
 
 ```text
 claims['sub'] eq 'repo:bearclave@328058774/<repository>@<repository id>:environment:promote'
   and claims['repository_id'] eq '<repository id>'
-  and claims['job_workflow_ref'] matches 'bearclave*/ci*/.github/workflows/promote.yml@refs/tags/v*'
+  and claims['repository_owner_id'] eq '328058774'
+  and claims['job_workflow_ref'] matches 'bearclave/ci/.github/workflows/promote.yml@refs/tags/v*'
 ```
 
-`job_workflow_ref` is the reusable workflow and its ref, so the wildcard on
-the tag covers every exact pin (`@v2.8.0`, `@v2.9.1`) and the credential is
-never re-created for a release; only the owner creates `v*` tags in `ci`.
-Customising the OIDC subject with `job_workflow_ref` instead would change
-the subject at every pin bump and need a new credential each time, so it is
-not used. Use the flexible credential when `iac-identity` can write
-`claimsMatchingExpression` (Microsoft Graph beta); until then the plain
-subject, the narrow App and the branch policy of `promote` are the controls.
+`job_workflow_ref` is the reusable workflow and its ref, by name
+(`bearclave/ci/.github/workflows/promote.yml@refs/tags/v2.9.1`). Owner,
+repository and file are exact, so a workflow of another owner or repository
+does not match; the wildcard is only on the tag and covers every exact pin
+and `v2`, so the credential is never re-created for a release. Only the
+owner creates `v*` tags in `ci`. A job that runs anything else in the
+environment `promote`, or calls `promote.yml` from a branch, is refused at
+sign-in. Customising the OIDC subject with `job_workflow_ref` instead would
+change the subject of every job of the repository and, with the exact pin
+in it, at every pin bump; it is not used.
 
 ## Rollback
 
