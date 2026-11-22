@@ -60,7 +60,7 @@ templates/            the workflows, with @@include markers; _fragments/ shared 
 src/                  the scripts the workflows carry or run; terragrunt/, terraform/, m365/;
                       layout.yaml (managed copy from governance), markdownlint.yaml
 tests/                unit tests of src/, mirroring it
-tools/                build.py, sanitise-plan.py, move-major-tag.sh, bot-gh.py
+tools/                build.py, sanitise-plan.py, move-major-tag.sh, bot-gh.py, release.sh
 docs/                 identities.md, runners.md, terragrunt.md, applications.md,
                       checks.md, organisation-workflows.md, releasing.md
 ```
@@ -104,6 +104,18 @@ conventions and Sentinel self-tests.
 Versions, pins and how a release is made:
 [docs/releasing.md](docs/releasing.md).
 
+**Releasing any versioned repository.** The owner runs
+`tools/release.sh <repo-path> [vX.Y.Z]` from this clone against a clone of the
+repository. It refuses unless the checkout is a clean `main` equal to
+`origin/main`, while an open pull request has auto-merge on or is approved
+and mergeable (`--force-open`), when nothing since the last tag calls for a
+release, and when the given version differs from the one the titles give
+(`--force-version`); the version comes from `src/release_version.py`. It
+shows the titles and the version, asks for the version to be typed, then
+signs and pushes the tag and publishes the release with generated notes.
+`--dry-run` stops before the tag. An agent never runs it without
+`--dry-run`.
+
 ## Pipeline
 
 This repository calls its own workflows (`ci.yml`): `security.yml`,
@@ -130,6 +142,12 @@ or their pin is bumped.
   runner image (governance `toolchain.md`); its tests are in `tests/`.
 - A workflow step that runs a large script gets a step of its own: actionlint
   deadlocks on a `run:` of more than about 64 KB.
+- A generated workflow stays under 512 KiB: GitHub reads every file in
+  `.github/workflows` on a push to this repository and fails a larger one as
+  "a workflow file issue" (#48), so `build.py` refuses it. A job includes only
+  the script fragments it runs (`scripts-select.yml`, `scripts-plan.yml`,
+  `scripts-vpn.yml`, `scripts-verify.yml`); `scripts-terragrunt.yml` has them
+  all, for `terragrunt-drift.yml`.
 - The configs a workflow reads in the caller are listed in
   [checks.md](docs/checks.md#paths-the-workflows-read-in-the-caller).
 

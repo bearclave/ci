@@ -1,0 +1,16 @@
+# The scripts of the select job (terragrunt-jobs.yml). Every job of the
+# pipeline carries only the scripts it runs: GitHub rejects a workflow file
+# that is too large when it reads .github/workflows on a push to ci (#48).
+- name: Selection scripts
+  run: |
+    d="$RUNNER_TEMP/ci"
+    cat >"$d/select-units.py" <<'__CI_EOF__'
+    @@include src/terragrunt/select-units.py@@
+    __CI_EOF__
+    cat >"$d/base-commit.py" <<'__CI_EOF__'
+    @@include src/terragrunt/base-commit.py@@
+    __CI_EOF__
+    cat >"$d/check-principal-refs.py" <<'__CI_EOF__'
+    @@include src/terragrunt/check-principal-refs.py@@
+    __CI_EOF__
+    chmod +x "$d"/*

@@ -87,7 +87,9 @@ select:
         fetch-depth: 0
         persist-credentials: false
 
-    @@include templates/_fragments/scripts-terragrunt.yml@@
+    @@include templates/_fragments/scripts-common.yml@@
+
+    @@include templates/_fragments/scripts-select.yml@@
 
     - name: Tool versions
       id: versions
@@ -244,7 +246,7 @@ validate:
 
     @@include templates/_fragments/modules-checkout.yml@@
 
-    @@include templates/_fragments/scripts-terragrunt.yml@@
+    @@include templates/_fragments/scripts-common.yml@@
 
     - name: Tool versions
       id: versions
@@ -417,7 +419,11 @@ plan-shard:
 
     @@include templates/_fragments/modules-checkout.yml@@
 
-    @@include templates/_fragments/scripts-terragrunt.yml@@
+    @@include templates/_fragments/scripts-common.yml@@
+
+    @@include templates/_fragments/scripts-plan.yml@@
+
+    @@include templates/_fragments/scripts-vpn.yml@@
 
     - name: Tool versions
       id: versions
@@ -821,7 +827,11 @@ apply:
 
     @@include templates/_fragments/modules-checkout.yml@@
 
-    @@include templates/_fragments/scripts-terragrunt.yml@@
+    @@include templates/_fragments/scripts-common.yml@@
+
+    @@include templates/_fragments/scripts-vpn.yml@@
+
+    @@include templates/_fragments/scripts-verify.yml@@
 
     - name: Tool versions
       id: versions

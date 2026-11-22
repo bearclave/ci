@@ -108,6 +108,9 @@ jobs:
           ssh-key: ${{ secrets.modules-deploy-key }}
           persist-credentials: false
 
+      # Every Terragrunt script, for terragrunt-drift.yml, whose one job runs most
+      # of them. The jobs of terragrunt-jobs.yml include only the fragments they
+      # need (scripts-select.yml says why).
       # The pipeline scripts travel inside the workflow (see build.py): the
       # caller's token cannot read bearclave/ci. They land in $RUNNER_TEMP/ci,
       # which goes on PATH.
@@ -209,7 +212,10 @@ jobs:
           chmod +x "$d"/*
           echo "$d" >>"$GITHUB_PATH"
 
-      - name: Terragrunt scripts
+      # The scripts of the select job (terragrunt-jobs.yml). Every job of the
+      # pipeline carries only the scripts it runs: GitHub rejects a workflow file
+      # that is too large when it reads .github/workflows on a push to ci (#48).
+      - name: Selection scripts
         run: |
           d="$RUNNER_TEMP/ci"
           cat >"$d/select-units.py" <<'__CI_EOF__'
@@ -571,82 +577,6 @@ jobs:
                   sys.exit(__doc__)
               sys.exit(main(*sys.argv[1:]))
           __CI_EOF__
-          cat >"$d/check-moves.py" <<'__CI_EOF__'
-          #!/usr/bin/env python3
-          """Fails when a moved unit plans as if its state had not come with it.
-
-          Usage: check-moves.py <selection.json> <plan-json-dir>
-
-          <selection.json> is the output of select-units.py; for every [old, new] in
-          its `moved`, the plan of the new path (<plan-json-dir>/<new>/tfplan.json)
-          may not create, destroy or replace a managed resource while its state is
-          empty. Imports, moves, updates and forgets are fine. A create on an empty
-          state means the state was not copied or moved before the merge, and the
-          apply would build everything a second time next to the old resources. A
-          unit whose state already holds managed resources came with its state: its
-          creates and destroys are ordinary changes (destroys still need their
-          approval). A unit without a JSON plan here is planned by another job and
-          skipped.
-          """
-          import json
-          import os
-          import sys
-
-
-          def offending(plan: dict) -> list:
-              """(address, actions) of the managed resources the plan creates or deletes."""
-              out = []
-              for rc in plan.get("resource_changes") or []:
-                  if rc.get("mode") != "managed":
-                      continue
-                  actions = (rc.get("change") or {}).get("actions") or []
-                  if "create" in actions or "delete" in actions:
-                      out.append((rc.get("address", "?"), "/".join(actions)))
-              return out
-
-
-          def has_state(plan: dict) -> bool:
-              """Whether the state the plan started from holds a managed resource."""
-              stack = [((plan.get("prior_state") or {}).get("values") or {}).get("root_module") or {}]
-              while stack:
-                  module = stack.pop()
-                  if any(r.get("mode") == "managed" for r in module.get("resources") or []):
-                      return True
-                  stack.extend(module.get("child_modules") or [])
-              return False
-
-
-          def check(selection: dict, json_dir: str) -> list:
-              """Error messages, one per offending resource."""
-              errors = []
-              for old, new in selection.get("moved") or []:
-                  # Moved into infrastructure/ with the same key: the state never moved,
-                  # so a create there is an ordinary change, not a missing state.
-                  if old.removeprefix("infrastructure/") == new.removeprefix("infrastructure/"):
-                      continue
-                  path = os.path.join(json_dir, new, "tfplan.json")
-                  if not os.path.isfile(path):
-                      continue
-                  with open(path, encoding="utf-8") as fh:
-                      plan = json.load(fh)
-                  # The state came with the unit; later changes to it are ordinary.
-                  if has_state(plan):
-                      continue
-                  for address, actions in offending(plan):
-                      errors.append(f"{new} (moved from {old}): {address} would {actions}. "
-                                    "Move its state before the merge (.github/state-moves.yaml).")
-              return errors
-
-
-          if __name__ == "__main__":
-              if len(sys.argv) != 3:
-                  sys.exit(__doc__)
-              with open(sys.argv[1], encoding="utf-8") as fh:
-                  found = check(json.load(fh), sys.argv[2])
-              for message in found:
-                  print(f"::error title=Moved unit::{message}")
-              sys.exit(1 if found else 0)
-          __CI_EOF__
           cat >"$d/check-principal-refs.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
           """Fails when a principal this change creates is referenced by display name.
@@ -725,6 +655,13 @@ jobs:
 
           print("principal references OK")
           __CI_EOF__
+          chmod +x "$d"/*
+
+      # The scripts of the plan of a share (plan-shard in terragrunt-jobs.yml, and
+      # terragrunt-drift.yml); scripts-select.yml says why each job carries its own.
+      - name: Plan scripts
+        run: |
+          d="$RUNNER_TEMP/ci"
           cat >"$d/release-stale-locks.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
           """Releases state locks that a killed GitHub job left behind.
@@ -794,104 +731,81 @@ jobs:
           if __name__ == "__main__":
               sys.exit(main(sys.argv[1], sys.argv[2], int(sys.argv[3]), tuple(sys.argv[4:])))
           __CI_EOF__
-          cat >"$d/portal-rules.py" <<'__CI_EOF__'
+          cat >"$d/check-moves.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
-          """Analytic rules in the workspace that the code does not manage.
+          """Fails when a moved unit plans as if its state had not come with it.
 
-          Usage: portal-rules.py <plan-json-dir> <unit>
+          Usage: check-moves.py <selection.json> <plan-json-dir>
 
-          Reads the plan of the analytic rules unit (<plan-json-dir>/<unit>/tfplan.json)
-          for the rules the code manages and the workspace they live in, lists the
-          rules the workspace really has (az rest, with the session the job already
-          signed in with) and reports every one the code does not know: a rule created
-          in the portal, or one left behind. Each becomes a warning and a row in the
-          job summary; the exit code stays 0, this is a report.
-
-          Terraform's drift plan cannot see these: it only looks at what it manages.
+          <selection.json> is the output of select-units.py; for every [old, new] in
+          its `moved`, the plan of the new path (<plan-json-dir>/<new>/tfplan.json)
+          may not create, destroy or replace a managed resource while its state is
+          empty. Imports, moves, updates and forgets are fine. A create on an empty
+          state means the state was not copied or moved before the merge, and the
+          apply would build everything a second time next to the old resources. A
+          unit whose state already holds managed resources came with its state: its
+          creates and destroys are ordinary changes (destroys still need their
+          approval). A unit without a JSON plan here is planned by another job and
+          skipped.
           """
           import json
           import os
-          import subprocess
           import sys
 
-          API = "2024-09-01"
+
+          def offending(plan: dict) -> list:
+              """(address, actions) of the managed resources the plan creates or deletes."""
+              out = []
+              for rc in plan.get("resource_changes") or []:
+                  if rc.get("mode") != "managed":
+                      continue
+                  actions = (rc.get("change") or {}).get("actions") or []
+                  if "create" in actions or "delete" in actions:
+                      out.append((rc.get("address", "?"), "/".join(actions)))
+              return out
 
 
-          def managed(plan: dict):
-              """(workspace id, names of the alertRules) from the planned values."""
-              names, workspace = set(), None
-              stack = [(plan.get("planned_values") or {}).get("root_module") or {}]
+          def has_state(plan: dict) -> bool:
+              """Whether the state the plan started from holds a managed resource."""
+              stack = [((plan.get("prior_state") or {}).get("values") or {}).get("root_module") or {}]
               while stack:
                   module = stack.pop()
-                  stack += module.get("child_modules") or []
-                  for r in module.get("resources") or []:
-                      values = r.get("values") or {}
-                      if r.get("type") == "azapi_resource" and \
-                              str(values.get("type", "")).startswith("Microsoft.SecurityInsights/alertRules@"):
-                          names.add(values.get("name"))
-                          workspace = workspace or values.get("parent_id")
-              return workspace, names
+                  if any(r.get("mode") == "managed" for r in module.get("resources") or []):
+                      return True
+                  stack.extend(module.get("child_modules") or [])
+              return False
 
 
-          # Rules Sentinel creates and keeps by itself; they do not belong in the code.
-          BUILT_IN_KINDS = {"Fusion"}
-
-
-          def unmanaged(rules: list, names: set) -> list:
-              """(name, kind, display name, enabled) of the rules not in names."""
-              out = []
-              for r in rules:
-                  if r.get("name") in names or r.get("kind") in BUILT_IN_KINDS:
+          def check(selection: dict, json_dir: str) -> list:
+              """Error messages, one per offending resource."""
+              errors = []
+              for old, new in selection.get("moved") or []:
+                  # Moved into infrastructure/ with the same key: the state never moved,
+                  # so a create there is an ordinary change, not a missing state.
+                  if old.removeprefix("infrastructure/") == new.removeprefix("infrastructure/"):
                       continue
-                  p = r.get("properties") or {}
-                  out.append((r.get("name"), r.get("kind", ""), p.get("displayName", ""), p.get("enabled")))
-              return sorted(out, key=lambda x: (x[2] or "", x[0]))
-
-
-          def workspace_rules(workspace: str) -> list:
-              url = f"https://management.azure.com{workspace}/providers/Microsoft.SecurityInsights/alertRules?api-version={API}"
-              rules = []
-              while url:
-                  page = json.loads(subprocess.run(["az", "rest", "--method", "get", "--url", url],
-                                                   capture_output=True, text=True, check=True).stdout)
-                  rules += page.get("value") or []
-                  url = page.get("nextLink")
-              return rules
-
-
-          def main(plan_dir: str, unit: str) -> int:
-              path = os.path.join(plan_dir, unit, "tfplan.json")
-              if not os.path.isfile(path):
-                  print(f"::warning::no plan of {unit}, portal rules not checked")
-                  return 0
-              with open(path, encoding="utf-8") as fh:
-                  workspace, names = managed(json.load(fh))
-              if not workspace:
-                  print(f"::warning::{unit} manages no analytic rule, portal rules not checked")
-                  return 0
-              found = unmanaged(workspace_rules(workspace), names)
-              lines = ["## Analytic rules outside the code", ""]
-              if not found:
-                  lines.append(f"None: the workspace has exactly the {len(names)} rules the code manages.")
-              else:
-                  lines += [f"{len(found)} rules in the workspace that the code does not manage. "
-                            "Put each into the code, or delete it in the portal.", "",
-                            "| Display name | Kind | Enabled | Name |", "|---|---|---|---|"]
-                  for name, kind, display, enabled in found:
-                      lines.append(f"| {display} | {kind} | {enabled} | `{name}` |")
-                      print(f"::warning title=portal rule::{display or name} ({kind}) is not in the code")
-              text = "\n".join(lines) + "\n"
-              summary = os.environ.get("GITHUB_STEP_SUMMARY")
-              if summary:
-                  with open(summary, "a", encoding="utf-8") as fh:
-                      fh.write(text)
-              else:
-                  print(text)
-              return 0
+                  path = os.path.join(json_dir, new, "tfplan.json")
+                  if not os.path.isfile(path):
+                      continue
+                  with open(path, encoding="utf-8") as fh:
+                      plan = json.load(fh)
+                  # The state came with the unit; later changes to it are ordinary.
+                  if has_state(plan):
+                      continue
+                  for address, actions in offending(plan):
+                      errors.append(f"{new} (moved from {old}): {address} would {actions}. "
+                                    "Move its state before the merge (.github/state-moves.yaml).")
+              return errors
 
 
           if __name__ == "__main__":
-              sys.exit(main(*sys.argv[1:3]))
+              if len(sys.argv) != 3:
+                  sys.exit(__doc__)
+              with open(sys.argv[1], encoding="utf-8") as fh:
+                  found = check(json.load(fh), sys.argv[2])
+              for message in found:
+                  print(f"::error title=Moved unit::{message}")
+              sys.exit(1 if found else 0)
           __CI_EOF__
           cat >"$d/trivy-plans.sh" <<'__CI_EOF__'
           #!/usr/bin/env bash
@@ -974,514 +888,10 @@ jobs:
 
           [ "$found" -eq 0 ] || exit 3
           __CI_EOF__
-          cat >"$d/home-vpn.sh" <<'__CI_EOF__'
-          #!/usr/bin/env bash
-          # The runner joins the home network as WireGuard peer ci and reaches the REST
-          # API of every managed device; run from the root of iac-home
-          # (docs/terragrunt.md#home-network-terragrunt-homeyml).
-          #
-          #   home-vpn.sh up|down
-          #
-          # Needs ARM_CLIENT_ID, ARM_TENANT_ID, id-token: write and wireguard-tools.
-          set -euo pipefail
-
-          net=_common/network.hcl
-          # The unit whose output public_key is the WireGuard server.
-          server_unit=${HOME_VPN_SERVER_UNIT:-infrastructure/router/wireguard}
-          conf=/etc/wireguard/wg-home.conf
-
-          # block_value <file> <block> <key>: a quoted or bare value inside "<block> = {".
-          block_value() {
-            sed -n "/^ *$2 = {/,/^ *}/s/^ *$3 *= *\"\\{0,1\\}\\([^\"]*\\)\"\\{0,1\\}$/\\1/p" "$1" | head -1
-          }
-
-          # inline_value <file> <name> <key>: a quoted key of a one-line object "<name> = { ... }".
-          inline_value() {
-            sed -n "s/^ *$2 *= *{.*$3 *= *\"\\([^\"]*\\)\".*/\\1/p" "$1" | head -1
-          }
-
-          # first_name <file> <name>: the first of names = [...] of a one-line object.
-          first_name() {
-            sed -n "s/^ *$2 *= *{.*names *= *\\[\"\\([^\"]*\\)\".*/\\1/p" "$1" | head -1
-          }
-
-          # The device folders under infrastructure/ whose device.hcl says managed = true.
-          managed_devices() {
-            local f
-            for f in infrastructure/*/device.hcl; do
-              [ -f "$f" ] || continue
-              if grep -qE '^ *managed *= *true *$' "$f"; then dirname "$f"; fi
-            done
-          }
-
-          case "${1:?usage: home-vpn.sh up|down}" in
-            up)
-              mapfile -t devices < <(managed_devices)
-              if [ "${#devices[@]}" -eq 0 ]; then
-                echo "::error::no device.hcl under infrastructure/ with managed = true"
-                exit 1
-              fi
-
-              token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-                "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
-              az login --service-principal --username "$ARM_CLIENT_ID" --tenant "$ARM_TENANT_ID" \
-                --federated-token "$token" --allow-no-subscriptions --output none
-
-              address=$(inline_value "$net" ci address)
-              endpoint="$(block_value "$net" wireguard endpoint):$(block_value "$net" wireguard listen_port)"
-              port=$(sed -n 's/^ *webfig_port *= *\([0-9]*\)$/\1/p' "$net")
-
-              # Per device: its address, its name (not in public DNS) and its CA, the
-              # heredoc ca_bundle of device.hcl.
-              allowed=() urls=() cas=()
-              for d in "${devices[@]}"; do
-                host=$(sed -n 's/^ *host *= *"\([^"]*\)".*/\1/p' "$d/device.hcl" | head -1)
-                target=$(inline_value "$net" "$host" address)
-                name=$(first_name "$net" "$host")
-                if [ -z "$target" ] || [ -z "$name" ]; then
-                  echo "::error::$d: host $host has no address or name in $net"
-                  exit 1
-                fi
-                ca="$RUNNER_TEMP/ca-$(basename "$d").crt"
-                sed -n '/ca_bundle *= *<<-*EOT/,/^ *EOT/{/<<-*EOT/d;/^ *EOT/d;s/^ *//;p;}' "$d/device.hcl" >"$ca"
-                echo "$target $name" | sudo tee -a /etc/hosts >/dev/null
-                allowed+=("$target/32") urls+=("https://$name:$port/") cas+=("$ca")
-              done
-              server=$(cd "$server_unit" && terragrunt output -raw public_key)
-
-              vault_subscription=$(block_value account.hcl key_vault subscription_id)
-              vault_name=$(block_value account.hcl key_vault name)
-              secret() {
-                az keyvault secret show --subscription "$vault_subscription" --vault-name "$vault_name" \
-                  --name "$1" --query value --output tsv | tr -d '\n'
-              }
-              # Read first: a failing substitution inside the heredoc would not stop the script.
-              private_key=$(secret wg-key-ci)
-              psk=$(secret wg-psk-ci)
-              if [ -z "$private_key" ] || [ -z "$psk" ]; then
-                echo "::error::WireGuard secrets missing"
-                exit 1
-              fi
-
-              sudo install -m 600 /dev/null "$conf"
-              sudo tee "$conf" >/dev/null <<EOF
-          [Interface]
-          PrivateKey = $private_key
-          Address = $address/32
-
-          [Peer]
-          PublicKey = $server
-          PresharedKey = $psk
-          Endpoint = $endpoint
-          AllowedIPs = $(IFS=,; echo "${allowed[*]}")
-          PersistentKeepalive = 25
-          EOF
-              sudo wg-quick up wg-home
-              # Every REST API has to answer before anything is planned.
-              for i in "${!urls[@]}"; do
-                ok=false
-                for _ in 1 2 3 4 5 6; do
-                  if curl -sf -o /dev/null --max-time 5 --cacert "${cas[$i]}" "${urls[$i]}"; then
-                    ok=true
-                    break
-                  fi
-                  sleep 5
-                done
-                if [ "$ok" != true ]; then
-                  echo "::error::${urls[$i]} not reachable through WireGuard"
-                  exit 1
-                fi
-                echo "${urls[$i]} reachable through WireGuard"
-              done
-              ;;
-
-            down)
-              sudo wg-quick down wg-home 2>/dev/null || true
-              sudo rm -f "$conf"
-              ;;
-
-            *)
-              echo "usage: home-vpn.sh up|down" >&2
-              exit 1
-              ;;
-          esac
-          __CI_EOF__
           chmod +x "$d"/*
 
-      # A step of its own: actionlint deadlocks on a run script of more than about
-      # 64 KB (it feeds shellcheck through a pipe), so the scripts are split.
-      - name: Verification script
-        run: |
-          d="$RUNNER_TEMP/ci"
-          cat >"$d/verify-apply.py" <<'__CI_EOF__'
-          #!/usr/bin/env python3
-          """Verifies an apply: what the second plan, the Activity Log and the check
-          blocks say about it.
-
-          Usage:
-            verify-apply.py subscriptions <json-dir>
-                The subscriptions of the azurerm providers of the planned units, one
-                per line (none where no unit has an azurerm provider).
-            verify-apply.py checks <json-dir> [--log <file>]
-                The check blocks that failed, from the plans in <json-dir> and the
-                warnings in a terraform log; exit 3 when one failed.
-            verify-apply.py report --replan-rc <n|skipped> --json-dir <dir>
-                                   --replan-log <file> --apply-log <file>
-                                   --activity <file> --out <verification.json>
-                Writes verification.json and prints the Markdown of the apply comment's
-                ### Verification section (without the heading).
-
-          The second plan runs right after the apply, over the units it applied, with
-          -detailed-exitcode: 0 means the code and the real state agree, 2 that a
-          change is still proposed (the apply did not converge, or something changed
-          it at once), anything else that the plan failed. Terraform also exits 2 for
-          a plan whose only actions are data source reads, which a data source nested
-          in a check block always is; when the plan of every unit the log names is
-          there and none proposes more than a read, the result is no-changes.
-
-          <activity> is what the workflow read from the Activity Log:
-          {"subscriptions": [...], "start": ..., "end": ..., "events": [...],
-           "errors": [...]} or {"skipped": "<reason>"}.
-
-          verification.json (version 1):
-            result        passed | failed
-            replan        result (no-changes | changes | error | skipped), exit_code,
-                          units_with_changes, errors, reads_only (exit 2 for reads
-                          only, counted as no-changes)
-            activity_log  result (passed | failed | skipped | unreadable), reason,
-                          subscriptions, window {start, end}, failures [{time,
-                          operation, resource, status, sub_status, message}]
-            checks        result (passed | failed | none), failed [{unit, check,
-                          message, source}], passed, unknown
-          """
-          import argparse
-          import json
-          import os
-          import pathlib
-          import re
-          import sys
-
-          RE_LINE = re.compile(r"\[(?P<unit>[^\]]+)\] (?:terraform|tofu): ?(?P<text>.*)$")
-          RE_CHECK = re.compile(r'in check "(?P<name>[^"]+)"')
-          NOOP = ({"no-op"}, {"read"})
-          MAX_ERRORS = 20
-          # A unit is reported by its state key, the path without infrastructure/.
-          CONTENT = "infrastructure/"
-
-
-          def state_key(unit: str) -> str:
-              return unit[len(CONTENT):] if unit.startswith(CONTENT) else unit
-
-
-          def plans(json_dir: str):
-              """(unit, plan) for every tfplan.json below the directory."""
-              root = pathlib.Path(json_dir)
-              if not root.is_dir():
-                  return
-              for f in sorted(root.rglob("tfplan.json")):
-                  try:
-                      plan = json.loads(f.read_text(encoding="utf-8"))
-                  except (OSError, ValueError):
-                      continue
-                  yield state_key(str(f.parent.relative_to(root))), plan
-
-
-          def subscriptions(json_dir: str) -> list:
-              found = []
-              for _, plan in plans(json_dir):
-                  configs = (plan.get("configuration") or {}).get("provider_config") or {}
-                  for key, cfg in configs.items():
-                      if cfg.get("name") != "azurerm" and not key.split(".")[0] == "azurerm":
-                          continue
-                      sub = ((cfg.get("expressions") or {}).get("subscription_id") or {}).get("constant_value")
-                      if sub and sub not in found:
-                          found.append(sub)
-              return found
-
-
-          def changed(plan: dict) -> bool:
-              for rc in plan.get("resource_changes") or []:
-                  if set((rc.get("change") or {}).get("actions") or []) not in NOOP:
-                      return True
-              for oc in (plan.get("output_changes") or {}).values():
-                  if set(oc.get("actions") or []) not in NOOP:
-                      return True
-              return False
-
-
-          def plan_checks(json_dir: str) -> tuple:
-              """Failed checks from the plans, and the count of passed and unknown."""
-              failed, passed, unknown = [], 0, 0
-              for unit, plan in plans(json_dir):
-                  for c in plan.get("checks") or []:
-                      if (c.get("address") or {}).get("kind") != "check":
-                          continue  # preconditions and postconditions show as errors
-                      name = (c.get("address") or {}).get("name") or (c.get("address") or {}).get("to_display")
-                      status = c.get("status")
-                      if status == "pass":
-                          passed += 1
-                      elif status == "fail":
-                          messages = [p.get("message", "") for i in c.get("instances") or []
-                                      for p in i.get("problems") or []]
-                          failed.append({"unit": unit, "check": name,
-                                         "message": "; ".join(m for m in messages if m) or "assertion failed",
-                                         "source": "plan"})
-                      else:
-                          unknown += 1
-              return failed, passed, unknown
-
-
-          def log_checks(path: str) -> list:
-              """Failed check blocks from the warnings in a terraform log.
-
-              Warning: Check block assertion failed
-                on main.tf line 7, in check "same":
-                 7:     condition = ...
-                  |  ...
-              <message>
-              """
-              if not path or not os.path.exists(path):
-                  return []
-              open_by_unit, failed = {}, []
-              for raw in pathlib.Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
-                  m = RE_LINE.search(raw)
-                  if not m:
-                      continue
-                  unit, text = state_key(m.group("unit")), m.group("text")
-                  if "Check block assertion failed" in text:
-                      open_by_unit[unit] = {"unit": unit, "check": None, "message": None, "source": "apply"}
-                      continue
-                  cur = open_by_unit.get(unit)
-                  if cur is None:
-                      continue
-                  name = RE_CHECK.search(text)
-                  if name and cur["check"] is None:
-                      cur["check"] = name.group("name")
-                      continue
-                  if text and not text[0].isspace():
-                      cur["message"] = text.strip()
-                      failed.append(cur)
-                      del open_by_unit[unit]
-              for cur in open_by_unit.values():
-                  cur["message"] = cur["message"] or "assertion failed"
-                  failed.append(cur)
-              return failed
-
-
-          def merged_checks(json_dir: str, log: str) -> tuple:
-              from_plan, passed, unknown = plan_checks(json_dir)
-              seen = {(c["unit"], c["check"]) for c in from_plan}
-              failed = list(from_plan)
-              for c in log_checks(log):
-                  if (c["unit"], c["check"]) not in seen:
-                      seen.add((c["unit"], c["check"]))
-                      failed.append(c)
-              return failed, passed, unknown
-
-
-          def logged_units(path: str) -> set:
-              """The units a terragrunt run --all log has output of, by state key."""
-              if not path or not os.path.exists(path):
-                  return set()
-              out = set()
-              for raw in pathlib.Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
-                  m = RE_LINE.search(raw)
-                  if m:
-                      out.add(state_key(m.group("unit")))
-              return out
-
-
-          def reads_only(json_dir: str, log: str) -> bool:
-              """An exit code 2 that only data source reads explain: every unit of the
-              log has its plan, and no plan proposes more than a read."""
-              planned = {u: p for u, p in plans(json_dir)}
-              logged = logged_units(log)
-              return bool(planned) and bool(logged) and logged <= planned.keys() \
-                  and not any(changed(p) for p in planned.values())
-
-
-          def replan_errors(path: str) -> list:
-              if not path or not os.path.exists(path):
-                  return []
-              out = []
-              for raw in pathlib.Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
-                  m = RE_LINE.search(raw)
-                  if m and m.group("text").startswith("Error:"):
-                      out.append(f"{state_key(m.group('unit'))}: {m.group('text')[len('Error:'):].strip()}")
-              return out[:MAX_ERRORS]
-
-
-          def activity_section(path: str) -> dict:
-              try:
-                  data = json.loads(pathlib.Path(path).read_text(encoding="utf-8")) if path else {}
-              except (OSError, ValueError):
-                  return {"result": "unreadable", "reason": "the Activity Log query left no result"}
-              if "skipped" in data:
-                  return {"result": "skipped", "reason": data["skipped"]}
-              failures = []
-              for e in data.get("events") or []:
-                  props = e.get("properties") or {}
-                  message = props.get("statusMessage") or ""
-                  try:
-                      parsed = json.loads(message)
-                      err = parsed.get("error") or parsed
-                      message = err.get("message") or message
-                  except (ValueError, AttributeError):
-                      pass
-                  failures.append({
-                      "time": e.get("eventTimestamp"),
-                      "operation": (e.get("operationName") or {}).get("value"),
-                      "resource": e.get("resourceId"),
-                      "status": (e.get("status") or {}).get("value"),
-                      "sub_status": (e.get("subStatus") or {}).get("value"),
-                      "message": message[:500],
-                  })
-              section = {
-                  "subscriptions": data.get("subscriptions") or [],
-                  "window": {"start": data.get("start"), "end": data.get("end")},
-                  "failures": failures,
-              }
-              if failures:
-                  section["result"] = "failed"
-              elif data.get("errors"):
-                  # Not being able to read the log is not a failed apply.
-                  section["result"] = "unreadable"
-                  section["reason"] = "; ".join(data["errors"])[:500]
-              else:
-                  section["result"] = "passed"
-              return section
-
-
-          def report(args) -> dict:
-              rc = args.replan_rc
-              replan = {"exit_code": None, "units_with_changes": [], "errors": []}
-              if rc == "skipped":
-                  replan["result"] = "skipped"
-              else:
-                  replan["exit_code"] = int(rc)
-                  replan["units_with_changes"] = [u for u, p in plans(args.json_dir) if changed(p)]
-                  if replan["exit_code"] == 0:
-                      replan["result"] = "no-changes"
-                  elif replan["exit_code"] == 2 and reads_only(args.json_dir, args.replan_log):
-                      replan["result"] = "no-changes"
-                      replan["reads_only"] = True
-                  elif replan["exit_code"] == 2:
-                      replan["result"] = "changes"
-                  else:
-                      replan["result"] = "error"
-                      replan["errors"] = replan_errors(args.replan_log)
-                  # run --all may report the highest code of one unit and hide another.
-                  if replan["result"] == "no-changes" and replan["units_with_changes"]:
-                      replan["result"] = "changes"
-
-              failed, passed, unknown = merged_checks(args.json_dir, args.apply_log)
-              checks = {"result": "failed" if failed else ("passed" if passed else "none"),
-                        "failed": failed, "passed": passed, "unknown": unknown}
-              activity = activity_section(args.activity)
-
-              bad = (replan["result"] in ("changes", "error")
-                     or activity["result"] == "failed"
-                     or checks["result"] == "failed")
-              return {
-                  "version": 1,
-                  "result": "failed" if bad else "passed",
-                  "commit": os.environ.get("GITHUB_SHA"),
-                  "run_url": run_url(),
-                  "replan": replan,
-                  "activity_log": activity,
-                  "checks": checks,
-              }
-
-
-          def run_url() -> str:
-              server, repo, run = (os.environ.get(k) for k in ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"))
-              return f"{server}/{repo}/actions/runs/{run}" if server and repo and run else None
-
-
-          ICON = {"passed": "✅", "no-changes": "✅", "none": "✅", "skipped": "⏭️",
-                  "unreadable": "⚠️", "failed": "❌", "changes": "❌", "error": "❌"}
-
-
-          def markdown(v: dict) -> str:
-              """The body of the apply comment's ### Verification section (the comment
-              and the job summary add the heading): a | Check | Result | Detail | table."""
-              mark = {"passed": "passed", "failed": "**failed**"}
-              lines = [f"{ICON[v['result']]} The apply {mark[v['result']]} its verification. "
-                       "Nothing is rolled back by itself.", "",
-                       "| Check | Result | Detail |", "|---|---|---|"]
-              r = v["replan"]
-              detail = {
-                  "no-changes": "the second plan proposes nothing" + (
-                      " but data source reads (exit code 2)" if r.get("reads_only") else ""),
-                  "changes": "still proposes a change in " + (", ".join(f"`{u}`" for u in r["units_with_changes"]) or "a unit"),
-                  "error": "the second plan failed",
-                  "skipped": "no unit was applied",
-              }[r["result"]]
-              lines.append(f"| Plan again | {ICON[r['result']]} {r['result']} | {detail} |")
-              a = v["activity_log"]
-              if a["result"] == "skipped":
-                  detail = a["reason"]
-              elif a["result"] == "unreadable":
-                  detail = a.get("reason", "")
-              else:
-                  detail = (f"{len(a['failures'])} failed operation(s) of the apply identity in "
-                            f"{', '.join(f'`{s}`' for s in a['subscriptions'])}")
-              lines.append(f"| Azure Activity Log | {ICON[a['result']]} {a['result']} | {detail.replace('|', '/')} |")
-              c = v["checks"]
-              detail = (f"{len(c['failed'])} failed, {c['passed']} passed, {c['unknown']} unknown"
-                        if c["result"] != "none" else "no check block in the applied units")
-              lines.append(f"| Check blocks | {ICON[c['result']]} {c['result']} | {detail} |")
-
-              if r["errors"]:
-                  lines += ["", "Second plan errors:", ""] + [f"- {e}" for e in r["errors"]]
-              if a.get("failures"):
-                  lines += ["", "Failed Azure operations:", ""]
-                  lines += [f"- {f['time']} `{f['operation']}` on `{f['resource']}`: {f['message'] or f['sub_status'] or f['status']}"
-                            for f in a["failures"][:MAX_ERRORS]]
-              if c["failed"]:
-                  lines += ["", "Failed check blocks:", ""]
-                  lines += [f"- `{f['unit']}` check `{f['check']}`: {f['message']}" for f in c["failed"]]
-              return "\n".join(lines) + "\n"
-
-
-          def main() -> int:
-              ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-              sub = ap.add_subparsers(dest="cmd", required=True)
-              s = sub.add_parser("subscriptions")
-              s.add_argument("json_dir")
-              c = sub.add_parser("checks")
-              c.add_argument("json_dir")
-              c.add_argument("--log", default="")
-              r = sub.add_parser("report")
-              r.add_argument("--replan-rc", required=True)
-              r.add_argument("--json-dir", required=True)
-              r.add_argument("--replan-log", default="")
-              r.add_argument("--apply-log", default="")
-              r.add_argument("--activity", default="")
-              r.add_argument("--out", required=True)
-              args = ap.parse_args()
-
-              if args.cmd == "subscriptions":
-                  print("\n".join(subscriptions(args.json_dir)))
-                  return 0
-              if args.cmd == "checks":
-                  failed, passed, unknown = merged_checks(args.json_dir, args.log)
-                  for f in failed:
-                      print(f"::error title=check block failed::{f['unit']}: check \"{f['check']}\": {f['message']}")
-                  print(f"Check blocks: {len(failed)} failed, {passed} passed, {unknown} unknown.")
-                  return 3 if failed else 0
-              v = report(args)
-              pathlib.Path(args.out).write_text(json.dumps(v, indent=2) + "\n", encoding="utf-8")
-              sys.stdout.write(markdown(v))
-              return 0
-
-
-          if __name__ == "__main__":
-              sys.exit(main())
-          __CI_EOF__
-          chmod +x "$d/verify-apply.py"
-
-      # The plan comment's two scripts, a step each for the same reason.
+      # The plan comment's two scripts, a step each: actionlint deadlocks on a run
+      # script of more than about 64 KB (it feeds shellcheck through a pipe).
       - name: Plan summary script
         run: |
           d="$RUNNER_TEMP/ci"
@@ -2790,6 +2200,622 @@ jobs:
               with open(path, encoding="utf-8") as fh:
                   return json.load(fh)
           __CI_EOF__
+
+      # The VPN script of the jobs that join the home network (vpn-script
+      # home-vpn.sh, vpn-up.yml): plan-shard and apply.
+      - name: VPN script
+        run: |
+          d="$RUNNER_TEMP/ci"
+          cat >"$d/home-vpn.sh" <<'__CI_EOF__'
+          #!/usr/bin/env bash
+          # The runner joins the home network as WireGuard peer ci and reaches the REST
+          # API of every managed device; run from the root of iac-home
+          # (docs/terragrunt.md#home-network-terragrunt-homeyml).
+          #
+          #   home-vpn.sh up|down
+          #
+          # Needs ARM_CLIENT_ID, ARM_TENANT_ID, id-token: write and wireguard-tools.
+          set -euo pipefail
+
+          net=_common/network.hcl
+          # The unit whose output public_key is the WireGuard server.
+          server_unit=${HOME_VPN_SERVER_UNIT:-infrastructure/router/wireguard}
+          conf=/etc/wireguard/wg-home.conf
+
+          # block_value <file> <block> <key>: a quoted or bare value inside "<block> = {".
+          block_value() {
+            sed -n "/^ *$2 = {/,/^ *}/s/^ *$3 *= *\"\\{0,1\\}\\([^\"]*\\)\"\\{0,1\\}$/\\1/p" "$1" | head -1
+          }
+
+          # inline_value <file> <name> <key>: a quoted key of a one-line object "<name> = { ... }".
+          inline_value() {
+            sed -n "s/^ *$2 *= *{.*$3 *= *\"\\([^\"]*\\)\".*/\\1/p" "$1" | head -1
+          }
+
+          # first_name <file> <name>: the first of names = [...] of a one-line object.
+          first_name() {
+            sed -n "s/^ *$2 *= *{.*names *= *\\[\"\\([^\"]*\\)\".*/\\1/p" "$1" | head -1
+          }
+
+          # The device folders under infrastructure/ whose device.hcl says managed = true.
+          managed_devices() {
+            local f
+            for f in infrastructure/*/device.hcl; do
+              [ -f "$f" ] || continue
+              if grep -qE '^ *managed *= *true *$' "$f"; then dirname "$f"; fi
+            done
+          }
+
+          case "${1:?usage: home-vpn.sh up|down}" in
+            up)
+              mapfile -t devices < <(managed_devices)
+              if [ "${#devices[@]}" -eq 0 ]; then
+                echo "::error::no device.hcl under infrastructure/ with managed = true"
+                exit 1
+              fi
+
+              token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+              az login --service-principal --username "$ARM_CLIENT_ID" --tenant "$ARM_TENANT_ID" \
+                --federated-token "$token" --allow-no-subscriptions --output none
+
+              address=$(inline_value "$net" ci address)
+              endpoint="$(block_value "$net" wireguard endpoint):$(block_value "$net" wireguard listen_port)"
+              port=$(sed -n 's/^ *webfig_port *= *\([0-9]*\)$/\1/p' "$net")
+
+              # Per device: its address, its name (not in public DNS) and its CA, the
+              # heredoc ca_bundle of device.hcl.
+              allowed=() urls=() cas=()
+              for d in "${devices[@]}"; do
+                host=$(sed -n 's/^ *host *= *"\([^"]*\)".*/\1/p' "$d/device.hcl" | head -1)
+                target=$(inline_value "$net" "$host" address)
+                name=$(first_name "$net" "$host")
+                if [ -z "$target" ] || [ -z "$name" ]; then
+                  echo "::error::$d: host $host has no address or name in $net"
+                  exit 1
+                fi
+                ca="$RUNNER_TEMP/ca-$(basename "$d").crt"
+                sed -n '/ca_bundle *= *<<-*EOT/,/^ *EOT/{/<<-*EOT/d;/^ *EOT/d;s/^ *//;p;}' "$d/device.hcl" >"$ca"
+                echo "$target $name" | sudo tee -a /etc/hosts >/dev/null
+                allowed+=("$target/32") urls+=("https://$name:$port/") cas+=("$ca")
+              done
+              server=$(cd "$server_unit" && terragrunt output -raw public_key)
+
+              vault_subscription=$(block_value account.hcl key_vault subscription_id)
+              vault_name=$(block_value account.hcl key_vault name)
+              secret() {
+                az keyvault secret show --subscription "$vault_subscription" --vault-name "$vault_name" \
+                  --name "$1" --query value --output tsv | tr -d '\n'
+              }
+              # Read first: a failing substitution inside the heredoc would not stop the script.
+              private_key=$(secret wg-key-ci)
+              psk=$(secret wg-psk-ci)
+              if [ -z "$private_key" ] || [ -z "$psk" ]; then
+                echo "::error::WireGuard secrets missing"
+                exit 1
+              fi
+
+              sudo install -m 600 /dev/null "$conf"
+              sudo tee "$conf" >/dev/null <<EOF
+          [Interface]
+          PrivateKey = $private_key
+          Address = $address/32
+
+          [Peer]
+          PublicKey = $server
+          PresharedKey = $psk
+          Endpoint = $endpoint
+          AllowedIPs = $(IFS=,; echo "${allowed[*]}")
+          PersistentKeepalive = 25
+          EOF
+              sudo wg-quick up wg-home
+              # Every REST API has to answer before anything is planned.
+              for i in "${!urls[@]}"; do
+                ok=false
+                for _ in 1 2 3 4 5 6; do
+                  if curl -sf -o /dev/null --max-time 5 --cacert "${cas[$i]}" "${urls[$i]}"; then
+                    ok=true
+                    break
+                  fi
+                  sleep 5
+                done
+                if [ "$ok" != true ]; then
+                  echo "::error::${urls[$i]} not reachable through WireGuard"
+                  exit 1
+                fi
+                echo "${urls[$i]} reachable through WireGuard"
+              done
+              ;;
+
+            down)
+              sudo wg-quick down wg-home 2>/dev/null || true
+              sudo rm -f "$conf"
+              ;;
+
+            *)
+              echo "usage: home-vpn.sh up|down" >&2
+              exit 1
+              ;;
+          esac
+          __CI_EOF__
+          chmod +x "$d/home-vpn.sh"
+
+      # The verification of an apply (apply in terragrunt-jobs.yml, and the checks
+      # of terragrunt-drift.yml), a step of its own for actionlint (scripts-plan.yml).
+      - name: Verification script
+        run: |
+          d="$RUNNER_TEMP/ci"
+          cat >"$d/verify-apply.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """Verifies an apply: what the second plan, the Activity Log and the check
+          blocks say about it.
+
+          Usage:
+            verify-apply.py subscriptions <json-dir>
+                The subscriptions of the azurerm providers of the planned units, one
+                per line (none where no unit has an azurerm provider).
+            verify-apply.py checks <json-dir> [--log <file>]
+                The check blocks that failed, from the plans in <json-dir> and the
+                warnings in a terraform log; exit 3 when one failed.
+            verify-apply.py report --replan-rc <n|skipped> --json-dir <dir>
+                                   --replan-log <file> --apply-log <file>
+                                   --activity <file> --out <verification.json>
+                Writes verification.json and prints the Markdown of the apply comment's
+                ### Verification section (without the heading).
+
+          The second plan runs right after the apply, over the units it applied, with
+          -detailed-exitcode: 0 means the code and the real state agree, 2 that a
+          change is still proposed (the apply did not converge, or something changed
+          it at once), anything else that the plan failed. Terraform also exits 2 for
+          a plan whose only actions are data source reads, which a data source nested
+          in a check block always is; when the plan of every unit the log names is
+          there and none proposes more than a read, the result is no-changes.
+
+          <activity> is what the workflow read from the Activity Log:
+          {"subscriptions": [...], "start": ..., "end": ..., "events": [...],
+           "errors": [...]} or {"skipped": "<reason>"}.
+
+          verification.json (version 1):
+            result        passed | failed
+            replan        result (no-changes | changes | error | skipped), exit_code,
+                          units_with_changes, errors, reads_only (exit 2 for reads
+                          only, counted as no-changes)
+            activity_log  result (passed | failed | skipped | unreadable), reason,
+                          subscriptions, window {start, end}, failures [{time,
+                          operation, resource, status, sub_status, message}]
+            checks        result (passed | failed | none), failed [{unit, check,
+                          message, source}], passed, unknown
+          """
+          import argparse
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          RE_LINE = re.compile(r"\[(?P<unit>[^\]]+)\] (?:terraform|tofu): ?(?P<text>.*)$")
+          RE_CHECK = re.compile(r'in check "(?P<name>[^"]+)"')
+          NOOP = ({"no-op"}, {"read"})
+          MAX_ERRORS = 20
+          # A unit is reported by its state key, the path without infrastructure/.
+          CONTENT = "infrastructure/"
+
+
+          def state_key(unit: str) -> str:
+              return unit[len(CONTENT):] if unit.startswith(CONTENT) else unit
+
+
+          def plans(json_dir: str):
+              """(unit, plan) for every tfplan.json below the directory."""
+              root = pathlib.Path(json_dir)
+              if not root.is_dir():
+                  return
+              for f in sorted(root.rglob("tfplan.json")):
+                  try:
+                      plan = json.loads(f.read_text(encoding="utf-8"))
+                  except (OSError, ValueError):
+                      continue
+                  yield state_key(str(f.parent.relative_to(root))), plan
+
+
+          def subscriptions(json_dir: str) -> list:
+              found = []
+              for _, plan in plans(json_dir):
+                  configs = (plan.get("configuration") or {}).get("provider_config") or {}
+                  for key, cfg in configs.items():
+                      if cfg.get("name") != "azurerm" and not key.split(".")[0] == "azurerm":
+                          continue
+                      sub = ((cfg.get("expressions") or {}).get("subscription_id") or {}).get("constant_value")
+                      if sub and sub not in found:
+                          found.append(sub)
+              return found
+
+
+          def changed(plan: dict) -> bool:
+              for rc in plan.get("resource_changes") or []:
+                  if set((rc.get("change") or {}).get("actions") or []) not in NOOP:
+                      return True
+              for oc in (plan.get("output_changes") or {}).values():
+                  if set(oc.get("actions") or []) not in NOOP:
+                      return True
+              return False
+
+
+          def plan_checks(json_dir: str) -> tuple:
+              """Failed checks from the plans, and the count of passed and unknown."""
+              failed, passed, unknown = [], 0, 0
+              for unit, plan in plans(json_dir):
+                  for c in plan.get("checks") or []:
+                      if (c.get("address") or {}).get("kind") != "check":
+                          continue  # preconditions and postconditions show as errors
+                      name = (c.get("address") or {}).get("name") or (c.get("address") or {}).get("to_display")
+                      status = c.get("status")
+                      if status == "pass":
+                          passed += 1
+                      elif status == "fail":
+                          messages = [p.get("message", "") for i in c.get("instances") or []
+                                      for p in i.get("problems") or []]
+                          failed.append({"unit": unit, "check": name,
+                                         "message": "; ".join(m for m in messages if m) or "assertion failed",
+                                         "source": "plan"})
+                      else:
+                          unknown += 1
+              return failed, passed, unknown
+
+
+          def log_checks(path: str) -> list:
+              """Failed check blocks from the warnings in a terraform log.
+
+              Warning: Check block assertion failed
+                on main.tf line 7, in check "same":
+                 7:     condition = ...
+                  |  ...
+              <message>
+              """
+              if not path or not os.path.exists(path):
+                  return []
+              open_by_unit, failed = {}, []
+              for raw in pathlib.Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+                  m = RE_LINE.search(raw)
+                  if not m:
+                      continue
+                  unit, text = state_key(m.group("unit")), m.group("text")
+                  if "Check block assertion failed" in text:
+                      open_by_unit[unit] = {"unit": unit, "check": None, "message": None, "source": "apply"}
+                      continue
+                  cur = open_by_unit.get(unit)
+                  if cur is None:
+                      continue
+                  name = RE_CHECK.search(text)
+                  if name and cur["check"] is None:
+                      cur["check"] = name.group("name")
+                      continue
+                  if text and not text[0].isspace():
+                      cur["message"] = text.strip()
+                      failed.append(cur)
+                      del open_by_unit[unit]
+              for cur in open_by_unit.values():
+                  cur["message"] = cur["message"] or "assertion failed"
+                  failed.append(cur)
+              return failed
+
+
+          def merged_checks(json_dir: str, log: str) -> tuple:
+              from_plan, passed, unknown = plan_checks(json_dir)
+              seen = {(c["unit"], c["check"]) for c in from_plan}
+              failed = list(from_plan)
+              for c in log_checks(log):
+                  if (c["unit"], c["check"]) not in seen:
+                      seen.add((c["unit"], c["check"]))
+                      failed.append(c)
+              return failed, passed, unknown
+
+
+          def logged_units(path: str) -> set:
+              """The units a terragrunt run --all log has output of, by state key."""
+              if not path or not os.path.exists(path):
+                  return set()
+              out = set()
+              for raw in pathlib.Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+                  m = RE_LINE.search(raw)
+                  if m:
+                      out.add(state_key(m.group("unit")))
+              return out
+
+
+          def reads_only(json_dir: str, log: str) -> bool:
+              """An exit code 2 that only data source reads explain: every unit of the
+              log has its plan, and no plan proposes more than a read."""
+              planned = {u: p for u, p in plans(json_dir)}
+              logged = logged_units(log)
+              return bool(planned) and bool(logged) and logged <= planned.keys() \
+                  and not any(changed(p) for p in planned.values())
+
+
+          def replan_errors(path: str) -> list:
+              if not path or not os.path.exists(path):
+                  return []
+              out = []
+              for raw in pathlib.Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+                  m = RE_LINE.search(raw)
+                  if m and m.group("text").startswith("Error:"):
+                      out.append(f"{state_key(m.group('unit'))}: {m.group('text')[len('Error:'):].strip()}")
+              return out[:MAX_ERRORS]
+
+
+          def activity_section(path: str) -> dict:
+              try:
+                  data = json.loads(pathlib.Path(path).read_text(encoding="utf-8")) if path else {}
+              except (OSError, ValueError):
+                  return {"result": "unreadable", "reason": "the Activity Log query left no result"}
+              if "skipped" in data:
+                  return {"result": "skipped", "reason": data["skipped"]}
+              failures = []
+              for e in data.get("events") or []:
+                  props = e.get("properties") or {}
+                  message = props.get("statusMessage") or ""
+                  try:
+                      parsed = json.loads(message)
+                      err = parsed.get("error") or parsed
+                      message = err.get("message") or message
+                  except (ValueError, AttributeError):
+                      pass
+                  failures.append({
+                      "time": e.get("eventTimestamp"),
+                      "operation": (e.get("operationName") or {}).get("value"),
+                      "resource": e.get("resourceId"),
+                      "status": (e.get("status") or {}).get("value"),
+                      "sub_status": (e.get("subStatus") or {}).get("value"),
+                      "message": message[:500],
+                  })
+              section = {
+                  "subscriptions": data.get("subscriptions") or [],
+                  "window": {"start": data.get("start"), "end": data.get("end")},
+                  "failures": failures,
+              }
+              if failures:
+                  section["result"] = "failed"
+              elif data.get("errors"):
+                  # Not being able to read the log is not a failed apply.
+                  section["result"] = "unreadable"
+                  section["reason"] = "; ".join(data["errors"])[:500]
+              else:
+                  section["result"] = "passed"
+              return section
+
+
+          def report(args) -> dict:
+              rc = args.replan_rc
+              replan = {"exit_code": None, "units_with_changes": [], "errors": []}
+              if rc == "skipped":
+                  replan["result"] = "skipped"
+              else:
+                  replan["exit_code"] = int(rc)
+                  replan["units_with_changes"] = [u for u, p in plans(args.json_dir) if changed(p)]
+                  if replan["exit_code"] == 0:
+                      replan["result"] = "no-changes"
+                  elif replan["exit_code"] == 2 and reads_only(args.json_dir, args.replan_log):
+                      replan["result"] = "no-changes"
+                      replan["reads_only"] = True
+                  elif replan["exit_code"] == 2:
+                      replan["result"] = "changes"
+                  else:
+                      replan["result"] = "error"
+                      replan["errors"] = replan_errors(args.replan_log)
+                  # run --all may report the highest code of one unit and hide another.
+                  if replan["result"] == "no-changes" and replan["units_with_changes"]:
+                      replan["result"] = "changes"
+
+              failed, passed, unknown = merged_checks(args.json_dir, args.apply_log)
+              checks = {"result": "failed" if failed else ("passed" if passed else "none"),
+                        "failed": failed, "passed": passed, "unknown": unknown}
+              activity = activity_section(args.activity)
+
+              bad = (replan["result"] in ("changes", "error")
+                     or activity["result"] == "failed"
+                     or checks["result"] == "failed")
+              return {
+                  "version": 1,
+                  "result": "failed" if bad else "passed",
+                  "commit": os.environ.get("GITHUB_SHA"),
+                  "run_url": run_url(),
+                  "replan": replan,
+                  "activity_log": activity,
+                  "checks": checks,
+              }
+
+
+          def run_url() -> str:
+              server, repo, run = (os.environ.get(k) for k in ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"))
+              return f"{server}/{repo}/actions/runs/{run}" if server and repo and run else None
+
+
+          ICON = {"passed": "✅", "no-changes": "✅", "none": "✅", "skipped": "⏭️",
+                  "unreadable": "⚠️", "failed": "❌", "changes": "❌", "error": "❌"}
+
+
+          def markdown(v: dict) -> str:
+              """The body of the apply comment's ### Verification section (the comment
+              and the job summary add the heading): a | Check | Result | Detail | table."""
+              mark = {"passed": "passed", "failed": "**failed**"}
+              lines = [f"{ICON[v['result']]} The apply {mark[v['result']]} its verification. "
+                       "Nothing is rolled back by itself.", "",
+                       "| Check | Result | Detail |", "|---|---|---|"]
+              r = v["replan"]
+              detail = {
+                  "no-changes": "the second plan proposes nothing" + (
+                      " but data source reads (exit code 2)" if r.get("reads_only") else ""),
+                  "changes": "still proposes a change in " + (", ".join(f"`{u}`" for u in r["units_with_changes"]) or "a unit"),
+                  "error": "the second plan failed",
+                  "skipped": "no unit was applied",
+              }[r["result"]]
+              lines.append(f"| Plan again | {ICON[r['result']]} {r['result']} | {detail} |")
+              a = v["activity_log"]
+              if a["result"] == "skipped":
+                  detail = a["reason"]
+              elif a["result"] == "unreadable":
+                  detail = a.get("reason", "")
+              else:
+                  detail = (f"{len(a['failures'])} failed operation(s) of the apply identity in "
+                            f"{', '.join(f'`{s}`' for s in a['subscriptions'])}")
+              lines.append(f"| Azure Activity Log | {ICON[a['result']]} {a['result']} | {detail.replace('|', '/')} |")
+              c = v["checks"]
+              detail = (f"{len(c['failed'])} failed, {c['passed']} passed, {c['unknown']} unknown"
+                        if c["result"] != "none" else "no check block in the applied units")
+              lines.append(f"| Check blocks | {ICON[c['result']]} {c['result']} | {detail} |")
+
+              if r["errors"]:
+                  lines += ["", "Second plan errors:", ""] + [f"- {e}" for e in r["errors"]]
+              if a.get("failures"):
+                  lines += ["", "Failed Azure operations:", ""]
+                  lines += [f"- {f['time']} `{f['operation']}` on `{f['resource']}`: {f['message'] or f['sub_status'] or f['status']}"
+                            for f in a["failures"][:MAX_ERRORS]]
+              if c["failed"]:
+                  lines += ["", "Failed check blocks:", ""]
+                  lines += [f"- `{f['unit']}` check `{f['check']}`: {f['message']}" for f in c["failed"]]
+              return "\n".join(lines) + "\n"
+
+
+          def main() -> int:
+              ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+              sub = ap.add_subparsers(dest="cmd", required=True)
+              s = sub.add_parser("subscriptions")
+              s.add_argument("json_dir")
+              c = sub.add_parser("checks")
+              c.add_argument("json_dir")
+              c.add_argument("--log", default="")
+              r = sub.add_parser("report")
+              r.add_argument("--replan-rc", required=True)
+              r.add_argument("--json-dir", required=True)
+              r.add_argument("--replan-log", default="")
+              r.add_argument("--apply-log", default="")
+              r.add_argument("--activity", default="")
+              r.add_argument("--out", required=True)
+              args = ap.parse_args()
+
+              if args.cmd == "subscriptions":
+                  print("\n".join(subscriptions(args.json_dir)))
+                  return 0
+              if args.cmd == "checks":
+                  failed, passed, unknown = merged_checks(args.json_dir, args.log)
+                  for f in failed:
+                      print(f"::error title=check block failed::{f['unit']}: check \"{f['check']}\": {f['message']}")
+                  print(f"Check blocks: {len(failed)} failed, {passed} passed, {unknown} unknown.")
+                  return 3 if failed else 0
+              v = report(args)
+              pathlib.Path(args.out).write_text(json.dumps(v, indent=2) + "\n", encoding="utf-8")
+              sys.stdout.write(markdown(v))
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          __CI_EOF__
+          chmod +x "$d/verify-apply.py"
+
+      - name: Portal rules script
+        run: |
+          d="$RUNNER_TEMP/ci"
+          cat >"$d/portal-rules.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """Analytic rules in the workspace that the code does not manage.
+
+          Usage: portal-rules.py <plan-json-dir> <unit>
+
+          Reads the plan of the analytic rules unit (<plan-json-dir>/<unit>/tfplan.json)
+          for the rules the code manages and the workspace they live in, lists the
+          rules the workspace really has (az rest, with the session the job already
+          signed in with) and reports every one the code does not know: a rule created
+          in the portal, or one left behind. Each becomes a warning and a row in the
+          job summary; the exit code stays 0, this is a report.
+
+          Terraform's drift plan cannot see these: it only looks at what it manages.
+          """
+          import json
+          import os
+          import subprocess
+          import sys
+
+          API = "2024-09-01"
+
+
+          def managed(plan: dict):
+              """(workspace id, names of the alertRules) from the planned values."""
+              names, workspace = set(), None
+              stack = [(plan.get("planned_values") or {}).get("root_module") or {}]
+              while stack:
+                  module = stack.pop()
+                  stack += module.get("child_modules") or []
+                  for r in module.get("resources") or []:
+                      values = r.get("values") or {}
+                      if r.get("type") == "azapi_resource" and \
+                              str(values.get("type", "")).startswith("Microsoft.SecurityInsights/alertRules@"):
+                          names.add(values.get("name"))
+                          workspace = workspace or values.get("parent_id")
+              return workspace, names
+
+
+          # Rules Sentinel creates and keeps by itself; they do not belong in the code.
+          BUILT_IN_KINDS = {"Fusion"}
+
+
+          def unmanaged(rules: list, names: set) -> list:
+              """(name, kind, display name, enabled) of the rules not in names."""
+              out = []
+              for r in rules:
+                  if r.get("name") in names or r.get("kind") in BUILT_IN_KINDS:
+                      continue
+                  p = r.get("properties") or {}
+                  out.append((r.get("name"), r.get("kind", ""), p.get("displayName", ""), p.get("enabled")))
+              return sorted(out, key=lambda x: (x[2] or "", x[0]))
+
+
+          def workspace_rules(workspace: str) -> list:
+              url = f"https://management.azure.com{workspace}/providers/Microsoft.SecurityInsights/alertRules?api-version={API}"
+              rules = []
+              while url:
+                  page = json.loads(subprocess.run(["az", "rest", "--method", "get", "--url", url],
+                                                   capture_output=True, text=True, check=True).stdout)
+                  rules += page.get("value") or []
+                  url = page.get("nextLink")
+              return rules
+
+
+          def main(plan_dir: str, unit: str) -> int:
+              path = os.path.join(plan_dir, unit, "tfplan.json")
+              if not os.path.isfile(path):
+                  print(f"::warning::no plan of {unit}, portal rules not checked")
+                  return 0
+              with open(path, encoding="utf-8") as fh:
+                  workspace, names = managed(json.load(fh))
+              if not workspace:
+                  print(f"::warning::{unit} manages no analytic rule, portal rules not checked")
+                  return 0
+              found = unmanaged(workspace_rules(workspace), names)
+              lines = ["## Analytic rules outside the code", ""]
+              if not found:
+                  lines.append(f"None: the workspace has exactly the {len(names)} rules the code manages.")
+              else:
+                  lines += [f"{len(found)} rules in the workspace that the code does not manage. "
+                            "Put each into the code, or delete it in the portal.", "",
+                            "| Display name | Kind | Enabled | Name |", "|---|---|---|---|"]
+                  for name, kind, display, enabled in found:
+                      lines.append(f"| {display} | {kind} | {enabled} | `{name}` |")
+                      print(f"::warning title=portal rule::{display or name} ({kind}) is not in the code")
+              text = "\n".join(lines) + "\n"
+              summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as fh:
+                      fh.write(text)
+              else:
+                  print(text)
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main(*sys.argv[1:3]))
+          __CI_EOF__
+          chmod +x "$d/portal-rules.py"
 
       - name: Tool versions
         id: versions
