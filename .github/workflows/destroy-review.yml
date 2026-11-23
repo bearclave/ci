@@ -2,7 +2,9 @@
 # A submitted review of a pull request in a repository that uses
 # terragrunt.yml: re-runs the failed gate of the last pull request run (its
 # step "Destroys approved after the plan"), so that an approval given after
-# the plan lets the gate pass without a new push. GitHub keeps the results
+# the plan lets the gate pass without a new push. Only a pull request with
+# the label `destroys` (set by the plan job when its plan has any) is
+# re-run; a review of another starts no job. GitHub keeps the results
 # and outputs of the other jobs, the plan among them.
 #
 # Called from the same ci.yml as terragrunt.yml, in a job of its own, so that
@@ -33,7 +35,12 @@ defaults:
 
 jobs:
   rerun:
-    if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved'
+    # Only a pull request whose plan has destroys carries the label `destroys`
+    # (set by the plan job); a review of any other has nothing to re-run, and a
+    # skipped job bills nothing.
+    if: >-
+      github.event_name == 'pull_request_review' && github.event.review.state == 'approved'
+      && contains(github.event.pull_request.labels.*.name, 'destroys')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

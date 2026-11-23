@@ -2,7 +2,7 @@
 # The pipeline of a repository that builds and deploys nothing (governance,
 # handbook, ops-tools, app-office-templates, vs-code-extensions, .github):
 # ESLint where the repository has JavaScript, an optional command of the
-# repository's own, then the gate the ruleset requires.
+# repository's own; the one job is the gate the ruleset requires.
 #
 #   jobs:
 #     pipeline:
@@ -31,9 +31,12 @@ defaults:
     shell: bash
 
 jobs:
-  # One job: ESLint where there is JavaScript, then the repository's own
-  # command. A job of its own for ESLint cost a minute even without any.
-  checks:
+  # One job, and it is the gate: ESLint where there is JavaScript, then the
+  # repository's own command. A job of its own for ESLint cost a minute even
+  # without any, and so did a gate that only read this job's result. Nothing
+  # in it can be skipped (a skipped job would count as passed in a required
+  # check): its steps carry on after a failure and the job ends red.
+  gate:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -100,23 +103,3 @@ jobs:
         env:
           COMMAND: ${{ inputs.command }}
         run: bash -euo pipefail -c "$COMMAND"
-
-  gate:
-    needs: [checks]
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      # needs of the gate job, as JSON: anything but success or skipped fails it.
-      # A skipped job counts as passed in a required check, so the gate - which
-      # always runs - is the one the ruleset requires.
-      - name: Everything needed passed
-        env:
-          RESULTS: ${{ toJSON(needs) }}
-        run: |
-          failed=$(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' <<<"$RESULTS")
-          if [ -n "$failed" ]; then
-            echo "::error::not passed: $(tr '\n' ' ' <<<"$failed")"
-            exit 1
-          fi
-          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$RESULTS"

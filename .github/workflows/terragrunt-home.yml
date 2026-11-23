@@ -2263,7 +2263,7 @@ jobs:
           #!/usr/bin/env python3
           """Works out from git which units a change touches.
 
-          Usage: select-units.py <base> [--no-expand] [--moves=<state-moves.json>]
+          Usage: select-units.py <base> [--no-expand] [--push] [--moves=<state-moves.json>]
 
           Compares <base> with HEAD and prints one JSON object:
 
@@ -2308,6 +2308,10 @@ jobs:
             is planned, so when nothing else is touched the whole tree runs - except
             what never reaches a plan (the same as changes.py): .claude/, Markdown,
             and .github/ but its workflows, tool-versions.env and trivyignore.yaml.
+            With --push (the push of a merge) such a change selects nothing instead:
+            the pull request planned the whole tree with the same workflows and nothing
+            of a unit changed, so there is nothing to apply. Anything else that is in
+            the change (a unit, a context file) is selected as usual.
           - No usable <base> (unknown, not an ancestor of HEAD) or no difference at all
             means the whole tree.
 
@@ -2439,7 +2443,7 @@ jobs:
               return moves
 
 
-          def select(base: str, do_expand: bool = True, moves_file: str = "", graph=None) -> dict:
+          def select(base: str, do_expand: bool = True, moves_file: str = "", graph=None, push: bool = False) -> dict:
               graph = graph or Graph()
               result = {"all": False, "units": [], "deleted": [], "moved": [], "renamed": [], "excluded": [],
                         "base": None}
@@ -2532,7 +2536,7 @@ jobs:
                   # Only the workflows or the scripts changed (they change how
                   # everything is planned), only what never reaches a plan, or only
                   # units were deleted.
-                  result["all"] = outside
+                  result["all"] = outside and not push
                   return result
               if selected >= head_units:
                   result["all"] = True
@@ -2544,7 +2548,8 @@ jobs:
           if __name__ == "__main__":
               args = [a for a in sys.argv[1:] if not a.startswith("--")]
               moves_arg = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--moves=")), "")
-              print(json.dumps(select(args[0] if args else "", "--no-expand" not in sys.argv, moves_arg)))
+              print(json.dumps(select(args[0] if args else "", "--no-expand" not in sys.argv, moves_arg,
+                                      push="--push" in sys.argv)))
           __CI_EOF__
           cat >"$d/base-commit.py" <<'__CI_EOF__'
           #!/usr/bin/env python3
@@ -2838,6 +2843,7 @@ jobs:
         id: units
         env:
           SCOPE: ${{ github.event_name == 'schedule' && 'all' || inputs.scope }}
+          EVENT: ${{ github.event_name }}
           BASE: ${{ steps.base.outputs.sha }}
         run: |
           set -euo pipefail
@@ -2848,7 +2854,11 @@ jobs:
             yq -o=json '.' .github/state-moves.yaml >"$RUNNER_TEMP/state-moves.json"
             moves=(--moves="$RUNNER_TEMP/state-moves.json")
           fi
-          selection=$(select-units.py "$BASE" "${moves[@]}")
+          # The push of a merge does not plan the whole tree for a change of
+          # the workflows alone: its pull request did.
+          push=()
+          if [ "$EVENT" = "push" ]; then push=(--push); fi
+          selection=$(select-units.py "$BASE" "${push[@]}" "${moves[@]}")
           if [ "$SCOPE" = "all" ]; then
             selection=$(jq -c '.all = true | .units = []' <<<"$selection")
           fi
@@ -6712,6 +6722,23 @@ jobs:
 
       # The moment the plan could be read in the pull request: an approval of
       # its destroys counts only after it.
+      # The label destroy-review.yml looks for: only a pull request whose plan
+      # destroys or replaces something has an approval to wait for, so a review
+      # of any other starts no job. Removed again when a later plan has none.
+      - name: Label the pull request
+        if: github.event_name == 'pull_request' && !cancelled() && steps.summary.outputs.has_destroys != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DESTROYS: ${{ steps.summary.outputs.has_destroys }}
+        run: |
+          set -euo pipefail
+          if [ "$DESTROYS" = "true" ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" -f "labels[]=destroys" >/dev/null
+          else
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels/destroys" >/dev/null 2>&1 || true
+          fi
+
       - name: Plan time
         id: planned
         if: always()

@@ -356,6 +356,27 @@ class SelectUnits(unittest.TestCase):
         self.assertFalse(r["all"])
         self.assertEqual(r["units"], [])
 
+    def test_push_of_workflows_alone_selects_nothing(self):
+        # The pull request planned the whole tree with them; the push has nothing to apply.
+        self.write(".github/workflows/ci.yml")
+        self.write(".github/tool-versions.env", "x\n")
+        self.commit()
+        self.assertTrue(self.select()["all"])
+        r = self.select(None, "--push")
+        self.assertFalse(r["all"])
+        self.assertEqual(r["units"], [])
+
+    def test_push_of_workflows_with_a_unit_selects_the_unit(self):
+        self.write(".github/workflows/ci.yml")
+        self.write("tenant/groups/terragrunt.hcl")
+        self.commit()
+        self.assertEqual(self.select(None, "--push", "--no-expand")["units"], ["tenant/groups"])
+
+    def test_push_of_root_hcl_still_selects_everything(self):
+        self.write("root.hcl")
+        self.commit()
+        self.assertTrue(self.select(None, "--push")["all"])
+
     def test_plan_inputs_under_github_select_everything(self):
         for path in (".github/tool-versions.env", ".github/trivyignore.yaml"):
             with self.subTest(path=path):

@@ -35,6 +35,16 @@ checkout lands in `modules-repo/`. Renaming the repository is that default in
 `modules` and `modules_ref` of each caller's `account.hcl`, which name the
 source the map replaces).
 
+**Minutes saved without weakening a check.** On the push of a merge, a change
+of the workflows alone selects no unit (`select-units.py --push`): its pull
+request planned the whole tree with them, and a unit or `root.hcl` in the same
+change still selects as before. The plan job puts the label `destroys` on a
+pull request whose plan destroys or replaces something (and takes it off
+again); `destroy-review.yml` re-runs the gate only for a pull request with
+that label, so the review of any other starts no job. A pull request that has
+destroys but lost the label is not re-run by its review: push, or re-run the
+gate by hand.
+
 ## Providers and sign-in
 
 Every provider of the Microsoft cloud signs in the same way, from the

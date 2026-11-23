@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Works out from git which units a change touches.
 
-Usage: select-units.py <base> [--no-expand] [--moves=<state-moves.json>]
+Usage: select-units.py <base> [--no-expand] [--push] [--moves=<state-moves.json>]
 
 Compares <base> with HEAD and prints one JSON object:
 
@@ -46,6 +46,10 @@ What decides the selection:
   is planned, so when nothing else is touched the whole tree runs - except
   what never reaches a plan (the same as changes.py): .claude/, Markdown,
   and .github/ but its workflows, tool-versions.env and trivyignore.yaml.
+  With --push (the push of a merge) such a change selects nothing instead:
+  the pull request planned the whole tree with the same workflows and nothing
+  of a unit changed, so there is nothing to apply. Anything else that is in
+  the change (a unit, a context file) is selected as usual.
 - No usable <base> (unknown, not an ancestor of HEAD) or no difference at all
   means the whole tree.
 
@@ -177,7 +181,7 @@ def read_moves(path: str) -> dict:
     return moves
 
 
-def select(base: str, do_expand: bool = True, moves_file: str = "", graph=None) -> dict:
+def select(base: str, do_expand: bool = True, moves_file: str = "", graph=None, push: bool = False) -> dict:
     graph = graph or Graph()
     result = {"all": False, "units": [], "deleted": [], "moved": [], "renamed": [], "excluded": [],
               "base": None}
@@ -270,7 +274,7 @@ def select(base: str, do_expand: bool = True, moves_file: str = "", graph=None) 
         # Only the workflows or the scripts changed (they change how
         # everything is planned), only what never reaches a plan, or only
         # units were deleted.
-        result["all"] = outside
+        result["all"] = outside and not push
         return result
     if selected >= head_units:
         result["all"] = True
@@ -282,4 +286,5 @@ def select(base: str, do_expand: bool = True, moves_file: str = "", graph=None) 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     moves_arg = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--moves=")), "")
-    print(json.dumps(select(args[0] if args else "", "--no-expand" not in sys.argv, moves_arg)))
+    print(json.dumps(select(args[0] if args else "", "--no-expand" not in sys.argv, moves_arg,
+                            push="--push" in sys.argv)))

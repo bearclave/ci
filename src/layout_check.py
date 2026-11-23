@@ -161,6 +161,9 @@ def self_test() -> int:
               "pipelines": {"terragrunt": {"required": ["root.hcl", "infrastructure"], "files": ["root.hcl"],
                                            "folders": ["infrastructure"], "forbidden": ["tools", "deploy"]},
                             "terraform-modules": {"content": "modules"}, "checks": {}}}
+    # The layout after the standardisation: `folders: [modules]` instead of
+    # `content: modules`. Both forms are read while governance moves over.
+    layout_new = {**layout, "pipelines": {**layout["pipelines"], "terraform-modules": {"folders": ["modules"]}}}
     cases = [
         ("iac-x", "terragrunt", ["README.md", "root.hcl", "infrastructure/mg/rg/terragrunt.hcl",
                                  "docs/setup.md"], {}, 0),
@@ -180,8 +183,14 @@ def self_test() -> int:
          {"exceptions": [{"path": "gotchas", "reason": "content"}]}, 0),
         ("handbook", "checks", ["gotchas/a.md"], {"exceptions": [{"path": "gotchas"}]}, 3),
     ]
+    cases_new = [
+        ("iac-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf"], {}, 0),
+        ("iac-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf", "azure/a/main.tf"], {}, 1),
+    ]
     failed = 0
-    for name, pipeline, paths, config, expected in cases:
+    for lay, name, pipeline, paths, config, expected in (
+            [(layout, *c) for c in cases] + [(layout_new, *c) for c in cases_new]
+            + [(layout_new, *c) for c in cases if c[1] != "terraform-modules"]):
         with tempfile.TemporaryDirectory() as root:
             ci = ".github/workflows/ci.yml"
             for path in paths + [ci]:
@@ -190,7 +199,7 @@ def self_test() -> int:
                     fh.write(f"uses: bearclave/ci/.github/workflows/{pipeline}.yml@v2\n" if path == ci else "")
             subprocess.run(["git", "init", "-q", root], check=True)
             subprocess.run(["git", "-C", root, "add", "-A"], check=True)
-            errors, _ = check(layout, config, name, root)
+            errors, _ = check(lay, config, name, root)
             if len(errors) != expected:
                 failed += 1
                 print(f"FAIL {name} {paths}: {len(errors)} errors, expected {expected}: {errors}")
