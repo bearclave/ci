@@ -13,4 +13,7 @@
     cat >"$d/check-principal-refs.py" <<'__CI_EOF__'
     @@include src/terragrunt/check-principal-refs.py@@
     __CI_EOF__
+    cat >"$d/stale-temp-files.py" <<'__CI_EOF__'
+    @@include src/terragrunt/stale-temp-files.py@@
+    __CI_EOF__
     chmod +x "$d"/*

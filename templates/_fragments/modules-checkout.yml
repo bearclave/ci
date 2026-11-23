@@ -13,8 +13,8 @@
 
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
   with:
-    repository: bearclave/iac-modules
-    path: iac-modules
+    repository: ${{ env.MODULES_REPO }}
+    path: modules-repo
     ref: ${{ steps.modules-ref.outputs.ref }}
     ssh-key: ${{ secrets.modules-deploy-key }}
     persist-credentials: false

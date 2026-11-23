@@ -169,6 +169,14 @@ select:
         echo "sha=$base" >>"$GITHUB_OUTPUT"
         echo "Compared with \`$base\`." >>"$GITHUB_STEP_SUMMARY"
 
+    # imports.hcl and moves.hcl are deleted in the pull request after their
+    # apply; one older than this run's base is a warning, never a failure.
+    - name: Temporary files
+      if: steps.diff.outputs.relevant != 'false' && github.event_name != 'pull_request'
+      env:
+        BASE: ${{ steps.base.outputs.sha }}
+      run: stale-temp-files.py "$BASE"
+
     # A principal the same change creates cannot be referenced by display
     # name: `dependencies` orders the run but a plan creates nothing, so the
     # lookup goes to Entra and finds nothing. Caught here rather than by a
@@ -343,7 +351,7 @@ validate:
       env:
         TG_PROVIDER_CACHE: "1"
         TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
-        TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+        TG_SOURCE_MAP: git::https://github.com/${{ env.MODULES_REPO }}=${{ env.MODULES_DIR }}
         TG_EXPERIMENT: optional-dependency-outputs
         TF_CLI_ARGS_init: -backend=false
         SELECTION: ${{ needs.select.outputs.selection }}
@@ -523,7 +531,7 @@ plan-shard:
       env:
         TG_PROVIDER_CACHE: "1"
         TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
-        TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+        TG_SOURCE_MAP: git::https://github.com/${{ env.MODULES_REPO }}=${{ env.MODULES_DIR }}
         SELECTION: ${{ needs.select.outputs.selection }}
         SHARD: ${{ toJSON(matrix.shard) }}
         PLAN_JSON: ${{ runner.temp }}/plan-json
@@ -918,7 +926,7 @@ apply:
       env:
         TG_PROVIDER_CACHE: "1"
         TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
-        TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+        TG_SOURCE_MAP: git::https://github.com/${{ env.MODULES_REPO }}=${{ env.MODULES_DIR }}
         SELECTION: ${{ steps.target.outputs.selection }}
       run: |
         set -euo pipefail
@@ -941,7 +949,7 @@ apply:
       env:
         TG_PROVIDER_CACHE: "1"
         TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
-        TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+        TG_SOURCE_MAP: git::https://github.com/${{ env.MODULES_REPO }}=${{ env.MODULES_DIR }}
         SELECTION: ${{ steps.target.outputs.selection }}
       run: |
         set -euo pipefail
@@ -990,7 +998,7 @@ apply:
       env:
         TG_PROVIDER_CACHE: "1"
         TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
-        TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ env.MODULES_DIR }}
+        TG_SOURCE_MAP: git::https://github.com/${{ env.MODULES_REPO }}=${{ env.MODULES_DIR }}
         SELECTION: ${{ steps.target.outputs.selection }}
         VERIFY_JSON: ${{ runner.temp }}/verify-json
       run: |

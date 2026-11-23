@@ -27,6 +27,14 @@ apply comment). Security is unchanged: the same read-only permissions,
 no sign-in in any of them, the environment and the OIDC subjects of
 `plan` and `apply` untouched.
 
+**The modules repository** is written once per workflow, as the input
+`modules-repository` (default `bearclave/iac-modules`); the checkout, the
+`TG_SOURCE_MAP` of every job and the drift read it from there, and the
+checkout lands in `modules-repo/`. Renaming the repository is that default in
+`terragrunt.yml`, `terragrunt-home.yml` and `terragrunt-drift.yml` (plus the
+`modules` and `modules_ref` of each caller's `account.hcl`, which name the
+source the map replaces).
+
 ## Providers and sign-in
 
 Every provider of the Microsoft cloud signs in the same way, from the
