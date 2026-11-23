@@ -73,6 +73,28 @@ exceptions:
 | `todo-issue` (every repository) | a to-do comment names its issue: `TODO(#42): ...`; any tracked file but Markdown and binaries | `files`, `exclude` |
 | `markdown-links` (every repository) | a relative link or image in Markdown leads to a file or folder of the repository, and its `#anchor` to a heading of the linked Markdown; offline, nothing is fetched; links in code are skipped | `exclude` |
 
+**The shape of the HCL** (the next seven rules). They run in every repository
+that names its `units`, without being listed, **as warnings** until the
+repository sets `level: error` (or `off`, with an exception's reason): a
+repository moves its code, then flips the switch.
+
+| Rule | What it holds | Parameters |
+|---|---|---|
+| `no-raw-terraform` | in any `*.hcl` (not `.terraform.lock.hcl`): no heredoc (`<<EOF`, `<<-EOT`), no `generate` block whose `contents` is not `templatefile()`/`file()`, no inline `import`, `moved` or `removed` block. The only Terraform in a live repository is `_common/templates/*.tf.tmpl`; imports and moves are the data of `imports.hcl` and `moves.hcl` | `paths` (default `**/*.hcl`) |
+| `unit-no-logic` | a unit `terragrunt.hcl` (not `_common/`, `root.hcl`, `account.hcl`, `context.hcl`) has no `for` expression, no conditional (`? :`) and no `%{ if }`/`%{ for }` | - |
+| `unit-comments` | a unit has no comment of two or more consecutive lines (one line, only when needed) | - |
+| `unit-block-order` | a unit has `include` (root, unit, then the dependencies), `dependency`, `dependencies`, `locals`, `inputs` in that order; `inputs = {}` only with `# Content: the YAML files in definitions/.` directly above it | - |
+| `no-guid-in-unit` | no GUID in a unit `terragrunt.hcl`: IDs come from `account.hcl`/`context.hcl` or a lookup by name in the module (wider than `no-hardcoded-ids`, which knows only the IDs of `account.hcl`) | - |
+| `yaml-ids` | a GUID in a YAML file of a unit only when the allow-list lists it. The list is `.github/allowed-ids.yaml`, read for every GUID it holds in any form (a list, a map with names, comments): the well-known first- and third-party app IDs and the role template IDs the API needs, each with its name; the repository owns the contents | `allowlist` |
+| `collection-layout` | a YAML file of a unit sits under `<unit>/definitions/` (subfolders allowed, the key is the basename), and is named `[a-z0-9-]+.yaml`: ASCII, lower case, kebab-case, so English (display names may be Czech) | - |
+
+`imports.hcl` and `moves.hcl` next to a unit are temporary: added in the pull
+request that needs them, deleted in the next one after the apply. A pipeline
+run on `main` and the weekly drift warn ("Temporary file") about one that
+an earlier pull request added (`src/terragrunt/stale-temp-files.py`); it
+never fails a run. Both files select their unit like any file in it, and the
+plan comment shows what they do: `moved` blocks as moves, imports as imports.
+
 Each violation is an annotation on its line and a row in the job summary. An
 exception without a `reason`, an unknown rule or level fail the check. The
 script reads HCL with a small parser of its own and needs only the Python
