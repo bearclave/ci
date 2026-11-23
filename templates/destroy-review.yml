@@ -1,8 +1,8 @@
 # A submitted review of a pull request in a repository that uses
-# terragrunt.yml: re-runs the failed "destroy / approved" check of the last
-# pull request run, so that an approval given after the plan lets the gate
-# pass without a new push. GitHub re-runs the jobs that need it (the gate) and
-# keeps the results and outputs of the others, the plan among them.
+# terragrunt.yml: re-runs the failed gate of the last pull request run (its
+# step "Destroys approved after the plan"), so that an approval given after
+# the plan lets the gate pass without a new push. GitHub keeps the results
+# and outputs of the other jobs, the plan among them.
 #
 # Called from the same ci.yml as terragrunt.yml, in a job of its own, so that
 # a review run carries no check named like the required ones:
@@ -39,7 +39,7 @@ jobs:
       contents: read
       actions: write
     steps:
-      - name: Re-run the destroy check
+      - name: Re-run the gate
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

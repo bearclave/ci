@@ -80,6 +80,14 @@ class Lookups(unittest.TestCase):
         self.assertEqual(da.destroy_job(jobs)["id"], 7)
         self.assertIsNone(da.destroy_job(jobs[:1]))
 
+    def test_the_check_is_a_step_of_the_gate(self):
+        gate = {"name": "pipeline / gate", "id": 9, "steps": [{"name": da.STEP}]}
+        old = {"name": "pipeline / destroy / approved", "id": 7}
+        self.assertEqual(da.destroy_job([{"name": "pipeline / plan"}, gate])["id"], 9)
+        self.assertEqual(da.destroy_job([old, gate])["id"], 9)
+        # A gate without the step (a run that left it out) is still the job to re-run.
+        self.assertEqual(da.destroy_job([{"name": "pipeline / gate", "id": 9}])["id"], 9)
+
     def test_approved_only_through_the_step(self):
         ok = {"conclusion": "success", "steps": [{"name": da.STEP, "conclusion": "success"}]}
         none = {"conclusion": "success", "steps": [{"name": da.STEP, "conclusion": "skipped"},

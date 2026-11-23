@@ -1,32 +1,29 @@
-# The rules in conventions.yaml; on a pull request only, main holds nothing
-# a pull request has not checked.
-conventions:
-  if: github.event_name == 'pull_request' && inputs.conventions
+# What the run works on, in seconds and without signing in anywhere: which
+# paths the change touches, the conventions and the Sentinel lint (pull
+# request only), the base commit, the principal references, the unit
+# selection and its split into the plan jobs. validate and the plan jobs
+# both start from it, side by side. One job instead of five, because every
+# job bills a whole minute however short it is; nothing in it signs in or
+# writes. A pull request outside the relevant paths is green without a plan
+# (the later jobs skip on `relevant`, and a skipped job reports as passed).
+# The conventions and the lint do not stop the plan: their steps carry on
+# after a failure and the gate reads `lint`. Outside a pull request the
+# caller's push paths have already decided.
+select:
   runs-on: ubuntu-24.04
-  timeout-minutes: 5
-  steps:
-    @@include templates/_fragments/conventions-steps.yml@@
-
-# The analytic rules, against what Sentinel takes (sentinel-lint.yaml).
-sentinel:
-  if: github.event_name == 'pull_request' && inputs.sentinel-lint
-  runs-on: ubuntu-24.04
-  timeout-minutes: 5
-  steps:
-    @@include templates/_fragments/sentinel-steps.yml@@
-
-# A skipped job reports as passed, so a pull request outside the relevant
-# paths is green without a plan. Outside a pull request the caller's push
-# paths have already decided.
-changes:
-  runs-on: ubuntu-24.04
-  timeout-minutes: 5
+  timeout-minutes: 15
   permissions:
     contents: read
     pull-requests: read
+    # The base commit is the head of the last successful run on main.
+    actions: read
   outputs:
     relevant: ${{ steps.diff.outputs.relevant }}
+    lint: ${{ (steps.conventions.outcome == 'failure' || steps.sentinel.outcome == 'failure') && 'failed' || 'passed' }}
+    selection: ${{ steps.units.outputs.selection }}
+    shards: ${{ steps.shards.outputs.shards }}
   steps:
+    # A file list that cannot be read plans rather than skips.
     - name: Paths the change touches
       id: diff
       env:
@@ -45,7 +42,6 @@ changes:
         cat >"$RUNNER_TEMP/changes.py" <<'__CI_EOF__'
         @@include src/terragrunt/changes.py@@
         __CI_EOF__
-        # A file list that cannot be read plans rather than skips.
         if ! gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only >"$RUNNER_TEMP/files"; then
           echo "relevant=true" >>"$GITHUB_OUTPUT"
           exit 0
@@ -64,49 +60,84 @@ changes:
           echo "Nothing to plan: the change touches no unit, context file or workflow (Dependabot and release configs, .claude/ and Markdown outside the units do not count)." >>"$GITHUB_STEP_SUMMARY"
         fi
 
-# What the run works on, in seconds and without signing in anywhere: the
-# base commit, the principal references, the unit selection and its split
-# into the plan jobs. validate and the plan jobs both start from it, side
-# by side.
-select:
-  needs: changes
-  # !cancelled() so that a failed changes job still validates and plans.
-  if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
-  runs-on: ubuntu-24.04
-  timeout-minutes: 10
-  permissions:
-    contents: read
-    # The base commit is the head of the last successful run on main.
-    actions: read
-  outputs:
-    selection: ${{ steps.units.outputs.selection }}
-    shards: ${{ steps.shards.outputs.shards }}
-  steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
         persist-credentials: false
+
+    # The rules in conventions.yaml; on a pull request only, main holds
+    # nothing a pull request has not checked. The same step as
+    # _fragments/conventions-steps.yml, which carries on after a failure here.
+    - name: Conventions
+      id: conventions
+      if: github.event_name == 'pull_request' && inputs.conventions
+      continue-on-error: true
+      env:
+        CONFIG: ${{ inputs.conventions-config }}
+      run: |
+        script="$RUNNER_TEMP/conventions.py"
+        cat >"$script" <<'__CI_EOF__'
+        @@include src/conventions.py@@
+        __CI_EOF__
+        if [ -z "$CONFIG" ]; then
+          CONFIG=.github/conventions.yaml
+          [ -f "$CONFIG" ] || CONFIG=conventions.yaml
+        fi
+        if [ ! -f "$CONFIG" ]; then
+          echo "::error::$CONFIG not found"
+          exit 1
+        fi
+        yq -o=json '.' "$CONFIG" >"$RUNNER_TEMP/conventions.json"
+        # The rules every repository has run in pr / check (pr.yml).
+        python3 "$script" "$RUNNER_TEMP/conventions.json" . --skip todo-issue,markdown-links,collection-schema
+
+    # The analytic rules, against what Sentinel takes (sentinel-lint.yaml).
+    - name: Analytic rules
+      id: sentinel
+      if: github.event_name == 'pull_request' && inputs.sentinel-lint
+      continue-on-error: true
+      env:
+        CONFIG: ${{ inputs.sentinel-config }}
+      run: |
+        script="$RUNNER_TEMP/sentinel_lint.py"
+        cat >"$script" <<'__CI_EOF__'
+        @@include src/sentinel_lint.py@@
+        __CI_EOF__
+        if [ -z "$CONFIG" ]; then
+          CONFIG=.github/sentinel-lint.yaml
+          [ -f "$CONFIG" ] || CONFIG=sentinel-lint.yaml
+        fi
+        if [ ! -f "$CONFIG" ]; then
+          echo "::error::$CONFIG not found"
+          exit 1
+        fi
+        yq -o=json '.' "$CONFIG" >"$RUNNER_TEMP/sentinel-lint.json"
+        python3 "$script" "$RUNNER_TEMP/sentinel-lint.json" .
 
     @@include templates/_fragments/scripts-common.yml@@
 
     @@include templates/_fragments/scripts-select.yml@@
 
     - name: Tool versions
+      if: steps.diff.outputs.relevant != 'false'
       id: versions
       run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
 
     - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      if: steps.diff.outputs.relevant != 'false'
       with:
         terraform_version: ${{ steps.versions.outputs.TERRAFORM_VERSION }}
         terraform_wrapper: false
 
     - name: Restore tools
+      if: steps.diff.outputs.relevant != 'false'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.TOOLS_DIR }}
         key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
 
     - name: Install terragrunt
+      if: steps.diff.outputs.relevant != 'false'
       run: install-tools.sh terragrunt
 
     # A pull request is compared with its base branch. On main the base is
@@ -115,6 +146,7 @@ select:
     # the state), so a change a failed or held-back apply left out is still
     # selected now. Runs on main never overlap (see concurrency).
     - name: Base commit
+      if: steps.diff.outputs.relevant != 'false'
       id: base
       env:
         EVENT: ${{ github.event_name }}
@@ -142,7 +174,7 @@ select:
     # lookup goes to Entra and finds nothing. Caught here rather than by a
     # failed plan half an hour into the queue.
     - name: Principal references
-      if: inputs.principal-refs
+      if: inputs.principal-refs && steps.diff.outputs.relevant != 'false'
       env:
         BASE: ${{ steps.base.outputs.sha }}
       run: |
@@ -152,6 +184,7 @@ select:
 
     # A scheduled run (certificate renewal, iac-home) looks at the whole tree.
     - name: Select the units
+      if: steps.diff.outputs.relevant != 'false'
       id: units
       env:
         SCOPE: ${{ github.event_name == 'schedule' && 'all' || inputs.scope }}
@@ -201,6 +234,7 @@ select:
     # counts as units. The deleted units go to the first share. Behind a
     # VPN there is one share: the network has one peer for the runners.
     - name: Shares of the plan
+      if: steps.diff.outputs.relevant != 'false'
       id: shards
       env:
         SELECTION: ${{ steps.units.outputs.selection }}
@@ -232,8 +266,8 @@ select:
 # applies without it. It signs in to Azure (the plan identity) only where
 # the configuration reads a secret while it is parsed (validate-sign-in).
 validate:
-  needs: [changes, select]
-  if: ${{ !cancelled() && needs.select.result == 'success' }}
+  needs: select
+  if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.relevant != 'false' }}
   runs-on: ubuntu-24.04
   timeout-minutes: 15
   permissions:
@@ -383,9 +417,11 @@ validate:
 # its JSON plans for the plan job.
 plan-shard:
   name: plan (${{ matrix.shard.name }})
-  needs: [changes, select]
+  needs: select
   # Next to validate, not after it; skipped where nothing is relevant.
-  if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.shards != '[]' }}
+  if: >-
+    ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.relevant != 'false'
+    && needs.select.outputs.shards != '[]' }}
   # The jobs that reach the managed resources (plan shares, apply) run where
   # those are reachable: a GitHub runner, or the NAS runner on the home
   # network for iac-home (network-runner, docs/runners.md). The other jobs
@@ -586,8 +622,8 @@ plan-shard:
 # verdict apply and destroy go by. It fails when a share did. It waits for
 # validate too, whose result the comment shows.
 plan:
-  needs: [changes, select, validate, plan-shard]
-  if: ${{ !cancelled() && needs.select.result == 'success' }}
+  needs: [select, validate, plan-shard]
+  if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.relevant != 'false' }}
   runs-on: ubuntu-24.04
   timeout-minutes: 10
   permissions:
@@ -718,19 +754,21 @@ plan:
 
 # GitHub Team has no approval on an environment of a private repository,
 # so the approval of destroys and replaces is the owner's review of the pull
-# request, given after its plan. On a pull request this check passes when
-# the plan has none, or when such a review exists; a review submitted later
-# re-runs it (destroy-review.yml). On main it finds the merged pull request
-# and tells the apply whether that check passed on an approval; it never
-# fails there, the gate says what is missing.
+# request, given after its plan. On a pull request the gate checks it (the
+# step "Destroys approved after the plan"): it passes when the plan has none,
+# or when such a review exists; a review submitted later re-runs the failed
+# gate (destroy-review.yml). That check is a step of the gate, not a job of
+# its own, because a job of five seconds bills a whole minute. This job runs
+# on main only, when the plan has destroys: it finds the merged pull request
+# and tells the apply whether the gate of its run passed on an approval; it
+# never fails there, the gate says what is missing.
 destroy:
   name: destroy / approved
   needs: plan
   if: >-
-    !cancelled()
-    && (github.event_name == 'pull_request'
-        || (needs.plan.outputs.has_destroys == 'true' && !inputs.allow-destroy
-            && github.event_name != 'schedule'))
+    !cancelled() && github.event_name != 'pull_request'
+    && needs.plan.outputs.has_destroys == 'true' && !inputs.allow-destroy
+    && github.event_name != 'schedule'
   runs-on: ubuntu-24.04
   timeout-minutes: 5
   permissions:
@@ -752,22 +790,8 @@ destroy:
         chmod +x "$d/destroy-approval.py"
         echo "$d" >>"$GITHUB_PATH"
 
-    - name: No destroys in the plan
-      if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys != 'true'
-      run: echo "The plan destroys and replaces nothing." >>"$GITHUB_STEP_SUMMARY"
-
-    # The name is read on main (destroy-approval.py STEP): only this step's
-    # success means the destroys were approved.
-    - name: Destroys approved after the plan
-      if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys == 'true'
-      env:
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-        PLANNED_AT: ${{ needs.plan.outputs.planned_at }}
-      run: destroy-approval.py pr "$PR_NUMBER" "$PLANNED_AT"
-
     - name: The merged pull request approved the destroys
       id: merged
-      if: github.event_name != 'pull_request'
       run: |
         # The caller's workflow file, e.g. ci.yml.
         wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
@@ -1145,12 +1169,14 @@ report:
         fi
         pr-comment.sh "$pr" apply.md "terragrunt-apply-$GITHUB_RUN_ID"
 
-# The result of the verification as a check of its own. When it failed: a
+# Runs only when the verification failed (a passed one is in the apply
+# comment of the report job, and a job that only echoes bills a minute): a
 # Bug issue (prio:high, source:drift) and a draft pull request that reverts
-# the commit. The only job that may write to the repository.
+# the commit, and the run is red. The only job that may write to the
+# repository.
 verify:
   needs: apply
-  if: ${{ !cancelled() && needs.apply.outputs.verification != '' }}
+  if: ${{ !cancelled() && needs.apply.outputs.verification == 'failed' }}
   runs-on: ubuntu-24.04
   timeout-minutes: 10
   permissions:
@@ -1208,17 +1234,49 @@ verify:
 # green, so eight applies in a row never happened and nothing said so. An
 # apply that was due and did not succeed has to be red.
 gate:
-  needs: [conventions, sentinel, changes, select, validate, plan-shard, plan, destroy, apply, verify]
+  needs: [select, validate, plan-shard, plan, destroy, apply, verify]
   if: always()
   runs-on: ubuntu-24.04
   timeout-minutes: 5
+  permissions:
+    contents: read
+    # Read only: the approval check reads the reviews and the runs.
+    pull-requests: read
+    actions: read
+  env:
+    GH_TOKEN: ${{ github.token }}
   steps:
+    - name: Approval script
+      if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys == 'true'
+      run: |
+        d="$RUNNER_TEMP/ci"
+        mkdir -p "$d"
+        cat >"$d/destroy-approval.py" <<'__CI_EOF__'
+        @@include src/terragrunt/destroy-approval.py@@
+        __CI_EOF__
+        chmod +x "$d/destroy-approval.py"
+        echo "$d" >>"$GITHUB_PATH"
+
+    # The name is read on main (destroy-approval.py STEP): only this step's
+    # success means the destroys were approved. A plan without destroys needs
+    # no approval, and a plan that did not run says so in the step below.
+    - name: Destroys approved after the plan
+      if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys == 'true'
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PLANNED_AT: ${{ needs.plan.outputs.planned_at }}
+      run: destroy-approval.py pr "$PR_NUMBER" "$PLANNED_AT"
+
     - name: Checks passed
-      if: github.event_name == 'pull_request'
+      if: always() && github.event_name == 'pull_request'
       env:
         RESULTS: ${{ toJSON(needs) }}
+        LINT: ${{ needs.select.outputs.lint }}
       run: |
         failed=$(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' <<<"$RESULTS")
+        if [ "$LINT" = "failed" ]; then
+          failed="$failed"$'\n'"conventions or Sentinel lint: failed (annotations of the select job)"
+        fi
         if [ -n "$failed" ]; then
           echo "::error::not passed: $(tr '\n' ' ' <<<"$failed")"
           exit 1
@@ -1259,7 +1317,7 @@ gate:
         # change is drift: the resources differ from main.
         if [ "$EVENT" = "schedule" ]; then
           if [ "$RENEWAL_DUE" = "true" ]; then
-            if [ "$APPLY_RESULT" != "success" ] || [ "$VERIFICATION" != "passed" ] || [ "$VERIFY_RESULT" != "success" ]; then
+            if [ "$APPLY_RESULT" != "success" ] || [ "$VERIFICATION" != "passed" ]; then
               echo "::error::the renewal of $RENEWAL_UNIT was due but did not apply and verify (apply: $APPLY_RESULT, verification: ${VERIFICATION:-missing})"
               exit 1
             fi
@@ -1292,7 +1350,7 @@ gate:
           echo "::error::the plan proposed a change but apply ended as '$APPLY_RESULT'"
           exit 1
         fi
-        if [ "$VERIFICATION" != "passed" ] || [ "$VERIFY_RESULT" != "success" ]; then
+        if [ "$VERIFICATION" != "passed" ]; then
           echo "::error::the apply went through but its verification is '${VERIFICATION:-missing}' (verify: $VERIFY_RESULT)"
           exit 1
         fi

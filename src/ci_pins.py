@@ -17,6 +17,14 @@ is rebuilt from the default branch, the title and description rewritten).
 Calls of `@v2` and of another major are left alone. iac-m365 is skipped (being
 retired).
 
+A pin is not moved when nothing it calls has changed: every pull request
+costs a whole-tree plan in a Terragrunt repository, and most releases touch a
+workflow the repository does not use. The workflows a repository calls are
+compared between its pin and the new release (the compare API); only when one
+of them differs are all its pins bumped. A comparison that cannot be read, or
+is truncated, counts as a change. A release whose tag is not an annotated,
+verified signed tag is refused, as it is for the major tag (major_tag.py).
+
 Usage: ci_pins.py vX.Y.Z             open or update the pull requests (bot)
        ci_pins.py --dry-run vX.Y.Z   only print the diffs; reads with GH_TOKEN
                                      when it is set, else as the bot
@@ -29,6 +37,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import github_bot as gh  # noqa: E402
+import major_tag  # noqa: E402
 
 THIS_REPO = "ci"
 SKIP = {THIS_REPO, "iac-m365"}
@@ -70,6 +79,60 @@ def check_release(tag: str, release: dict, releases: list) -> None:
              and version(r["tag_name"])[0] == major and version(r["tag_name"]) > version(tag)]
     if newer:
         sys.exit(f"refused: {max(newer, key=version)} is newer than {tag}")
+
+
+def check_signed(tag: str, release: dict, token: str) -> None:
+    """Refuses a tag that is lightweight or not verified signed (the rule of major_tag.py)."""
+    try:
+        ref = gh.request("GET", f"/repos/{gh.ORG}/{THIS_REPO}/git/ref/tags/{tag}", token)
+        tag_object = (gh.request("GET", f"/repos/{gh.ORG}/{THIS_REPO}/git/tags/{ref['object']['sha']}", token)
+                      if ref["object"]["type"] == "tag" else {})
+    except gh.NotFound:
+        sys.exit(f"refused: no tag {tag}")
+    try:
+        major_tag.check_release(tag, release, ref, tag_object)
+    except major_tag.Refused as e:
+        sys.exit(f"refused: {e}")
+
+
+# The compare API lists at most 300 files; a comparison that long is not read.
+COMPARE_LIMIT = 300
+
+
+def called(text: str, tag: str) -> dict:
+    """{workflow file name: the older pin} of every call a bump would move."""
+    new = version(tag)
+    out = {}
+    for m in PIN.finditer(text):
+        cur = version(m.group(2))
+        if cur is not None and cur[0] == new[0] and cur < new:
+            out[m.group(1).rsplit("/", 1)[1]] = m.group(2)
+    return out
+
+
+def changed_workflows(old: str, tag: str, token: str, cache: dict):
+    """The names of the workflow files that differ between two releases, or None
+    when that cannot be told (an unreadable or truncated comparison)."""
+    if (old, tag) not in cache:
+        try:
+            data = gh.request("GET", f"/repos/{gh.ORG}/{THIS_REPO}/compare/{old}...{tag}", token)
+            files = data.get("files") or []
+            cache[(old, tag)] = None if len(files) >= COMPARE_LIMIT else {
+                f["filename"].rsplit("/", 1)[1] for f in files
+                if f["filename"].startswith(".github/workflows/")}
+        except (gh.NotFound, gh.ApiError):
+            cache[(old, tag)] = None
+    return cache[(old, tag)]
+
+
+def calls_a_changed_workflow(texts: list, tag: str, token: str, cache: dict) -> bool:
+    """True when a workflow some pin calls differs between that pin and tag."""
+    for text in texts:
+        for name, old in called(text, tag).items():
+            changed = changed_workflows(old, tag, token, cache)
+            if changed is None or name in changed:
+                return True
+    return False
 
 
 def title(tag: str) -> str:
@@ -131,6 +194,8 @@ def main(argv: list) -> int:
     except gh.NotFound:
         sys.exit(f"refused: no published release {tag}")
     check_release(tag, release, gh.request("GET", f"/repos/{gh.ORG}/{THIS_REPO}/releases?per_page=100", read_token))
+    check_signed(tag, release, read_token)
+    compared = {}
 
     gh.say(f"## Pins of bearclave/ci -> {tag}{' (dry run)' if dry_run else ''}")
     gh.say()
@@ -141,7 +206,12 @@ def main(argv: list) -> int:
             continue
         base_sha = gh.request("GET", f"/repos/{gh.ORG}/{name}/commits/{base}", read_token)["sha"]
         changed, old = {}, set()
-        for path, text in sorted(workflow_files(name, base_sha, read_token).items()):
+        files = workflow_files(name, base_sha, read_token)
+        if not calls_a_changed_workflow(list(files.values()), tag, read_token, compared):
+            if any(called(t, tag) for t in files.values()):
+                gh.say(f"- {name}: skipped, nothing it calls changed in {tag}")
+            continue
+        for path, text in sorted(files.items()):
             new_text, replaced = bump(text, tag)
             if replaced:
                 changed[path] = new_text

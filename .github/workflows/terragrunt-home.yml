@@ -174,18 +174,156 @@ env:
   GITHUB_APP_VAULT: ""
 
 jobs:
-  # The rules in conventions.yaml; on a pull request only, main holds nothing
-  # a pull request has not checked.
-  conventions:
-    if: github.event_name == 'pull_request' && inputs.conventions
+  # What the run works on, in seconds and without signing in anywhere: which
+  # paths the change touches, the conventions and the Sentinel lint (pull
+  # request only), the base commit, the principal references, the unit
+  # selection and its split into the plan jobs. validate and the plan jobs
+  # both start from it, side by side. One job instead of five, because every
+  # job bills a whole minute however short it is; nothing in it signs in or
+  # writes. A pull request outside the relevant paths is green without a plan
+  # (the later jobs skip on `relevant`, and a skipped job reports as passed).
+  # The conventions and the lint do not stop the plan: their steps carry on
+  # after a failure and the gate reads `lint`. Outside a pull request the
+  # caller's push paths have already decided.
+  select:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      # The base commit is the head of the last successful run on main.
+      actions: read
+    outputs:
+      relevant: ${{ steps.diff.outputs.relevant }}
+      lint: ${{ (steps.conventions.outcome == 'failure' || steps.sentinel.outcome == 'failure') && 'failed' || 'passed' }}
+      selection: ${{ steps.units.outputs.selection }}
+      shards: ${{ steps.shards.outputs.shards }}
     steps:
+      # A file list that cannot be read plans rather than skips.
+      - name: Paths the change touches
+        id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+          RELEVANT: ${{ inputs.relevant-paths }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "relevant=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cat >"$RUNNER_TEMP/changes.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """Decides whether a pull request's changed files can change a plan.
+
+          Usage: changes.py <relevant-regex> <changed-files> [<unit-files>]
+
+          <changed-files> lists the paths of the pull request, one per line.
+          <unit-files> lists the terragrunt.hcl files of its head commit; it is read
+          only when a Markdown file changed, and a missing or empty one makes every
+          Markdown file count.
+
+          Prints `relevant=true` or `relevant=false`. A path counts when it matches
+          <relevant-regex> (grep -E syntax that Python reads the same way, e.g.
+          '^(tenant/|_common/|\\.github/)|^(root|account)\\.hcl$') and is not one of
+          the paths that never reach a plan:
+
+          - anything under .github/ but the workflows, tool-versions.env and
+            trivyignore.yaml (what decides how a plan runs and passes): dependabot,
+            release notes, the conventions and Sentinel configs, issue and pull request
+            templates, CODEOWNERS are read by GitHub or by other jobs, not by a plan;
+          - anything under .claude/: the agents' rules;
+          - a Markdown file outside every unit (no terragrunt.hcl in its directory or
+            above): a unit may read a file of its own, nothing reads a README of
+            _common/ or .github/.
+          """
+          import os
+          import re
+          import sys
+
+          # What under .github/ changes a plan: the workflows run it, the tool
+          # versions and the trivy exceptions decide its result.
+          PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
+          UNIT = "terragrunt.hcl"
+
+
+          def unit_dirs(unit_files: list) -> set:
+              return {os.path.dirname(f) for f in unit_files if os.path.basename(f) == UNIT}
+
+
+          def in_unit(path: str, units: set) -> bool:
+              d = os.path.dirname(path)
+              while d:
+                  if d in units:
+                      return True
+                  d = os.path.dirname(d)
+              return False
+
+
+          def ignored(path: str, units) -> bool:
+              """True for a path that cannot change a plan. units None: not known."""
+              if path.startswith(".claude/"):
+                  return True
+              if path.startswith(".github/") and not path.startswith(PLAN_INPUTS):
+                  return True
+              if path.lower().endswith(".md"):
+                  return units is not None and not in_unit(path, units)
+              return False
+
+
+          def relevant(regex: str, files: list, unit_files=None) -> bool:
+              units = unit_dirs(unit_files) if unit_files else None
+              pattern = re.compile(regex)
+              return any(pattern.search(f) and not ignored(f, units) for f in files if f)
+
+
+          def read(path: str) -> list:
+              try:
+                  with open(path, encoding="utf-8") as f:
+                      return [line.strip() for line in f if line.strip()]
+              except OSError:
+                  return []
+
+
+          if __name__ == "__main__":
+              if len(sys.argv) not in (3, 4):
+                  sys.exit(__doc__)
+              unit_files = read(sys.argv[3]) if len(sys.argv) == 4 else None
+              print(f"relevant={'true' if relevant(sys.argv[1], read(sys.argv[2]), unit_files) else 'false'}")
+          __CI_EOF__
+          if ! gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only >"$RUNNER_TEMP/files"; then
+            echo "relevant=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Markdown inside a unit still counts: the units of the head commit.
+          # A tree that cannot be read or is truncated leaves the list empty,
+          # and then every Markdown file counts.
+          : >"$RUNNER_TEMP/units"
+          if grep -qi '\.md$' "$RUNNER_TEMP/files"; then
+            gh api "repos/$REPO/git/trees/$HEAD_SHA?recursive=1" \
+              --jq 'select(.truncated | not) | .tree[] | select(.type == "blob") | .path | select(endswith("terragrunt.hcl"))' \
+              >"$RUNNER_TEMP/units" || : >"$RUNNER_TEMP/units"
+          fi
+          python3 "$RUNNER_TEMP/changes.py" "$RELEVANT" "$RUNNER_TEMP/files" "$RUNNER_TEMP/units" >>"$GITHUB_OUTPUT"
+          if grep -q '^relevant=false$' "$GITHUB_OUTPUT"; then
+            echo "Nothing to plan: the change touches no unit, context file or workflow (Dependabot and release configs, .claude/ and Markdown outside the units do not count)." >>"$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
+      # The rules in conventions.yaml; on a pull request only, main holds
+      # nothing a pull request has not checked. The same step as
+      # _fragments/conventions-steps.yml, which carries on after a failure here.
       - name: Conventions
+        id: conventions
+        if: github.event_name == 'pull_request' && inputs.conventions
+        continue-on-error: true
         env:
           CONFIG: ${{ inputs.conventions-config }}
         run: |
@@ -1348,185 +1486,11 @@ jobs:
           # The rules every repository has run in pr / check (pr.yml).
           python3 "$script" "$RUNNER_TEMP/conventions.json" . --skip todo-issue,markdown-links,collection-schema
 
-      # Every exception of the repository (conventions, Sentinel lint, trivy) has a
-      # reason and a review date; a date that has passed is a warning.
-      - name: Exception reviews
-        if: ${{ !cancelled() }}
-        run: |
-          script="$RUNNER_TEMP/exception_review.py"
-          cat >"$script" <<'__CI_EOF__'
-          #!/usr/bin/env python3
-          """Checks the exceptions of a repository: each says why, and when to look again.
-
-          Usage: exception_review.py [--today YYYY-MM-DD] <kind>=<file> [<kind>=<file> ...]
-
-          Kinds and the file each reads (the YAML ones converted to JSON by yq first,
-          so that this needs nothing beyond the standard library):
-
-            conventions  .github/conventions.yaml   exceptions[]: rule, path, reason, review
-                                                    layout.exceptions[]: path, reason, review (optional)
-            sentinel     .github/sentinel-lint.yaml exceptions[]: rule, path, reason, review
-            trivy        .github/trivyignore.yaml   <section>[]: id, paths, statement, review
-            gitleaks     .gitleaks.toml             [[allowlists]]: description ending in
-                                                    "review: YYYY-MM-DD"
-
-          `review` is the date (YYYY-MM-DD) by which the exception is looked at again:
-          still needed, still for the same reason. A date that has passed is a warning,
-          not a failure - the finding stays accepted until someone decides. A missing
-          reason or a date that is not a date fails; a missing date is a warning.
-
-          `<file>` is what the annotation names; `<kind>=<file>:<json>` reads the
-          converted JSON from <json> and names <file>.
-          """
-          import datetime
-          import json
-          import os
-          import re
-          import sys
-          import tomllib
-
-          RE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-          RE_GITLEAKS_REVIEW = re.compile(r"^\s*review:\s*(\S+)\s*$", re.I | re.M)
-          TRIVY_SECTIONS = ("misconfigurations", "vulnerabilities", "secrets", "licenses")
-
-
-          def entries(kind: str, data) -> list:
-              """(label, reason, review, required) for every exception in the file."""
-              out = []
-              if kind == "conventions":
-                  for e in (data or {}).get("exceptions") or []:
-                      out.append((f"{e.get('rule')} {e.get('path', '')}".strip(), e.get("reason"), e.get("review"), True))
-                  for e in ((data or {}).get("layout") or {}).get("exceptions") or []:
-                      # The layout exceptions are structure (a folder that has to be
-                      # where it is); a review date is welcome but not asked for.
-                      out.append((f"layout {e.get('path')}", e.get("reason"), e.get("review"), False))
-              elif kind == "sentinel":
-                  for e in (data or {}).get("exceptions") or []:
-                      rule = e.get("rule") if "check" not in e else e.get("check")
-                      path = e.get("path") if "check" not in e else e.get("rule")
-                      out.append((f"{rule} {path or ''}".strip(), e.get("reason"), e.get("review"), True))
-              elif kind == "trivy":
-                  for section in TRIVY_SECTIONS:
-                      for e in (data or {}).get(section) or []:
-                          paths = e.get("paths") or []
-                          where = f" ({len(paths)} paths)" if len(paths) > 1 else (f" {paths[0]}" if paths else "")
-                          out.append((f"{e.get('id')}{where}", e.get("statement"), e.get("review"), True))
-              elif kind == "gitleaks":
-                  lists = list(data.get("allowlists") or [])
-                  if data.get("allowlist"):
-                      lists.insert(0, data["allowlist"])
-                  for k, e in enumerate(lists):
-                      description = str(e.get("description") or "")
-                      m = RE_GITLEAKS_REVIEW.search(description)
-                      reason = RE_GITLEAKS_REVIEW.sub("", description).strip()
-                      out.append((f"allowlist {k + 1}", reason, m.group(1) if m else None, True))
-              else:
-                  raise ValueError(f"unknown kind {kind!r}")
-              return out
-
-
-          def review(kind: str, data, today: datetime.date) -> tuple:
-              """(errors, warnings, rows) for one file; rows feed the job summary."""
-              errors, warnings, rows = [], [], []
-              for label, reason, date, required in entries(kind, data):
-                  if not str(reason or "").strip():
-                      errors.append(f"exception {label} has no reason")
-                  if date in (None, ""):
-                      if required:
-                          warnings.append(f"exception {label} has no review date (review: YYYY-MM-DD)")
-                      continue
-                  date = str(date)
-                  if not RE_DATE.match(date):
-                      errors.append(f"exception {label}: review {date!r} is not a date (YYYY-MM-DD)")
-                      continue
-                  try:
-                      due = datetime.date.fromisoformat(date)
-                  except ValueError:
-                      errors.append(f"exception {label}: review {date!r} is not a date (YYYY-MM-DD)")
-                      continue
-                  if due < today:
-                      warnings.append(f"exception {label} was due for review on {date}: is it still needed?")
-                  rows.append((label, date, due < today))
-              return errors, warnings, rows
-
-
-          def load(kind: str, path: str):
-              if kind == "gitleaks":
-                  with open(path, "rb") as fh:
-                      return tomllib.load(fh)
-              with open(path, encoding="utf-8") as fh:
-                  return json.load(fh)
-
-
-          def escape(text: str) -> str:
-              return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-
-
-          def main(args: list) -> int:
-              today = datetime.date.today()
-              if args[:1] == ["--today"]:
-                  today, args = datetime.date.fromisoformat(args[1]), args[2:]
-              if not args:
-                  print(__doc__)
-                  return 2
-              failed, summary = False, []
-              for arg in args:
-                  kind, _, rest = arg.partition("=")
-                  name, _, source = rest.partition(":")
-                  try:
-                      data = load(kind, source or name)
-                      errors, warnings, rows = review(kind, data, today)
-                  except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
-                      errors, warnings, rows = [f"cannot read: {e}"], [], []
-                  for e in errors:
-                      print(f"::error file={name},title=exception::{escape(e)}")
-                  for w in warnings:
-                      print(f"::warning file={name},title=exception review::{escape(w)}")
-                  failed |= bool(errors)
-                  summary += [f"| `{name}` | {label.replace('|', '/')} | {date}{' - **due**' if due else ''} |"
-                              for label, date, due in rows]
-              if summary:
-                  text = "## Exceptions\n\n| File | Exception | Review |\n|---|---|---|\n" + "\n".join(summary) + "\n"
-                  if os.environ.get("GITHUB_STEP_SUMMARY"):
-                      with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
-                          fh.write(text)
-                  else:
-                      print(text)
-              return 1 if failed else 0
-
-
-          if __name__ == "__main__":
-              sys.exit(main(sys.argv[1:]))
-          __CI_EOF__
-          args=()
-          for pair in conventions:.github/conventions.yaml conventions:conventions.yaml \
-              sentinel:.github/sentinel-lint.yaml sentinel:sentinel-lint.yaml \
-              trivy:.github/trivyignore.yaml trivy:.trivyignore.yaml; do
-            kind=${pair%%:*} file=${pair#*:}
-            # The first of the two paths of a kind wins (.github/ before the root).
-            case " ${args[*]} " in *" $kind="*) continue ;; esac
-            [ -f "$file" ] || continue
-            json="$RUNNER_TEMP/review-$kind.json"
-            yq -o=json '.' "$file" >"$json"
-            args+=("$kind=$file:$json")
-          done
-          if [ "${#args[@]}" -eq 0 ]; then
-            echo "No exception files."
-            exit 0
-          fi
-          python3 "$script" "${args[@]}"
-
-  # The analytic rules, against what Sentinel takes (sentinel-lint.yaml).
-  sentinel:
-    if: github.event_name == 'pull_request' && inputs.sentinel-lint
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
+      # The analytic rules, against what Sentinel takes (sentinel-lint.yaml).
       - name: Analytic rules
+        id: sentinel
+        if: github.event_name == 'pull_request' && inputs.sentinel-lint
+        continue-on-error: true
         env:
           CONFIG: ${{ inputs.sentinel-config }}
         run: |
@@ -1935,154 +1899,6 @@ jobs:
           fi
           yq -o=json '.' "$CONFIG" >"$RUNNER_TEMP/sentinel-lint.json"
           python3 "$script" "$RUNNER_TEMP/sentinel-lint.json" .
-
-  # A skipped job reports as passed, so a pull request outside the relevant
-  # paths is green without a plan. Outside a pull request the caller's push
-  # paths have already decided.
-  changes:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      relevant: ${{ steps.diff.outputs.relevant }}
-    steps:
-      - name: Paths the change touches
-        id: diff
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          REPO: ${{ github.repository }}
-          RELEVANT: ${{ inputs.relevant-paths }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT" != "pull_request" ]; then
-            echo "relevant=true" >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-          cat >"$RUNNER_TEMP/changes.py" <<'__CI_EOF__'
-          #!/usr/bin/env python3
-          """Decides whether a pull request's changed files can change a plan.
-
-          Usage: changes.py <relevant-regex> <changed-files> [<unit-files>]
-
-          <changed-files> lists the paths of the pull request, one per line.
-          <unit-files> lists the terragrunt.hcl files of its head commit; it is read
-          only when a Markdown file changed, and a missing or empty one makes every
-          Markdown file count.
-
-          Prints `relevant=true` or `relevant=false`. A path counts when it matches
-          <relevant-regex> (grep -E syntax that Python reads the same way, e.g.
-          '^(tenant/|_common/|\\.github/)|^(root|account)\\.hcl$') and is not one of
-          the paths that never reach a plan:
-
-          - anything under .github/ but the workflows, tool-versions.env and
-            trivyignore.yaml (what decides how a plan runs and passes): dependabot,
-            release notes, the conventions and Sentinel configs, issue and pull request
-            templates, CODEOWNERS are read by GitHub or by other jobs, not by a plan;
-          - anything under .claude/: the agents' rules;
-          - a Markdown file outside every unit (no terragrunt.hcl in its directory or
-            above): a unit may read a file of its own, nothing reads a README of
-            _common/ or .github/.
-          """
-          import os
-          import re
-          import sys
-
-          # What under .github/ changes a plan: the workflows run it, the tool
-          # versions and the trivy exceptions decide its result.
-          PLAN_INPUTS = (".github/workflows/", ".github/tool-versions.env", ".github/trivyignore.yaml")
-          UNIT = "terragrunt.hcl"
-
-
-          def unit_dirs(unit_files: list) -> set:
-              return {os.path.dirname(f) for f in unit_files if os.path.basename(f) == UNIT}
-
-
-          def in_unit(path: str, units: set) -> bool:
-              d = os.path.dirname(path)
-              while d:
-                  if d in units:
-                      return True
-                  d = os.path.dirname(d)
-              return False
-
-
-          def ignored(path: str, units) -> bool:
-              """True for a path that cannot change a plan. units None: not known."""
-              if path.startswith(".claude/"):
-                  return True
-              if path.startswith(".github/") and not path.startswith(PLAN_INPUTS):
-                  return True
-              if path.lower().endswith(".md"):
-                  return units is not None and not in_unit(path, units)
-              return False
-
-
-          def relevant(regex: str, files: list, unit_files=None) -> bool:
-              units = unit_dirs(unit_files) if unit_files else None
-              pattern = re.compile(regex)
-              return any(pattern.search(f) and not ignored(f, units) for f in files if f)
-
-
-          def read(path: str) -> list:
-              try:
-                  with open(path, encoding="utf-8") as f:
-                      return [line.strip() for line in f if line.strip()]
-              except OSError:
-                  return []
-
-
-          if __name__ == "__main__":
-              if len(sys.argv) not in (3, 4):
-                  sys.exit(__doc__)
-              unit_files = read(sys.argv[3]) if len(sys.argv) == 4 else None
-              print(f"relevant={'true' if relevant(sys.argv[1], read(sys.argv[2]), unit_files) else 'false'}")
-          __CI_EOF__
-          # A file list that cannot be read plans rather than skips.
-          if ! gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only >"$RUNNER_TEMP/files"; then
-            echo "relevant=true" >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Markdown inside a unit still counts: the units of the head commit.
-          # A tree that cannot be read or is truncated leaves the list empty,
-          # and then every Markdown file counts.
-          : >"$RUNNER_TEMP/units"
-          if grep -qi '\.md$' "$RUNNER_TEMP/files"; then
-            gh api "repos/$REPO/git/trees/$HEAD_SHA?recursive=1" \
-              --jq 'select(.truncated | not) | .tree[] | select(.type == "blob") | .path | select(endswith("terragrunt.hcl"))' \
-              >"$RUNNER_TEMP/units" || : >"$RUNNER_TEMP/units"
-          fi
-          python3 "$RUNNER_TEMP/changes.py" "$RELEVANT" "$RUNNER_TEMP/files" "$RUNNER_TEMP/units" >>"$GITHUB_OUTPUT"
-          if grep -q '^relevant=false$' "$GITHUB_OUTPUT"; then
-            echo "Nothing to plan: the change touches no unit, context file or workflow (Dependabot and release configs, .claude/ and Markdown outside the units do not count)." >>"$GITHUB_STEP_SUMMARY"
-          fi
-
-  # What the run works on, in seconds and without signing in anywhere: the
-  # base commit, the principal references, the unit selection and its split
-  # into the plan jobs. validate and the plan jobs both start from it, side
-  # by side.
-  select:
-    needs: changes
-    # !cancelled() so that a failed changes job still validates and plans.
-    if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      # The base commit is the head of the last successful run on main.
-      actions: read
-    outputs:
-      selection: ${{ steps.units.outputs.selection }}
-      shards: ${{ steps.shards.outputs.shards }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
 
       # The pipeline scripts travel inside the workflow (see build.py): the
       # caller's token cannot read bearclave/ci. They land in $RUNNER_TEMP/ci,
@@ -2631,21 +2447,25 @@ jobs:
           chmod +x "$d"/*
 
       - name: Tool versions
+        if: steps.diff.outputs.relevant != 'false'
         id: versions
         run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: steps.diff.outputs.relevant != 'false'
         with:
           terraform_version: ${{ steps.versions.outputs.TERRAFORM_VERSION }}
           terraform_wrapper: false
 
       - name: Restore tools
+        if: steps.diff.outputs.relevant != 'false'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.TOOLS_DIR }}
           key: tools-${{ runner.os }}-${{ hashFiles('.github/tool-versions.env') }}
 
       - name: Install terragrunt
+        if: steps.diff.outputs.relevant != 'false'
         run: install-tools.sh terragrunt
 
       # A pull request is compared with its base branch. On main the base is
@@ -2654,6 +2474,7 @@ jobs:
       # the state), so a change a failed or held-back apply left out is still
       # selected now. Runs on main never overlap (see concurrency).
       - name: Base commit
+        if: steps.diff.outputs.relevant != 'false'
         id: base
         env:
           EVENT: ${{ github.event_name }}
@@ -2681,7 +2502,7 @@ jobs:
       # lookup goes to Entra and finds nothing. Caught here rather than by a
       # failed plan half an hour into the queue.
       - name: Principal references
-        if: inputs.principal-refs
+        if: inputs.principal-refs && steps.diff.outputs.relevant != 'false'
         env:
           BASE: ${{ steps.base.outputs.sha }}
         run: |
@@ -2691,6 +2512,7 @@ jobs:
 
       # A scheduled run (certificate renewal, iac-home) looks at the whole tree.
       - name: Select the units
+        if: steps.diff.outputs.relevant != 'false'
         id: units
         env:
           SCOPE: ${{ github.event_name == 'schedule' && 'all' || inputs.scope }}
@@ -2740,6 +2562,7 @@ jobs:
       # counts as units. The deleted units go to the first share. Behind a
       # VPN there is one share: the network has one peer for the runners.
       - name: Shares of the plan
+        if: steps.diff.outputs.relevant != 'false'
         id: shards
         env:
           SELECTION: ${{ steps.units.outputs.selection }}
@@ -2771,8 +2594,8 @@ jobs:
   # applies without it. It signs in to Azure (the plan identity) only where
   # the configuration reads a secret while it is parsed (validate-sign-in).
   validate:
-    needs: [changes, select]
-    if: ${{ !cancelled() && needs.select.result == 'success' }}
+    needs: select
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.relevant != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -3040,9 +2863,11 @@ jobs:
   # its JSON plans for the plan job.
   plan-shard:
     name: plan (${{ matrix.shard.name }})
-    needs: [changes, select]
+    needs: select
     # Next to validate, not after it; skipped where nothing is relevant.
-    if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.shards != '[]' }}
+    if: >-
+      ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.relevant != 'false'
+      && needs.select.outputs.shards != '[]' }}
     # The jobs that reach the managed resources (plan shares, apply) run where
     # those are reachable: a GitHub runner, or the NAS runner on the home
     # network for iac-home (network-runner, docs/runners.md). The other jobs
@@ -5132,8 +4957,8 @@ jobs:
   # verdict apply and destroy go by. It fails when a share did. It waits for
   # validate too, whose result the comment shows.
   plan:
-    needs: [changes, select, validate, plan-shard]
-    if: ${{ !cancelled() && needs.select.result == 'success' }}
+    needs: [select, validate, plan-shard]
+    if: ${{ !cancelled() && needs.select.result == 'success' && needs.select.outputs.relevant != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -6582,19 +6407,21 @@ jobs:
 
   # GitHub Team has no approval on an environment of a private repository,
   # so the approval of destroys and replaces is the owner's review of the pull
-  # request, given after its plan. On a pull request this check passes when
-  # the plan has none, or when such a review exists; a review submitted later
-  # re-runs it (destroy-review.yml). On main it finds the merged pull request
-  # and tells the apply whether that check passed on an approval; it never
-  # fails there, the gate says what is missing.
+  # request, given after its plan. On a pull request the gate checks it (the
+  # step "Destroys approved after the plan"): it passes when the plan has none,
+  # or when such a review exists; a review submitted later re-runs the failed
+  # gate (destroy-review.yml). That check is a step of the gate, not a job of
+  # its own, because a job of five seconds bills a whole minute. This job runs
+  # on main only, when the plan has destroys: it finds the merged pull request
+  # and tells the apply whether the gate of its run passed on an approval; it
+  # never fails there, the gate says what is missing.
   destroy:
     name: destroy / approved
     needs: plan
     if: >-
-      !cancelled()
-      && (github.event_name == 'pull_request'
-          || (needs.plan.outputs.has_destroys == 'true' && !inputs.allow-destroy
-              && github.event_name != 'schedule'))
+      !cancelled() && github.event_name != 'pull_request'
+      && needs.plan.outputs.has_destroys == 'true' && !inputs.allow-destroy
+      && github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -6632,10 +6459,11 @@ jobs:
                 approved (the step STEP below succeeded), not because it had none.
 
             destroy-approval.py review <head-sha> <workflow>
-                On a submitted review: re-runs the failed destroy check of the last
-                completed pull request run of <workflow> for <head-sha>, so that it
-                reads the new review. GitHub also re-runs the jobs that need it (the
-                gate).
+                On a submitted review: re-runs the failed gate of the last completed
+                pull request run of <workflow> for <head-sha>, so that its step STEP
+                reads the new review. (Runs from before the check moved into the gate
+                have a job "destroy / approved" of its own; that is re-run instead,
+                and GitHub re-runs the gate that needs it.)
 
           Reads the API with gh (GH_TOKEN) in GITHUB_REPOSITORY.
           """
@@ -6644,8 +6472,11 @@ jobs:
           import subprocess
           import sys
 
+          # The step of the gate (on main: of the gate of the merged pull request's
+          # run) that passes only on an approval.
           STEP = "Destroys approved after the plan"
-          JOB_SUFFIX = "destroy / approved"
+          JOB_SUFFIX = "destroy / approved"   # the job of runs before the check moved into the gate
+          GATE_SUFFIX = "/ gate"
 
 
           def api(path: str, method: str = "GET"):
@@ -6697,8 +6528,17 @@ jobs:
 
 
           def destroy_job(jobs: list):
+              """The job that holds the approval check: the gate, or the job of an older run."""
+              for job in jobs:
+                  if any(s.get("name") == STEP for s in job.get("steps", [])) and job.get("name", "").endswith(GATE_SUFFIX):
+                      return job
               for job in jobs:
                   if job.get("name", "").endswith(JOB_SUFFIX):
+                      return job
+              # A gate that skipped the step (no destroys) has it listed too; one without
+              # the step list at all (a test, an old API answer) is found by name.
+              for job in jobs:
+                  if job.get("name", "").endswith(GATE_SUFFIX):
                       return job
               return None
 
@@ -6790,22 +6630,8 @@ jobs:
           chmod +x "$d/destroy-approval.py"
           echo "$d" >>"$GITHUB_PATH"
 
-      - name: No destroys in the plan
-        if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys != 'true'
-        run: echo "The plan destroys and replaces nothing." >>"$GITHUB_STEP_SUMMARY"
-
-      # The name is read on main (destroy-approval.py STEP): only this step's
-      # success means the destroys were approved.
-      - name: Destroys approved after the plan
-        if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys == 'true'
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PLANNED_AT: ${{ needs.plan.outputs.planned_at }}
-        run: destroy-approval.py pr "$PR_NUMBER" "$PLANNED_AT"
-
       - name: The merged pull request approved the destroys
         id: merged
-        if: github.event_name != 'pull_request'
         run: |
           # The caller's workflow file, e.g. ci.yml.
           wf=${GITHUB_WORKFLOW_REF%@*}; wf=${wf##*/}
@@ -8200,12 +8026,14 @@ jobs:
           fi
           pr-comment.sh "$pr" apply.md "terragrunt-apply-$GITHUB_RUN_ID"
 
-  # The result of the verification as a check of its own. When it failed: a
+  # Runs only when the verification failed (a passed one is in the apply
+  # comment of the report job, and a job that only echoes bills a minute): a
   # Bug issue (prio:high, source:drift) and a draft pull request that reverts
-  # the commit. The only job that may write to the repository.
+  # the commit, and the run is red. The only job that may write to the
+  # repository.
   verify:
     needs: apply
-    if: ${{ !cancelled() && needs.apply.outputs.verification != '' }}
+    if: ${{ !cancelled() && needs.apply.outputs.verification == 'failed' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -8429,17 +8257,236 @@ jobs:
   # green, so eight applies in a row never happened and nothing said so. An
   # apply that was due and did not succeed has to be red.
   gate:
-    needs: [conventions, sentinel, changes, select, validate, plan-shard, plan, destroy, apply, verify]
+    needs: [select, validate, plan-shard, plan, destroy, apply, verify]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      # Read only: the approval check reads the reviews and the runs.
+      pull-requests: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Approval script
+        if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys == 'true'
+        run: |
+          d="$RUNNER_TEMP/ci"
+          mkdir -p "$d"
+          cat >"$d/destroy-approval.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """Decides whether the destroys and replaces of a plan are approved.
+
+          A plan that destroys or replaces resources is applied only when the owner
+          approved the pull request after he could read that plan. The plan is the
+          pull request comment, so "after" means after the plan job ended.
+
+            destroy-approval.py pr <number> <planned-at>
+                On a pull request: passes (exit 0) when the pull request has an
+                approving review, by a person other than its author, submitted after
+                <planned-at> (ISO 8601, UTC) on the head commit, and not superseded by a
+                later review of the same person that requests changes or was dismissed.
+                Fails (exit 1) otherwise.
+
+            destroy-approval.py main <sha> <workflow>
+                On main: writes approved=true|false to $GITHUB_OUTPUT. True when <sha>
+                is the merge commit of a pull request whose last run of <workflow>
+                (e.g. ci.yml) passed its destroy check BECAUSE the destroys were
+                approved (the step STEP below succeeded), not because it had none.
+
+            destroy-approval.py review <head-sha> <workflow>
+                On a submitted review: re-runs the failed gate of the last completed
+                pull request run of <workflow> for <head-sha>, so that its step STEP
+                reads the new review. (Runs from before the check moved into the gate
+                have a job "destroy / approved" of its own; that is re-run instead,
+                and GitHub re-runs the gate that needs it.)
+
+          Reads the API with gh (GH_TOKEN) in GITHUB_REPOSITORY.
+          """
+          import json
+          import os
+          import subprocess
+          import sys
+
+          # The step of the gate (on main: of the gate of the merged pull request's
+          # run) that passes only on an approval.
+          STEP = "Destroys approved after the plan"
+          JOB_SUFFIX = "destroy / approved"   # the job of runs before the check moved into the gate
+          GATE_SUFFIX = "/ gate"
+
+
+          def api(path: str, method: str = "GET"):
+              args = ["gh", "api", "-X", method, path]
+              if method == "GET":
+                  args += ["--paginate", "--slurp"]
+              r = subprocess.run(args, capture_output=True, text=True)
+              if r.returncode != 0:
+                  sys.exit(f"::error::gh api {method} {path}: {r.stderr.strip()}")
+              out = r.stdout
+              if method != "GET":
+                  return None
+              pages = json.loads(out or "[]")
+              # --slurp gives a list of pages; a page is a list or an object holding one.
+              items = []
+              for page in pages:
+                  if isinstance(page, list):
+                      items += page
+                  else:
+                      items.append(page)
+              return items
+
+
+          def approval(reviews: list, author: str, head_sha: str, planned_at: str):
+              """The approving review that counts, or None.
+
+              Only the latest review of each person that is not a plain comment
+              counts: an approval followed by a request for changes, or dismissed (a
+              push dismisses stale approvals), is no approval.
+              """
+              latest = {}
+              for r in sorted(reviews, key=lambda r: r.get("submitted_at") or ""):
+                  user = r.get("user") or {}
+                  if r.get("state") == "COMMENTED" or not r.get("submitted_at"):
+                      continue
+                  latest[user.get("login")] = r
+              for login, r in latest.items():
+                  user = r.get("user") or {}
+                  if (r["state"] == "APPROVED" and login != author and user.get("type") == "User"
+                          and r.get("commit_id") == head_sha and r["submitted_at"] > planned_at):
+                      return r
+              return None
+
+
+          def last_run(runs: list):
+              """The most recent pull request run of the workflow."""
+              runs = [r for r in runs if r.get("event") == "pull_request"]
+              return max(runs, key=lambda r: r["id"]) if runs else None
+
+
+          def destroy_job(jobs: list):
+              """The job that holds the approval check: the gate, or the job of an older run."""
+              for job in jobs:
+                  if any(s.get("name") == STEP for s in job.get("steps", [])) and job.get("name", "").endswith(GATE_SUFFIX):
+                      return job
+              for job in jobs:
+                  if job.get("name", "").endswith(JOB_SUFFIX):
+                      return job
+              # A gate that skipped the step (no destroys) has it listed too; one without
+              # the step list at all (a test, an old API answer) is found by name.
+              for job in jobs:
+                  if job.get("name", "").endswith(GATE_SUFFIX):
+                      return job
+              return None
+
+
+          def approved_by_step(job) -> bool:
+              if not job or job.get("conclusion") != "success":
+                  return False
+              return any(s.get("name") == STEP and s.get("conclusion") == "success" for s in job.get("steps", []))
+
+
+          def merged_pull(pulls: list, sha: str):
+              for p in pulls:
+                  if p.get("merged_at") and p.get("merge_commit_sha") == sha:
+                      return p
+              return None
+
+
+          def runs_of(repo: str, workflow: str, sha: str) -> list:
+              pages = api(f"repos/{repo}/actions/workflows/{workflow}/runs?head_sha={sha}&event=pull_request&per_page=100")
+              return [r for page in pages for r in page.get("workflow_runs", [])]
+
+
+          def jobs_of(repo: str, run_id: int) -> list:
+              pages = api(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+              return [j for page in pages for j in page.get("jobs", [])]
+
+
+          def cmd_pr(repo: str, number: str, planned_at: str) -> int:
+              pr = api(f"repos/{repo}/pulls/{number}")[0]
+              reviews = api(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
+              r = approval(reviews, pr["user"]["login"], pr["head"]["sha"], planned_at)
+              if r:
+                  print(f"Approved by {r['user']['login']} at {r['submitted_at']}, after the plan of {planned_at}.")
+                  return 0
+              print(f"::error::The plan destroys or replaces resources. Read the plan in the pull request "
+                    f"and approve it: an approval counts only when it comes after the plan ({planned_at}).")
+              return 1
+
+
+          def cmd_main(repo: str, sha: str, workflow: str) -> int:
+              approved = False
+              pr = merged_pull(api(f"repos/{repo}/commits/{sha}/pulls"), sha)
+              if not pr:
+                  print(f"{sha} is not the merge commit of a pull request.")
+              else:
+                  run = last_run(runs_of(repo, workflow, pr["head"]["sha"]))
+                  job = destroy_job(jobs_of(repo, run["id"])) if run else None
+                  approved = approved_by_step(job)
+                  print(f"Pull request #{pr['number']}: the destroys were "
+                        f"{'approved after its plan' if approved else 'not approved after its plan'}.")
+              if out := os.environ.get("GITHUB_OUTPUT"):
+                  with open(out, "a", encoding="utf-8") as fh:
+                      fh.write(f"approved={str(approved).lower()}\n")
+              return 0
+
+
+          def cmd_review(repo: str, head_sha: str, workflow: str) -> int:
+              run = last_run(runs_of(repo, workflow, head_sha))
+              if not run:
+                  print("No pull request run for the head commit yet.")
+                  return 0
+              if run.get("status") != "completed":
+                  print(f"Run {run['id']} is still {run.get('status')}; its destroy check reads the reviews when it gets there.")
+                  return 0
+              job = destroy_job(jobs_of(repo, run["id"]))
+              if not job or job.get("conclusion") != "failure":
+                  print(f"Nothing to re-run: the destroy check of run {run['id']} is "
+                        f"{job.get('conclusion') if job else 'missing'}.")
+                  return 0
+              api(f"repos/{repo}/actions/jobs/{job['id']}/rerun", method="POST")
+              print(f"Re-running '{job['name']}' of run {run['id']}.")
+              return 0
+
+
+          def main(argv: list) -> int:
+              repo = os.environ["GITHUB_REPOSITORY"]
+              if len(argv) == 3 and argv[0] == "pr":
+                  return cmd_pr(repo, argv[1], argv[2])
+              if len(argv) == 3 and argv[0] == "main":
+                  return cmd_main(repo, argv[1], argv[2])
+              if len(argv) == 3 and argv[0] == "review":
+                  return cmd_review(repo, argv[1], argv[2])
+              sys.exit(__doc__)
+
+
+          if __name__ == "__main__":
+              sys.exit(main(sys.argv[1:]))
+          __CI_EOF__
+          chmod +x "$d/destroy-approval.py"
+          echo "$d" >>"$GITHUB_PATH"
+
+      # The name is read on main (destroy-approval.py STEP): only this step's
+      # success means the destroys were approved. A plan without destroys needs
+      # no approval, and a plan that did not run says so in the step below.
+      - name: Destroys approved after the plan
+        if: github.event_name == 'pull_request' && needs.plan.outputs.has_destroys == 'true'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PLANNED_AT: ${{ needs.plan.outputs.planned_at }}
+        run: destroy-approval.py pr "$PR_NUMBER" "$PLANNED_AT"
+
       - name: Checks passed
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         env:
           RESULTS: ${{ toJSON(needs) }}
+          LINT: ${{ needs.select.outputs.lint }}
         run: |
           failed=$(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' <<<"$RESULTS")
+          if [ "$LINT" = "failed" ]; then
+            failed="$failed"$'\n'"conventions or Sentinel lint: failed (annotations of the select job)"
+          fi
           if [ -n "$failed" ]; then
             echo "::error::not passed: $(tr '\n' ' ' <<<"$failed")"
             exit 1
@@ -8480,7 +8527,7 @@ jobs:
           # change is drift: the resources differ from main.
           if [ "$EVENT" = "schedule" ]; then
             if [ "$RENEWAL_DUE" = "true" ]; then
-              if [ "$APPLY_RESULT" != "success" ] || [ "$VERIFICATION" != "passed" ] || [ "$VERIFY_RESULT" != "success" ]; then
+              if [ "$APPLY_RESULT" != "success" ] || [ "$VERIFICATION" != "passed" ]; then
                 echo "::error::the renewal of $RENEWAL_UNIT was due but did not apply and verify (apply: $APPLY_RESULT, verification: ${VERIFICATION:-missing})"
                 exit 1
               fi
@@ -8513,7 +8560,7 @@ jobs:
             echo "::error::the plan proposed a change but apply ended as '$APPLY_RESULT'"
             exit 1
           fi
-          if [ "$VERIFICATION" != "passed" ] || [ "$VERIFY_RESULT" != "success" ]; then
+          if [ "$VERIFICATION" != "passed" ]; then
             echo "::error::the apply went through but its verification is '${VERIFICATION:-missing}' (verify: $VERIFY_RESULT)"
             exit 1
           fi

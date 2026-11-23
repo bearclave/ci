@@ -79,5 +79,80 @@ class PullRequest(unittest.TestCase):
             self.assertIn(f"## {section}\n", text)
 
 
+class Unchanged(unittest.TestCase):
+    """A bump is skipped when none of the workflows a repository calls differs."""
+
+    def setUp(self):
+        self.calls = []
+        self.files = {"filename": ".github/workflows/container.yml"}
+        self._request = ci_pins.gh.request
+        ci_pins.gh.request = self.fake
+
+    def tearDown(self):
+        ci_pins.gh.request = self._request
+
+    def fake(self, method, path, token="", payload=None, **kw):
+        self.calls.append(path)
+        return {"files": [self.files]}
+
+    def test_called_lists_only_what_a_bump_moves(self):
+        self.assertEqual(ci_pins.called(CI, "v2.3.0"),
+                         {"security.yml": "v2.2.0", "terragrunt.yml": "v2.1.0"})
+
+    def test_a_workflow_it_does_not_call_changed(self):
+        self.assertFalse(ci_pins.calls_a_changed_workflow([CI], "v2.3.0", "t", {}))
+
+    def test_a_workflow_it_calls_changed(self):
+        self.files = {"filename": ".github/workflows/terragrunt.yml"}
+        self.assertTrue(ci_pins.calls_a_changed_workflow([CI], "v2.3.0", "t", {}))
+
+    def test_a_source_file_alone_is_no_change(self):
+        # The workflows are generated, so a change that reaches a caller is in them.
+        self.files = {"filename": "src/pr_check.py"}
+        self.assertFalse(ci_pins.calls_a_changed_workflow([CI], "v2.3.0", "t", {}))
+
+    def test_a_truncated_comparison_counts_as_a_change(self):
+        ci_pins.gh.request = lambda *a, **k: {"files": [{"filename": "x"}] * ci_pins.COMPARE_LIMIT}
+        self.assertTrue(ci_pins.calls_a_changed_workflow([CI], "v2.3.0", "t", {}))
+
+    def test_an_unreadable_comparison_counts_as_a_change(self):
+        def boom(*a, **k):
+            raise ci_pins.gh.NotFound("x")
+        ci_pins.gh.request = boom
+        self.assertTrue(ci_pins.calls_a_changed_workflow([CI], "v2.3.0", "t", {}))
+
+    def test_a_comparison_is_asked_once(self):
+        cache = {}
+        ci_pins.calls_a_changed_workflow([CI, CI], "v2.3.0", "t", cache)
+        self.assertEqual(len(self.calls), 2)   # v2.1.0...v2.3.0 and v2.2.0...v2.3.0
+
+    def test_nothing_to_bump_is_no_change(self):
+        self.assertFalse(ci_pins.calls_a_changed_workflow(["uses: x@v1\n"], "v2.3.0", "t", {}))
+
+
+class Signed(unittest.TestCase):
+    def check(self, ref_type, verified):
+        ref = {"object": {"type": ref_type, "sha": "abc"}}
+        tag_object = {"verification": {"verified": verified}, "object": {"type": "commit", "sha": "c"}}
+        calls = {"/repos/bearclave/ci/git/ref/tags/v2.3.0": ref, "/repos/bearclave/ci/git/tags/abc": tag_object}
+        original = ci_pins.gh.request
+        ci_pins.gh.request = lambda method, path, token="", **k: calls[path]
+        try:
+            ci_pins.check_signed("v2.3.0", rel("v2.3.0"), "t")
+        finally:
+            ci_pins.gh.request = original
+
+    def test_signed_annotated_tag_passes(self):
+        self.check("tag", True)
+
+    def test_lightweight_tag_is_refused(self):
+        with self.assertRaises(SystemExit):
+            self.check("commit", False)
+
+    def test_unsigned_tag_is_refused(self):
+        with self.assertRaises(SystemExit):
+            self.check("tag", False)
+
+
 if __name__ == "__main__":
     unittest.main()

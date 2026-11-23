@@ -33,6 +33,25 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
   --jq '.assets[] | select(.name | test("linux_x64")) | .digest'
 ```
 
+## Cadence
+
+Every release fans out a `ci-pins` pull request to each repository that pins
+`v2.Y.Z`, and in a Terragrunt repository each of those plans the whole
+tree: the fifteen releases of 19 and 20 November 2026 cost more than a third
+of that fortnight's Actions minutes. So:
+
+- **At most one release a week**, on a fixed day (Monday), collecting what
+  merged since. Merge as often as needed; releasing is the owner's choice and
+  a merge alone changes nothing for a pinned caller.
+- **Out of cadence only for** a fix to a broken pipeline, a security fix, or
+  something a repository is blocked on. Say which in the release notes.
+- `ci-pins.py` does not bump a repository when none of the workflows it calls
+  changed between its pin and the release (an `iac-*` repository is left
+  alone by a release that only touches `container.yml`), and refuses a tag
+  that is lightweight or not verified signed. A skipped repository is listed
+  in the summary of the run; its pin catches up with the next release that
+  does change a workflow it calls.
+
 ## Making a release
 
 `ci` is released by the owner, by hand, because its tags are signed;
