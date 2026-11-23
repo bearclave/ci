@@ -42,7 +42,7 @@ slug=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 [[ $slug == bearclave/* ]] || die "$slug is not a bearclave repository"
 
 # (a) The tag goes on what is on GitHub's main, and nothing else is in the clone.
-git fetch --quiet --tags origin main
+git fetch --quiet --tags --force origin main
 branch=$(git symbolic-ref --quiet --short HEAD || true)
 [ "$branch" = main ] || die "the checkout is on '${branch:-a detached HEAD}', not main"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] ||

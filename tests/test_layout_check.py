@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""layout_check.py against both forms of governance's layout.yaml.
-
-src/layout.yaml is the managed copy in use (`content: modules`);
-tests/fixtures/layout-new.yaml is the file of the standardisation
-(`folders: [modules]`, no m365-dsc, no content-sentinel folders). Both run
-while the repositories move over.
+"""layout_check.py against src/layout.yaml, the managed copy of governance's layout.yaml.
 
 Run: python3 -m unittest discover -s tests
 """
@@ -20,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 import layout_check  # noqa: E402
 
-LAYOUTS = {"current": ROOT / "src" / "layout.yaml", "new": ROOT / "tests" / "fixtures" / "layout-new.yaml"}
+LAYOUTS = {"current": ROOT / "src" / "layout.yaml"}
 
 
 @unittest.skipUnless(shutil.which("yq"), "yq reads the YAML")
@@ -41,18 +36,14 @@ class Layouts(unittest.TestCase):
             subprocess.run(["git", "-C", root, "add", "-A"], check=True)
             return [e[0] for e in layout_check.check(data, {}, name, root)[0]]
 
-    def test_modules_repository_with_the_old_layout(self):
+    def test_modules_repository(self):
         self.assertEqual(self.errors(LAYOUTS["current"], "iac-modules", "terraform-modules",
-                                     ["README.md", "azure/key-vault/main.tf"]), [])
-
-    def test_modules_repository_with_the_new_layout(self):
-        self.assertEqual(self.errors(LAYOUTS["new"], "iac-modules", "terraform-modules",
                                      ["README.md", "modules/azure/key-vault/main.tf"]), [])
         # A platform folder at the root fails: only modules/ is a folder of the layout.
-        self.assertEqual(self.errors(LAYOUTS["new"], "iac-modules", "terraform-modules",
+        self.assertEqual(self.errors(LAYOUTS["current"], "iac-modules", "terraform-modules",
                                      ["README.md", "modules/a/b/main.tf", "azure/key-vault/main.tf"]), ["azure"])
 
-    def test_other_pipelines_read_both(self):
+    def test_terragrunt_repository(self):
         for layout in LAYOUTS.values():
             self.assertEqual(self.errors(layout, "iac-x", "terragrunt",
                                          ["README.md", "root.hcl", "account.hcl", "infrastructure/a/terragrunt.hcl"]), [])

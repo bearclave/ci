@@ -14,11 +14,12 @@ as reusable workflows. A repository holds only short callers.
 
 | File | Trigger | Jobs and check names |
 |---|---|---|
-| `.github/workflows/ci.yml` | pull request, push to `main`, manual; in Terragrunt repositories also a submitted review | `security` → **`security / scan`**; `pipeline` → its jobs and **`pipeline / gate`**; `review` (on a review only) re-runs `pipeline / destroy / approved` |
+| `.github/workflows/ci.yml` | pull request, push to `main`, manual; in Terragrunt repositories also a submitted review; in an application pull request (also closed), push to `staging` and `prod`, in a container application also the push of a `v*` tag | `security` → **`security / scan`**; `pipeline` → its jobs and **`pipeline / gate`**; `review` (on a review only) re-runs `pipeline / destroy / approved` |
 | `.github/workflows/pr.yml` | pull request opened, edited, synchronised, reopened, ready | `pr` → **`pr / check`** (managed file) |
 | `.github/workflows/drift.yml` | weekly schedule, manual | `drift` → the drift run of the pipeline (only where something is applied) |
+| `.github/workflows/promote.yml` | manual, on `staging` (applications only) | `promote` → the release to production ([workflow.md](https://github.com/bearclave/governance/blob/main/standards/workflow.md#applications-staging-and-prod)) |
 
-The checks in bold are required on `main` by the organisation rulesets in
+The checks in bold are required on the default branch (`main`; `staging` in an application) by the organisation rulesets in
 `bearclave/iac-github`. Every repository has all three; a repository with
 nothing to build calls the `checks` pipeline, whose `gate` passes when its
 checks do.
@@ -37,11 +38,11 @@ else. Templates for each pipeline: [templates/workflows/](https://github.com/bea
 | `checks.yml` | `checks` | ESLint where there is JavaScript, optional extra command, then `gate` |
 | `terragrunt.yml` / `terragrunt-drift.yml` | `iac-azure`, `iac-github`, `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-purview`, `iac-sentinel` | validate (fmt, HCL, `terraform validate`, lock files), conventions, Sentinel lint, plan of affected units with trivy, PR comment, `destroy / approved`, apply from `main`, verification of the apply, gate; drift fails on check blocks too |
 | `destroy-review.yml` | the repositories of `terragrunt.yml` | on a submitted approval, re-runs the failed `destroy / approved` of the last pull request run |
-| `terragrunt-home.yml` | `iac-home` | plan and apply of the router through WireGuard, certificate renewal, drift |
+| `terragrunt-home.yml` | `iac-home` | plan and apply of the router on the NAS runner (`network-runner`; through WireGuard from a GitHub runner as the fallback), certificate renewal, drift |
 | `terraform-modules.yml` | `iac-modules` | fmt, validate, tflint, trivy config, conventions |
-| `static-web-app.yml` | `app-web-*` | common site checks (with SEO), ESLint, the site's own checks, deploy to the Static Web App from `main` in the environment `prod`, smoke test of the site's `url` |
-| `container.yml` | `app-home` | ESLint, lint and tests in the image, push to GHCR from `main` and from a release |
-| `content-sentinel.yml` | `content-sentinel` until its catalogue is converted to the YAML of `iac-sentinel`, then `checks` | Sentinel lint, generated views up to date |
+| `static-web-app.yml` | `app-web-*` | common site checks (with SEO), ESLint, the site's own checks, one build per commit (artifact `site`); a preview in the staging SWA per pull request, deploy to the staging SWA from `staging` (environment `staging`, noindex), the same build to production from `prod` (environment `prod`); smoke test after each |
+| `promote.yml` | the applications | a commit of `staging` to production as the App `bearclave-promote`: checks its staging run, fast-forwards `prod`, waits for the production run, then tags `vX.Y.Z` and publishes the release |
+| `container.yml` | `app-home` | ESLint, lint and tests in the image; with `environments`: push to `staging` publishes `:staging` and `:sha-<commit>` and deploys staging on the NAS runner, push to `prod` (or a manual run there) deploys that image without a rebuild, the release tag `vX.Y.Z` pushed by `promote.yml` adds `:vX.Y.Z` to it, a smoke test after each deployment; without: push to GHCR from `main` and from a release |
 | conventions, Sentinel lint (fragments) | inside the pipelines above | rule checks driven by the repository's YAML |
 | `release.yml` | versioned repositories, on demand | dry run: the next version and the release notes ([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md#releasing)) |
 | `housekeeping.yml` | the organisation, weekly | stale branches and pull requests, one issue per repository ([workflow.md](https://github.com/bearclave/governance/blob/main/standards/workflow.md#housekeeping)) |
@@ -61,7 +62,11 @@ Versions: callers use `@v2`; repositories with `touches-production=true`
 pin the exact release (`@v2.3.1`) and `ci-pins.yml` in `ci` opens the bump
 after each release ([toolchain.md](https://github.com/bearclave/governance/blob/main/standards/toolchain.md#dependency-updates)), so a
 change to an apply pipeline reaches production only through a pull request
-with a plan. See [versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md).
+with a plan. `ci-pins.yml` opens a bump only when a workflow the repository
+calls differs between its pin and the release, and never for a tag that is not
+signed and annotated. A release of `ci` fans out to every pinned repository
+with a whole-tree plan, so releases are batched weekly
+([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md#when-to-release)).
 
 A repository in another organisation (a customer's, [customers.md](https://github.com/bearclave/governance/blob/main/standards/customers.md))
 cannot reach the private `bearclave/ci`: it carries local copies of the
@@ -83,11 +88,11 @@ table; a new check comes with its row.
 | markdownlint-cli2 | `pr` (`check`) | `src/markdownlint.yaml` of ci; `.github/markdownlint.yaml` of the repository replaces rules one by one | a rule set in `.github/markdownlint.yaml` with a comment why, or `<!-- markdownlint-disable-next-line MDxxx -->` with a reason |
 | `markdown-links` (relative links and anchors in `*.md`) | `pr` (`check`) | - | none: fix the link |
 | `todo-issue` (`TODO`/`FIXME` with an issue number) | `pr` (`check`) | `.github/conventions.yaml` | `exceptions` in `.github/conventions.yaml` |
-| `collection-schema` (every `<key>.yaml` of a collection against the JSON Schema of its module) | `pr` (`check`) | `.github/schemas/<module>.schema.json`; `collection-schema` in `.github/conventions.yaml` | `exceptions` in `.github/conventions.yaml` |
+| `collection-schema` (every `definitions/**/<key>.yaml` of a collection against the JSON Schema of its module) | `pr` (`check`) | `.github/schemas/<module>.schema.json`; `collection-schema` in `.github/conventions.yaml` | `exceptions` in `.github/conventions.yaml` |
 | title, branch, description, labels | `pr` (`check`) | `src/pr_check.py` of ci | none |
 | root layout | `pr` (`check`) | `standards/layout.yaml` | `layout.exceptions` in `.github/conventions.yaml` (`review` optional) |
-| conventions | `terragrunt`, `terragrunt-home`, `terraform-modules` (`conventions`) | `.github/conventions.yaml` `rules` | `exceptions` in `.github/conventions.yaml` |
-| Sentinel lint | `terragrunt`, `content-sentinel` (`sentinel`) | `.github/sentinel-lint.yaml` | `exceptions` in `.github/sentinel-lint.yaml` |
+| conventions (the rules of [terragrunt.md](https://github.com/bearclave/governance/blob/main/standards/code/terragrunt.md#checks) and [terraform.md](https://github.com/bearclave/governance/blob/main/standards/code/terraform.md#checks)) | `terragrunt`, `terragrunt-home`, `terraform-modules` (`conventions`) | `.github/conventions.yaml` `rules` | `exceptions` in `.github/conventions.yaml` |
+| Sentinel lint | `terragrunt` (`sentinel`) | `.github/sentinel-lint.yaml` | `exceptions` in `.github/sentinel-lint.yaml` |
 | exception reviews | the conventions and Sentinel jobs, `security` for gitleaks | the files of this column | - |
 | `terragrunt hcl fmt`, `hcl validate`, `terraform validate`, lock files | `terragrunt` (`validate`); `hcl fmt` in `terragrunt-home` | - | none |
 | trivy over the plans | `terragrunt`, `terragrunt-drift` (`plan`) | HIGH, CRITICAL | `.github/trivyignore.yaml`, `paths` = `<unit>/tfplan.json` |
@@ -159,8 +164,9 @@ everything else is configured in the repository section, not rewritten.
 
 - **Plan on the pull request, apply from `main`.** Apply runs in a protected
   environment (`<subject>-prod` of the repository,
-  [repo-types.md](https://github.com/bearclave/governance/blob/main/standards/repo-types.md#iac-terragrunt-terragrunt-home); `prod` for an application) whose deployment branch policy allows `main`
-  only. The plan and the drift sign in as the read-only identity, the apply
+  [repo-types.md](https://github.com/bearclave/governance/blob/main/standards/repo-types.md#iac-terragrunt-terragrunt-home)) whose deployment branch policy allows `main`
+  only. An application deploys to `staging` from `staging` and to `prod`
+  from `prod`, each environment allowing its branch only. The plan and the drift sign in as the read-only identity, the apply
   as the write identity ([identities.md](https://github.com/bearclave/governance/blob/main/standards/identities.md)).
 - **Apply only what the plan proposed**, and only when it proposed
   something.
@@ -189,10 +195,27 @@ everything else is configured in the repository section, not rewritten.
   push, and into the job summary; raw plan files stay on the runner (see
   Pull request comments).
 - Drift runs weekly, plans the whole scope and fails on any difference.
-- **Validate before the plan.** Formatting, syntax and `terraform validate`
-  run in a job of their own, without any sign-in, and the plan needs it: a
-  mistake fails within a minute with an annotation saying what to do. A
-  committed `.terraform.lock.hcl` must not change in `init`.
+- **Validate next to the plan.** Formatting, syntax and `terraform validate`
+  run in a job of their own, without any sign-in, side by side with the plan
+  jobs; the plan comment, the gate and the apply wait for it, so nothing
+  merges or applies without it. A committed `.terraform.lock.hcl` must not
+  change in `init`.
+- **Minutes.** GitHub bills every job at least a minute. A check that takes
+  seconds is a step of a job that runs anyway, not a job of its own, unless it
+  needs other permissions or another runner; the required check is still the
+  `gate`. Short Terragrunt jobs are merged.
+- **No second scan of the same tree.** `security / scan` runs on the pull
+  request and weekly, not on the push of its merge (`main-up-to-date` makes
+  the merged tree the scanned one); `direct-commit=true` repositories and the
+  applications, whose deployment needs the scan, keep it on push.
+- **A pipeline-only change is planned once.** A pull request that changes only
+  `.github/workflows/`, `tool-versions.env` or `trivyignore.yaml` plans the
+  whole tree; the push of its merge plans nothing. A review run only where a
+  plan has destroys (the label the plan sets).
+- A workflow file over 512 KiB fails every push of its repository ("workflow
+  file issue"); `ci` `tools/build.py` refuses it.
+- A re-run uses the reusable workflow resolved when the run was created: a new
+  `ci` release reaches a pull request only with a new push.
 - **Verify after the apply, never roll back by itself.** Right after the
   apply: a second plan of the applied units must propose nothing, the apply
   identity must have no failed operation in the Azure Activity Log of the
