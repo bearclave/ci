@@ -110,6 +110,13 @@ class Schemas(unittest.TestCase):
             "/properties/b: pattern '(' does not compile (missing ), unterminated subpattern at position 0)",
         ])
 
+    def test_conditions_are_not_objects(self):
+        # if/then/else test or extend the object around them; additionalProperties: false there would break them.
+        self.assertEqual(schema_check.closed_errors(
+            {"type": "object", "additionalProperties": False,
+             "properties": {"kind": {"type": "string"}, "group": {"type": "string"}},
+             "allOf": [{"if": {"properties": {"kind": {"const": "g"}}}, "then": {"required": ["group"]}}]}), [])
+
     def test_open_objects(self):
         self.assertEqual(schema_check.closed_errors(
             {"type": "object", "additionalProperties": False,

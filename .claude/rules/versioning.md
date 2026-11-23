@@ -11,37 +11,23 @@ what runs, and the apply run is its record.
 | Repository | Versioned | Consumers pin |
 |---|---|---|
 | `ci` | yes | `@v2` (major tag), production repositories the exact `@v2.3.1` |
-| `iac-modules` | yes | `modules_ref` in `account.hcl`: today `main`, a tag after the first release ([below](#first-releases)) |
+| `iac-modules` | yes | `modules_ref` in `account.hcl` of every Terragrunt repository, always a tag `vX.Y.Z` |
+| `terraform-provider-scc` | yes | the `bearclave/scc` version in `account.hcl` of `iac-purview`, from the Terraform Registry |
 | `template-iac-*` | yes | the version handed over to a customer, written into the handover |
-| `app-home` | yes | the image tag the NAS runs (today `:main`) |
+| `app-home` | yes | the image `:vX.Y.Z` its release publishes; a release is a promotion ([below](#applications)) |
+| `app-web-*` | yes | nobody pins: `prod` is what runs, the tag records each promotion ([below](#applications)) |
 | `app-office-templates` | yes | the generated templates handed to the website |
 | `vs-code-extensions` | per extension | the `version` in each extension's `package.json`, built into its VSIX; no git tag ([below](#vs-code-extensions)) |
-| `iac-*` but `iac-modules`, `app-web-*` | no | applied or deployed from `main` |
+| `iac-*` but `iac-modules` | no | applied from `main` |
 | `governance`, `handbook`, `ops-tools`, `.github`, `content-sentinel` | no | read, not consumed |
 
-## First releases
+## Repositories without a tag yet
 
-`iac-modules`, `template-iac-*`, `app-home` and `app-office-templates` are
-versioned by this standard but have no tag yet. They start releasing, in
-this order:
-
-1. **`iac-modules` `v1.0.0`** from the current `main`: the modules are in
-   production use, so the first version is not a `0.x`.
-2. **Pin the consumers** in their own pull requests: `modules_ref` in the
-   `account.hcl` of `iac-azure` and `iac-github` from `main` to `v1.0.0`. The
-   plan of each shows no change; from then on a module change reaches
-   production only through a bump pull request in the consumer, with its
-   plan. Dependabot does not read `modules_ref`, so the bump is made by hand
-   after each release.
-3. **The others `v1.0.0`** with their next change a consumer receives: a
-   template at its next handover, `app-office-templates` when it next hands
-   templates to the website, `app-home` with its next image (`container.yml`
-   pushes `:main` and `:<sha>` today; an image tagged with the version needs
-   a change there first).
-
-Until a repository has its first tag, its consumers use `main` as today.
-The version is worked out the same way for the first release as for every
-later one ([Releasing](#releasing)); with no earlier tag it is `v1.0.0`.
+`app-office-templates` and the `template-iac-*` repositories are versioned by
+this standard but have no tag yet. Each gets `v1.0.0` with the next change a
+consumer receives: `app-office-templates` when it next hands templates to the
+website, a template at its next handover. With no earlier tag the first version is
+`v1.0.0`; after it, the rules of [Releasing](#releasing) apply.
 
 ## When to release
 
@@ -50,9 +36,9 @@ before a consumer needs a change:
 
 | Repository | Release when | Who |
 |---|---|---|
-| `ci` | a merged pull request since the last tag has a release effect (below) and a caller needs it - at the latest at the end of the week of the merge | the owner tags; `major-tag.yml` and `ci-pins.yml` follow |
-| `iac-modules` | a consumer is to receive a module change: release first, then bump `modules_ref` in the consumer | the owner |
-| `app-home` | the change is to run on the NAS | the owner |
+| `ci` | a merged pull request since the last tag has a release effect (below) and a caller needs it - **at most once a week**, batching what was merged; a security fix or a broken pipeline at once. Every release reaches the pinned repositories as pull requests with a whole-tree plan | the owner runs `tools/release.sh`; `major-tag.yml` and `ci-pins.yml` follow |
+| `iac-modules` | a consumer is to receive a module change: release first, then bump `modules_ref` in the consumer by hand (Dependabot does not read it), its plan in that pull request | the owner |
+| `app-home`, `app-web-*` | the change is to run in production: `promote` ([below](#applications)) | the owner starts `promote`; the App `bearclave-promote` tags |
 | `app-office-templates` | the templates are handed to the website | the owner |
 | `template-iac-*` | before a handover to a customer | the owner |
 | `vs-code-extensions` | in the pull request that changes an extension: its `package.json` version is bumped there | the author |
@@ -80,8 +66,12 @@ Before `v1.0.0` (a new repository), breaking changes bump the minor.
 ## Tags
 
 - **Release tag** `vX.Y.Z`: annotated, signed (`tag.gpgsign`), on a commit of
-  `main`, never moved or deleted. The tag ruleset in `iac-github` refuses an
-  update or deletion.
+  `main`, never moved or deleted. `gh release create` for a tag that does not
+  exist makes a lightweight, unsigned tag on GitHub: never used;
+  `major-tag.yml` and `ci-pins.yml` refuse such a release. The tag ruleset in `iac-github` refuses an
+  update or deletion. An application's tag is the exception: annotated, made
+  by the App `bearclave-promote` and not signed by the owner, on the commit `prod` was
+  moved to ([below](#applications)).
 - **Major tag** `vX` (only in `ci`): moves to the newest `vX.Y.Z`, so that
   callers on `@v2` get fixes. Only the owner and the GitHub App
   `bearclave-bot` may move it (tag ruleset); `vX` is a lightweight ref to
@@ -92,7 +82,8 @@ Before `v1.0.0` (a new repository), breaking changes bump the minor.
 
 A release is made by the owner, by hand, with a tag signed by his key; a
 workflow cannot sign as him, and the ruleset `version-tags-creation` lets
-only organisation owners create `v*` tags.
+only organisation owners create `v*` tags. Applications are released by
+`promote` instead ([Applications](#applications)).
 
 1. Merge everything that belongs to the release.
 2. Work out the version and preview the notes: the workflow `release.yml` of
@@ -101,14 +92,16 @@ only organisation owners create `v*` tags.
    `gh pr list --repo bearclave/<repo> --state merged --search "merged:>$(git log -1 --format=%cs <last-tag>)"`.
    Publishing through `release.yml` is not used: it would create an
    unsigned tag, and no `RELEASE_TOKEN` secret exists.
-3. Tag and publish the release with notes generated from the pull requests:
-
-   ```bash
-   git switch main && git pull --ff-only
-   git tag -s v2.5.0 -m "v2.5.0"
-   git push origin v2.5.0
-   gh release create v2.5.0 --verify-tag --generate-notes
-   ```
+3. Run `tools/release.sh <repo-path> [vX.Y.Z]` of `bearclave/ci` (`--dry-run`
+   first); it is the only way to release, never a chain of `git tag`,
+   `git push` and `gh release create`. It refuses when it is not run in a
+   terminal, a `main` that is not a clean copy of `origin/main`, an open pull
+   request with auto-merge on or approved and mergeable (it may be about to
+   land), a release with nothing that calls for one and a version other than
+   the computed one; it checks its tools before the tag, then signs, pushes
+   and publishes after the version is typed. Tag only after the pull requests
+   of the release are merged (`MERGED`, not auto-merge on): a tag cannot be
+   moved.
 
    In `ci` the major tag then moves by itself: publishing the release runs
    `major-tag.yml`, which moves `v2` as `bearclave-bot` to a published,
@@ -121,6 +114,33 @@ only organisation owners create `v*` tags.
    (`.github/release.yml`, managed): Breaking changes, Features, Fixes,
    Performance, Dependencies, Other. Edit the generated notes only to add
    upgrade steps for a breaking change.
+
+## Applications
+
+`app-web-bearclave`, `app-web-matejhrabalek` and `app-home` are released by
+promoting a commit of `staging` to production
+([workflow.md](https://github.com/bearclave/governance/blob/main/standards/workflow.md#applications-staging-and-prod)), never by hand.
+The workflow `promote` (`bearclave/ci` `promote.yml`, run by the owner from
+`staging`):
+
+1. works out the version from the pull request titles since the last tag, by
+   the rules above, or takes the one given; only `docs`, `test`, `ci` and
+   `chore` since the last tag is refused unless a version is given;
+2. checks that the staging run of the commit succeeded and deployed staging;
+3. as the GitHub App `bearclave-promote`, fast-forwards `prod` to the commit;
+4. waits for the production deployment of the commit and, only when it
+   succeeded, creates the annotated tag `vX.Y.Z` on it and publishes the
+   release with notes generated from the pull requests. A version is what
+   runs in production; a failed production deployment gets no tag.
+
+**An application's tag is an unsigned tag of the App**, not signed by the
+owner: the release is a click, and a workflow cannot sign with the owner's
+key. What vouches for it is the rulesets (only an owner and
+`bearclave-promote` create `v*` tags in an application, only
+`bearclave-promote` moves `prod`), the App being installed on the
+applications only, and the staging and production runs it checked.
+Every other versioned repository keeps the owner's signed tags. A rollback
+is a revert and a new promotion, so a version is never re-tagged or reused.
 
 ## vs-code-extensions
 

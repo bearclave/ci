@@ -325,12 +325,10 @@ jobs:
           # (a step of "pr / check"). The rules in prose: layout.md.
           #
           # A repository's entries are the union of `common`, its group (the name
-          # prefix: iac-, app-, template-/content-, none = platform) and its pipeline
-          # (the shared workflow its ci.yml calls). A top-level folder is also allowed
-          # when it holds what its `content` kind names:
-          #   units    a Terragrunt unit (terragrunt.hcl) somewhere below it
-          #   modules  a Terraform module (*.tf) somewhere below it
-          # `forbidden` takes folders of `common` away from a group or pipeline.
+          # prefix: iac-, app-, template-/content-, none = platform; a provider fork
+          # `terraform-provider-<name>` is group app by its property) and its pipeline
+          # (the shared workflow its ci.yml calls). `forbidden` takes folders of
+          # `common` away from a group or pipeline.
           # Anything else needs an exception with a reason in .github/conventions.yaml:
           #   layout:
           #     exceptions:
@@ -386,6 +384,8 @@ jobs:
               - tool-versions.env
               - conventions.yaml
               - state-moves.yaml
+              # The GUIDs the yaml-ids rule allows in the collections (Microsoft's own IDs).
+              - allowed-ids.yaml
               # The JSON Schemas of the collections, copied from their modules.
               - schemas
               - sentinel-lint.yaml
@@ -418,20 +418,13 @@ jobs:
             terraform-modules:
               # The settings of the README tables of terraform-docs.
               files: [.terraform-docs.yml]
-              content: modules
-            m365-dsc:
-              # Retired: iac-m365 alone, until it is archived. tenant.psd1 is the
-              # tenant context of the configuration, as account.hcl is for Terragrunt.
-              files: [tenant.psd1]
-              folders: [config, content, data, deploy, lib]
+              # modules/<platform>/<module>/; a platform folder at the root fails.
+              folders: [modules]
             static-web-app:
               # api/ is the Functions folder the Static Web App deploys.
               folders: [api]
             container: {}
-            content-sentinel:
-              # The content and its generated Terragrunt view, until the catalogue is
-              # converted to the YAML of iac-sentinel (content/, pipeline checks).
-              folders: [ARM, terragrunt]
+            content-sentinel: {}
             checks: {}
             ci:
               # The workflow templates build.py writes .github/workflows/ from.
@@ -792,11 +785,20 @@ jobs:
               return out
 
 
+          def in_condition(path) -> bool:
+              """A subschema of if/then/else/not tests or adds to an object declared elsewhere; it is not one itself."""
+              for i, k in enumerate(path):
+                  named = i > 0 and path[i - 1] in SUBSCHEMA_MAP | CONTAINERS
+                  if not named and k in ("if", "then", "else", "not"):
+                      return True
+              return False
+
+
           def closed_errors(schema) -> list:
               """Objects that accept keys nobody declared: a typo would pass and Terraform drop it silently."""
               out = []
               for path, s in walk(schema):
-                  if not isinstance(s, dict):
+                  if not isinstance(s, dict) or in_condition(path):
                       continue
                   types = s.get("type")
                   is_object = "properties" in s or types == "object" or (isinstance(types, list) and "object" in types)

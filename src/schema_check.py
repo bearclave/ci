@@ -121,11 +121,20 @@ def schema_errors(schema) -> list:
     return out
 
 
+def in_condition(path) -> bool:
+    """A subschema of if/then/else/not tests or adds to an object declared elsewhere; it is not one itself."""
+    for i, k in enumerate(path):
+        named = i > 0 and path[i - 1] in SUBSCHEMA_MAP | CONTAINERS
+        if not named and k in ("if", "then", "else", "not"):
+            return True
+    return False
+
+
 def closed_errors(schema) -> list:
     """Objects that accept keys nobody declared: a typo would pass and Terraform drop it silently."""
     out = []
     for path, s in walk(schema):
-        if not isinstance(s, dict):
+        if not isinstance(s, dict) or in_condition(path):
             continue
         types = s.get("type")
         is_object = "properties" in s or types == "object" or (isinstance(types, list) and "object" in types)

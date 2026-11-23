@@ -18,9 +18,10 @@ where its pipeline reads it.
 
 | Rule | Why |
 |---|---|
-| GitHub-hosted runners only, `runs-on: ubuntu-24.04` | a fixed image; `ubuntu-latest` moves to a new release on its own |
-| No self-hosted runners | nothing to patch, nothing that keeps state between runs ([security.md](https://github.com/bearclave/governance/blob/main/standards/security.md)) |
-| The home network is reached from the hosted runner through WireGuard | `terragrunt-home.yml`; no runner at home |
+| GitHub-hosted runners, `runs-on: ubuntu-24.04` | a fixed image; `ubuntu-latest` moves to a new release on its own |
+| One self-hosted runner, on the NAS, for the jobs that need the home network: plan and apply of `iac-home`, deployments of `app-home` (`runs-on: [self-hosted, nas]`) | the router and the NAS without a tunnel; everything else stays on GitHub ([security.md](https://github.com/bearclave/governance/blob/main/standards/security.md#workflows), `ci` `docs/runners.md`) |
+| The NAS runner is the official image `ghcr.io/actions/actions-runner` pinned by digest, ephemeral, one job at a time | nothing to patch but the image, nothing kept between jobs; a job installs what the image lacks (the Azure CLI, pinned) |
+| WireGuard from a GitHub runner is the fallback for `iac-home` | `terragrunt-home.yml` with `vpn-script`, when the NAS is down |
 | A bump of the image is a `deps` pull request in `bearclave/ci` | all workflows move together and the plan shows the effect |
 | The callers in the repositories run no job of their own | `runs-on` lives only in the shared workflows of `ci` |
 
@@ -109,8 +110,11 @@ month; a repository that falls behind is a `Debt` issue.
 | Tools in `.github/tool-versions.env` of every repository and `templates/security.yml` of `ci` | `deps.yml` in `ci`: version and sha256 (the release asset's `digest`), one pull request per repository | monthly |
 | Providers pinned in `account.hcl` | `deps.yml` in `ci` | monthly |
 | Provider lower bounds of the modules (`*-modules`) | not bumped; `deps.yml` lists them next to the latest release in its run summary | monthly |
-| `bearclave/ci@vX.Y.Z` pins | `ci-pins.yml` in `ci`, one pull request per pinned repository | after each `ci` release |
+| `bearclave/ci@vX.Y.Z` pins | `ci-pins.yml` in `ci`, one pull request per pinned repository, only when a called workflow changed and the tag is signed | after each `ci` release (weekly at most) |
 | npm, Python (uv), Docker of applications | Dependabot, one grouped pull request per ecosystem ([templates/dependabot.yml](https://github.com/bearclave/governance/blob/main/standards/templates/dependabot.yml)) | monthly |
+| Go modules of `terraform-provider-scc` | Dependabot `gomod`, grouped, 7 days of cooldown | monthly |
+| The NAS runner image (`app-nas` `deploy/runner/compose.yaml`) | Dependabot `docker-compose`, 14 days of cooldown; GitHub stops giving jobs to a runner 63 days after a newer release | monthly |
+| The Azure CLI of the NAS runner (`ci` `templates/_fragments/self-hosted-tools.yml`) | by hand in `ci` | with the monthly tool bump |
 | Security updates | Dependabot security updates (repository settings) | at once |
 | Actions in the other repositories | none: they only call `bearclave/ci` and the managed `pr.yml` | - |
 

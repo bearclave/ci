@@ -3,12 +3,10 @@
 # (a step of "pr / check"). The rules in prose: layout.md.
 #
 # A repository's entries are the union of `common`, its group (the name
-# prefix: iac-, app-, template-/content-, none = platform) and its pipeline
-# (the shared workflow its ci.yml calls). A top-level folder is also allowed
-# when it holds what its `content` kind names:
-#   units    a Terragrunt unit (terragrunt.hcl) somewhere below it
-#   modules  a Terraform module (*.tf) somewhere below it
-# `forbidden` takes folders of `common` away from a group or pipeline.
+# prefix: iac-, app-, template-/content-, none = platform; a provider fork
+# `terraform-provider-<name>` is group app by its property) and its pipeline
+# (the shared workflow its ci.yml calls). `forbidden` takes folders of
+# `common` away from a group or pipeline.
 # Anything else needs an exception with a reason in .github/conventions.yaml:
 #   layout:
 #     exceptions:
@@ -64,6 +62,8 @@ common:
     - tool-versions.env
     - conventions.yaml
     - state-moves.yaml
+    # The GUIDs the yaml-ids rule allows in the collections (Microsoft's own IDs).
+    - allowed-ids.yaml
     # The JSON Schemas of the collections, copied from their modules.
     - schemas
     - sentinel-lint.yaml
@@ -96,20 +96,13 @@ pipelines:
   terraform-modules:
     # The settings of the README tables of terraform-docs.
     files: [.terraform-docs.yml]
-    content: modules
-  m365-dsc:
-    # Retired: iac-m365 alone, until it is archived. tenant.psd1 is the
-    # tenant context of the configuration, as account.hcl is for Terragrunt.
-    files: [tenant.psd1]
-    folders: [config, content, data, deploy, lib]
+    # modules/<platform>/<module>/; a platform folder at the root fails.
+    folders: [modules]
   static-web-app:
     # api/ is the Functions folder the Static Web App deploys.
     folders: [api]
   container: {}
-  content-sentinel:
-    # The content and its generated Terragrunt view, until the catalogue is
-    # converted to the YAML of iac-sentinel (content/, pipeline checks).
-    folders: [ARM, terragrunt]
+  content-sentinel: {}
   checks: {}
   ci:
     # The workflow templates build.py writes .github/workflows/ from.
