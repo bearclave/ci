@@ -408,16 +408,18 @@ jobs:
 
 
           def render(root: pathlib.Path) -> str:
+              # v7 keeps the modules under modules/<platform>/; older releases at the root.
+              top = "modules/" if (root / "modules").is_dir() else ""
               lines = [
                   "# Module catalog",
                   "",
                   "Generated from the module READMEs and variables; do not edit by hand.",
-                  "Source in a unit: `${modules}//<platform>/<module>?ref=<modules_ref>`.",
-                  "Shared building blocks: [azure/_common/](../azure/_common/README.md).",
+                  "Source in a unit: `${modules}//" + top + "<platform>/<module>?ref=<modules_ref>`.",
+                  f"Shared building blocks: [azure/_common/](../{top}azure/_common/README.md).",
                   "",
               ]
               for platform in PLATFORMS:
-                  mods = sorted(p.parent for p in (root / platform).glob("*/README.md") if not p.parent.name.startswith("_"))
+                  mods = sorted(p.parent for p in (root / top / platform).glob("*/README.md") if not p.parent.name.startswith("_"))
                   if not mods:
                       continue
                   lines += [f"## {platform}/", "", "| Module | What it manages | Inputs | Outputs |", "|---|---|---|---|"]
