@@ -9,11 +9,41 @@ the home variant only changes the defaults (below). The checks are
 them.
 
 ```text
-changes -> select -> validate ----------------------------\
-                  \-> plan (1 of n) .. plan (n of n) -> plan -> destroy / approved -> apply -> verify
-                                                                                            \-> report
-                                                                                     gate (always)
+select -> validate ------------------------------------\
+       \-> plan (1 of n) .. plan (n of n) -> plan -> destroy -> apply -> report
+                                                              \-> verify (failed verification only)
+                                                      gate (always; on a pull request it also
+                                                            checks "destroys approved after the plan")
 ```
+
+**Why so few jobs.** Every job bills a whole minute however short it is, so
+the checks of seconds are steps of a neighbour: `select` also decides
+whether the change is relevant (the later jobs skip on its `relevant`
+output) and runs the conventions and the Sentinel lint (their steps carry on
+after a failure so the plan still runs; the gate fails on the `lint`
+output); the approval of destroys is a step of the gate on a pull request;
+`verify` exists only when the verification failed (a passed one is in the
+apply comment). Security is unchanged: the same read-only permissions,
+no sign-in in any of them, the environment and the OIDC subjects of
+`plan` and `apply` untouched.
+
+**The modules repository** is written once per workflow, as the input
+`modules-repository` (default `bearclave/iac-modules`); the checkout, the
+`TG_SOURCE_MAP` of every job and the drift read it from there, and the
+checkout lands in `modules-repo/`. Renaming the repository is that default in
+`terragrunt.yml`, `terragrunt-home.yml` and `terragrunt-drift.yml` (plus the
+`modules` and `modules_ref` of each caller's `account.hcl`, which name the
+source the map replaces).
+
+**Minutes saved without weakening a check.** On the push of a merge, a change
+of the workflows alone selects no unit (`select-units.py --push`): its pull
+request planned the whole tree with them, and a unit or `root.hcl` in the same
+change still selects as before. The plan job puts the label `destroys` on a
+pull request whose plan destroys or replaces something (and takes it off
+again); `destroy-review.yml` re-runs the gate only for a pull request with
+that label, so the review of any other starts no job. A pull request that has
+destroys but lost the label is not re-run by its review: push, or re-run the
+gate by hand.
 
 ## Providers and sign-in
 
@@ -168,9 +198,12 @@ minutes ago are released by the first share.
 GitHub Team has no approval on an environment of a private repository, so
 the approval of destroys and replaces is the owner's review of the pull
 request, given after its plan (`src/terragrunt/destroy-approval.py`). On a
-pull request the check passes when the plan has none, or when such a review
-exists; a review submitted later re-runs it (`destroy-review.yml`). On `main`
-it tells the apply whether the merged pull request passed it on an approval.
+pull request it is the step "Destroys approved after the plan" of the gate:
+it passes when the plan has no destroys, or when such a review exists; a
+review submitted later re-runs the failed gate (`destroy-review.yml`). On
+`main` the job `destroy / approved` (only when the plan has destroys) tells
+the apply whether the gate of the merged pull request's run passed that step
+on an approval.
 
 ## apply
 
@@ -204,7 +237,7 @@ The result is `verification.md` (a `| Check | Result | Detail |` table) and
 `activity_log`, `checks`), in the job summary and the artifact
 `verification-<run id>`.
 
-**verify** is the only job that writes to the repository (`contents`,
+**verify** runs only after a failed verification and is the only job that writes to the repository (`contents`,
 `pull-requests`, `issues: write`). When the verification failed it turns red
 and, without rolling anything back, opens a `Bug` issue `Apply of <sha>
 failed its verification` (`prio:high`, `source:drift`, assigned to

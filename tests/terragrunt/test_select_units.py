@@ -168,6 +168,19 @@ class SelectUnits(unittest.TestCase):
         self.base = self.commit("workspace")
         return ws
 
+    def test_imports_and_moves_files_select_their_unit(self):
+        # imports.hcl and moves.hcl are temporary files next to a unit: added
+        # in the pull request that needs them, deleted in the next one.
+        self.write("tenant/groups/imports.hcl", "locals {}\n")
+        self.write("tenant/memberships/moves.hcl", "locals {}\n")
+        self.commit()
+        self.assertEqual(self.select(None, "--no-expand")["units"], ["tenant/groups", "tenant/memberships"])
+        self.base = self.git("rev-parse", "HEAD")
+        self.remove("tenant/groups/imports.hcl")
+        self.remove("tenant/memberships/moves.hcl")
+        self.commit()
+        self.assertEqual(self.select(None, "--no-expand")["units"], ["tenant/groups", "tenant/memberships"])
+
     def test_collection_object_selects_its_collection(self):
         ws = self.sentinel_workspace()
         self.write(f"{ws}/analytic-rules/entra-id/break-glass-sign-in.yaml", "severity: High\n")
@@ -342,6 +355,27 @@ class SelectUnits(unittest.TestCase):
         r = self.select()
         self.assertFalse(r["all"])
         self.assertEqual(r["units"], [])
+
+    def test_push_of_workflows_alone_selects_nothing(self):
+        # The pull request planned the whole tree with them; the push has nothing to apply.
+        self.write(".github/workflows/ci.yml")
+        self.write(".github/tool-versions.env", "x\n")
+        self.commit()
+        self.assertTrue(self.select()["all"])
+        r = self.select(None, "--push")
+        self.assertFalse(r["all"])
+        self.assertEqual(r["units"], [])
+
+    def test_push_of_workflows_with_a_unit_selects_the_unit(self):
+        self.write(".github/workflows/ci.yml")
+        self.write("tenant/groups/terragrunt.hcl")
+        self.commit()
+        self.assertEqual(self.select(None, "--push", "--no-expand")["units"], ["tenant/groups"])
+
+    def test_push_of_root_hcl_still_selects_everything(self):
+        self.write("root.hcl")
+        self.commit()
+        self.assertTrue(self.select(None, "--push")["all"])
 
     def test_plan_inputs_under_github_select_everything(self):
         for path in (".github/tool-versions.env", ".github/trivyignore.yaml"):

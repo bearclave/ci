@@ -52,6 +52,10 @@ on:
         description: Key Vault with the read-only GitHub App (iac-github)
         type: string
         default: ""
+      modules-repository:
+        description: The repository of the Terraform modules the units take their source from (a rename of it is this default)
+        type: string
+        default: bearclave/iac-modules
     secrets:
       modules-deploy-key:
         required: true
@@ -65,6 +69,8 @@ defaults:
 
 env:
   TOOLS_DIR: ${{ github.workspace }}/.tools/bin
+  MODULES_REPO: ${{ inputs.modules-repository }}
+  MODULES_DIR: ${{ github.workspace }}/modules-repo
   ARM_USE_OIDC: "true"
   ARM_USE_AZUREAD: "true"
   ARM_TENANT_ID: ${{ inputs.tenant-id }}
@@ -84,11 +90,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The history says when imports.hcl and moves.hcl were added.
+          fetch-depth: 0
           persist-credentials: false
 
       @@include templates/_fragments/modules-checkout.yml@@
 
       @@include templates/_fragments/scripts-terragrunt.yml@@
+
+      # imports.hcl and moves.hcl are deleted after their apply; every one
+      # still here is reported (a warning, the plan below decides the run).
+      - name: Temporary files
+        run: stale-temp-files.py HEAD
 
       - name: Tool versions
         id: versions
@@ -134,7 +147,7 @@ jobs:
         env:
           TG_PROVIDER_CACHE: "1"
           TG_PROVIDER_CACHE_DIR: ${{ github.workspace }}/.tgproviders
-          TG_SOURCE_MAP: git::https://github.com/bearclave/iac-modules=${{ github.workspace }}/iac-modules
+          TG_SOURCE_MAP: git::https://github.com/${{ env.MODULES_REPO }}=${{ env.MODULES_DIR }}
         run: |
           set -euo pipefail
           mkdir -p "$TG_PROVIDER_CACHE_DIR"

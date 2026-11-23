@@ -50,6 +50,20 @@ class Catalog(unittest.TestCase):
             self.assertNotIn("_empty", catalog)
             self.assertEqual(run("--check").returncode, 0)
 
+    def test_modules_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            mod = root / "modules" / "azure" / "key-vault"
+            mod.mkdir(parents=True)
+            (mod / "README.md").write_text(README)
+            (mod / "variables.tf").write_text('variable "name" {\n  type        = string\n'
+                                              '  description = "Name."\n}\n')
+            (mod / "outputs.tf").write_text('output "id" {\n  value       = "x"\n  description = "ID."\n}\n')
+            subprocess.run([sys.executable, str(SCRIPT), str(root)], check=True)
+            catalog = (root / "docs" / "catalog.md").read_text()
+            self.assertIn("| [`modules/azure/key-vault`](../modules/azure/key-vault/README.md) |", catalog)
+            self.assertIn("`${modules}//modules/<platform>/<module>?ref=<modules_ref>`", catalog)
+
 
 if __name__ == "__main__":
     unittest.main()

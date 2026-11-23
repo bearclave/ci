@@ -43,6 +43,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The history is what a pull request is compared with.
+          fetch-depth: 0
           persist-credentials: false
 
       # The pipeline scripts travel inside the workflow (see build.py): the
@@ -146,6 +148,140 @@ jobs:
           chmod +x "$d"/*
           echo "$d" >>"$GITHUB_PATH"
 
+      # A pull request checks the modules it touches (and the ones that call
+      # them); a push, and any change to what every module shares (the
+      # workflows, the tool versions, the lint and docs settings, a _common
+      # folder), checks all of them. Formatting, the catalog and trivy always
+      # cover the whole repository.
+      - name: Modules to check
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          cat >"$RUNNER_TEMP/changed-modules.py" <<'__CI_EOF__'
+          #!/usr/bin/env python3
+          """Lists the Terraform modules a run has to check.
+
+          Usage: changed-modules.py <outdir> [<base commit>]
+
+          Writes validate.txt, test.txt and readme.txt to <outdir>, one module directory
+          per line: the directories that hold .tf files, those with tests/*.tftest.hcl,
+          and those with a README.md (the terraform-docs tables).
+
+          Without a base commit (a push, a schedule, an unknown base) every module is
+          listed. With one - a pull request - only the modules the change touches: a
+          module is a directory with .tf files, a file belongs to the nearest module
+          above it, and a module that calls a changed one through a relative `source`
+          is listed too. The whole set is listed when the change reaches anything that
+          every module shares: a path under a `_common` folder, the workflows, the
+          tool versions, the lint and docs settings, any file outside every module
+          (Markdown, .claude/ and docs/ excepted, which no check of a module reads).
+          """
+          import os
+          import re
+          import subprocess
+          import sys
+
+          # Outside every module, these cannot change what a module check says.
+          HARMLESS = (".claude/", "docs/")
+          RE_SOURCE = re.compile(r'^\s*source\s*=\s*"(\.\.?/[^"]*)"', re.M)
+
+
+          def git(*args: str) -> str:
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
+
+
+          def lists(files: list) -> dict:
+              """{validate, test, readme: sorted module directories} of all modules."""
+              tf = {os.path.dirname(f) or "." for f in files if f.endswith(".tf") and "/.terraform/" not in f
+                    and not f.startswith(".tools/")}
+              tests = {os.path.dirname(os.path.dirname(f)) or "." for f in files
+                       if f.endswith(".tftest.hcl") and os.path.basename(os.path.dirname(f)) == "tests"}
+              readme = {d for d in tf if (f"{d}/README.md" if d != "." else "README.md") in files
+                        and not any(p.startswith(".") and p != "." for p in d.split("/"))}
+              return {"validate": sorted(tf), "test": sorted(tests), "readme": sorted(readme)}
+
+
+          def owner(path: str, modules: set):
+              d = os.path.dirname(path)
+              while True:
+                  if (d or ".") in modules:
+                      return d or "."
+                  if not d:
+                      return None
+                  d = os.path.dirname(d)
+
+
+          def dependents(changed: set, modules: set, read) -> set:
+              """The modules that call a module of `changed` by a relative source, transitively."""
+              out = set(changed)
+              grew = True
+              while grew:
+                  grew = False
+                  for m in modules - out:
+                      for src in RE_SOURCE.findall(read(m)):
+                          target = os.path.normpath(os.path.join(m, src))
+                          if any(target == c or target.startswith(c + "/") for c in out):
+                              out.add(m)
+                              grew = True
+                              break
+              return out
+
+
+          def select(files: list, changes, read=None):
+              """(lists, reason): the lists to check, and why they are whole when they are (else None)."""
+              everything = lists(files)
+              if changes is None:
+                  return everything, "no base to compare with"
+              modules = set(everything["validate"])
+              read = read or (lambda m: "".join(open(os.path.join(m, f), encoding="utf-8").read()
+                                                for f in os.listdir(m) if f.endswith(".tf")))
+              touched = set()
+              for path in changes:
+                  if "_common" in path.split("/"):
+                      return everything, f"{path} is shared by every module"
+                  mod = owner(path, modules)
+                  if mod:
+                      touched.add(mod)
+                  elif path.startswith(HARMLESS) or path.lower().endswith(".md"):
+                      continue
+                  else:
+                      return everything, f"{path} is outside every module"
+              chosen = dependents(touched, modules, read)
+              return {k: [d for d in v if d in chosen] for k, v in everything.items()}, None
+
+
+          def main(argv: list) -> int:
+              if not argv:
+                  sys.exit(__doc__)
+              outdir, base = argv[0], argv[1] if len(argv) > 1 else ""
+              files = git("ls-files", "-z").split("\0")
+              files = [f for f in files if f]
+              changes = None
+              if base:
+                  try:
+                      changes = [f for f in git("diff", "--name-only", "-z", base, "HEAD").split("\0") if f]
+                  except subprocess.CalledProcessError:
+                      changes = None
+              chosen, reason = select(files, changes)
+              os.makedirs(outdir, exist_ok=True)
+              for name, dirs in chosen.items():
+                  with open(os.path.join(outdir, f"{name}.txt"), "w", encoding="utf-8") as fh:
+                      fh.write("".join(d + "\n" for d in dirs))
+              total = len(lists(files)["validate"])
+              line = (f"Modules checked: all {total} ({reason})." if reason
+                      else f"Modules checked: {len(chosen['validate'])} of {total}.")
+              print(line)
+              if os.environ.get("GITHUB_STEP_SUMMARY"):
+                  with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+                      fh.write(line + "\n")
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main(sys.argv[1:]))
+          __CI_EOF__
+          python3 "$RUNNER_TEMP/changed-modules.py" "$RUNNER_TEMP/modules" "$BASE"
+
       - name: Tool versions
         id: versions
         run: grep '^TERRAFORM_VERSION=' .github/tool-versions.env >>"$GITHUB_OUTPUT"
@@ -198,7 +334,7 @@ jobs:
               fail=1
             fi
             echo "::endgroup::"
-          done < <(find . -name '*.tf' -not -path '*/.terraform/*' -not -path './.tools/*' -exec dirname {} \; | sort -u)
+          done <"$RUNNER_TEMP/modules/validate.txt"
           exit $fail
 
       # Offline: the tests plan against mock_provider; the modules are
@@ -214,7 +350,7 @@ jobs:
               fail=1
             fi
             echo "::endgroup::"
-          done < <(find . -path '*/tests/*.tftest.hcl' -not -path './.tools/*' | sed 's|/tests/[^/]*$||' | sort -u)
+          done <"$RUNNER_TEMP/modules/test.txt"
           exit $fail
 
       # The generated tables of every module README match the module.
@@ -228,8 +364,7 @@ jobs:
               echo "::error file=$dir/README.md::the terraform-docs part is not up to date; run 'terraform-docs --config .terraform-docs.yml $dir'"
               fail=1
             fi
-          done < <(find . -name '*.tf' -not -path './.*' -not -path '*/.terraform/*' -exec dirname {} \; | sort -u |
-            while read -r d; do [ -f "$d/README.md" ] && echo "$d"; done)
+          done <"$RUNNER_TEMP/modules/readme.txt"
           exit $fail
 
       - name: Catalog
@@ -273,16 +408,18 @@ jobs:
 
 
           def render(root: pathlib.Path) -> str:
+              # v7 keeps the modules under modules/<platform>/; older releases at the root.
+              top = "modules/" if (root / "modules").is_dir() else ""
               lines = [
                   "# Module catalog",
                   "",
                   "Generated from the module READMEs and variables; do not edit by hand.",
-                  "Source in a unit: `${modules}//<platform>/<module>?ref=<modules_ref>`.",
-                  "Shared building blocks: [azure/_common/](../azure/_common/README.md).",
+                  "Source in a unit: `${modules}//" + top + "<platform>/<module>?ref=<modules_ref>`.",
+                  f"Shared building blocks: [azure/_common/](../{top}azure/_common/README.md).",
                   "",
               ]
               for platform in PLATFORMS:
-                  mods = sorted(p.parent for p in (root / platform).glob("*/README.md") if not p.parent.name.startswith("_"))
+                  mods = sorted(p.parent for p in (root / top / platform).glob("*/README.md") if not p.parent.name.startswith("_"))
                   if not mods:
                       continue
                   lines += [f"## {platform}/", "", "| Module | What it manages | Inputs | Outputs |", "|---|---|---|---|"]
@@ -324,7 +461,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           tflint --init --config="$PWD/.tflint.hcl"
-          tflint --recursive --config="$PWD/.tflint.hcl"
+          fail=0
+          while read -r dir; do
+            tflint --chdir="$dir" --config="$PWD/.tflint.hcl" || fail=1
+          done <"$RUNNER_TEMP/modules/validate.txt"
+          exit $fail
 
       - name: trivy config
         run: |
@@ -361,7 +502,8 @@ jobs:
           which the workflow writes next to this script. The config:
 
             rules:       <rule>: {level: error | warn | off, ...parameters}; the
-                         rules in DEFAULT_ON run unless they are set to off, the others
+                         rules in DEFAULT_ON run unless they are set to off, those in
+                         DEFAULT_WARN run as warnings until a level is set, the others
                          only when they are named
             units:       globs of the unit files (terragrunt.hcl) for the terragrunt rules
             exceptions:  [{rule, path (a glob), match (optional text on the line),
@@ -394,10 +536,10 @@ jobs:
 
 
           class Token:
-              __slots__ = ("kind", "value", "line")
+              __slots__ = ("kind", "value", "line", "heredoc")
 
-              def __init__(self, kind, value, line):
-                  self.kind, self.value, self.line = kind, value, line
+              def __init__(self, kind, value, line, heredoc=False):
+                  self.kind, self.value, self.line, self.heredoc = kind, value, line, heredoc
 
               def __repr__(self):
                   return f"{self.kind}:{self.value!r}@{self.line}"
@@ -446,7 +588,7 @@ jobs:
                           body.append(current)
                           line += 1
                           j = end + 1
-                      tokens.append(Token("str", "\n".join(body), start_line))
+                      tokens.append(Token("str", "\n".join(body), start_line, heredoc=True))
                       i = j
                   elif (m := RE_IDENT.match(text, i)):
                       tokens.append(Token("ident", m.group(0), line))
@@ -632,9 +774,10 @@ jobs:
           class Repo:
               def __init__(self, root):
                   self.root = root
-                  out = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True,
-                                       text=True, check=True).stdout
-                  self.files = sorted(f for f in out.splitlines() if os.path.isfile(os.path.join(root, f)))
+                  # -z: a path with a non-ASCII letter is otherwise quoted and then lost.
+                  out = subprocess.run(["git", "ls-files", "-z"], cwd=root, capture_output=True,
+                                       check=True).stdout.decode("utf-8", errors="replace")
+                  self.files = sorted(f for f in out.split("\0") if f and os.path.isfile(os.path.join(root, f)))
                   self._cache = {}
 
               def glob(self, *patterns):
@@ -972,6 +1115,238 @@ jobs:
                       report.add("unit-assets", path, 1,
                                  f"{rel} is not read by {unit}: name it in its terragrunt.hcl, or read the "
                                  "collection with fileset() in its _common/units/ file")
+
+
+          # --------------------------------------------------------------------------
+          # The shape of the HCL (decisions of the standardisation, code/terragrunt.md
+          # of governance): no raw Terraform in Terragrunt, a unit that only describes
+          # the infrastructure, no ID written into a unit or a collection file, the
+          # collections where they belong. These rules run in every repository that
+          # names its units, as warnings until the repository sets a level.
+
+          UNIT_SHAPE_ORDER = ("include", "dependency", "dependencies", "locals", "inputs")
+          INCLUDE_ORDER = ("root", "unit")
+          CONTENT_COMMENT = "# Content: the YAML files in definitions/."
+          RE_FOR = re.compile(r"\bfor\s+\w+(?:\s*,\s*\w+)?\s+in\b")
+          RE_INLINE_BLOCK = re.compile(r"^\s*(import|moved|removed)\s*\{", re.M)
+          RE_YAML_NAME = re.compile(r"^[a-z0-9-]+\.yaml$")
+          GENERATED_FROM_FILE = ("templatefile", "file")
+
+
+          def shape_units(repo, units):
+              """The unit files of the shape rules: the repository's units, never _common/."""
+              return [u for u in units if not u.startswith("_common/") and "/_common/" not in u]
+
+
+          def all_blocks(block):
+              for child in block.blocks:
+                  yield child
+                  yield from all_blocks(child)
+
+
+          def interpolations(value):
+              """The text of every ${...} and %{...} of a string, nested quotes left out."""
+              out, i, n = [], 0, len(value)
+              while i < n:
+                  if value.startswith(("${", "%{"), i):
+                      depth, j, quoted = 1, i + 2, False
+                      while j < n and depth:
+                          c = value[j]
+                          if c == '"' and value[j - 1] != "\\":
+                              quoted = not quoted
+                          elif not quoted and c == "{":
+                              depth += 1
+                          elif not quoted and c == "}":
+                              depth -= 1
+                          j += 1
+                      inner = value[i:j]
+                      out.append(re.sub(r'"(?:[^"\\]|\\.)*"', '""', inner))
+                      i = j
+                  else:
+                      i += 1
+              return out
+
+
+          def rule_no_raw_terraform(repo, params, units, report):
+              """No heredoc, no generate with inline contents, no import, moved or removed block in an .hcl file.
+
+              The only Terraform in a live repository is _common/templates/*.tf.tmpl.
+              """
+              if not units:
+                  return
+              for path in repo.glob(*params.get("paths", ["**/*.hcl"])):
+                  if os.path.basename(path) == ".terraform.lock.hcl":
+                      continue
+                  root, tokens, _ = repo.hcl(path)
+                  for t in tokens:
+                      if t.kind == "str" and t.heredoc:
+                          report.add("no-raw-terraform", path, t.line,
+                                     "a heredoc (<<EOF) is raw text or Terraform in HCL: put it in a module or a "
+                                     "_common/templates/*.tf.tmpl file")
+                      if t.kind == "str":
+                          for m in RE_INLINE_BLOCK.finditer(t.value):
+                              line = t.line + t.value[:m.start()].count("\n") + (1 if t.heredoc else 0)
+                              report.add("no-raw-terraform", path, line,
+                                         f"an inline {m.group(1)} block: imports and moves are imports.hcl and moves.hcl, "
+                                         "rendered from _common/templates")
+                  for block in [root] + list(all_blocks(root)):
+                      if block.kind in ("import", "moved", "removed") and block is not root:
+                          report.add("no-raw-terraform", path, block.line,
+                                     f"an inline {block.kind} block: imports and moves are imports.hcl and moves.hcl, "
+                                     "rendered from _common/templates")
+                      if block.kind == "generate" and "contents" in block.attrs:
+                          value = block.attrs["contents"].value
+                          if not (value and value[0].kind == "ident" and value[0].value in GENERATED_FROM_FILE):
+                              report.add("no-raw-terraform", path, block.attrs["contents"].line,
+                                         "a generate block with inline contents: render a file with templatefile() "
+                                         "from _common/templates, or put it in the module")
+
+
+          def rule_unit_no_logic(repo, params, units, report):
+              """A unit terragrunt.hcl has no for expression and no conditional (they live in modules and _common/)."""
+              for path in shape_units(repo, units):
+                  _, tokens, _ = repo.hcl(path)
+                  for k, t in enumerate(tokens):
+                      if t.kind == "ident" and t.value == "for":
+                          rest = [x for x in tokens[k + 1:k + 6] if x.kind != "nl"]
+                          names = [x.value for x in rest]
+                          if names[1:2] == ["in"] or (names[1:2] == [","] and names[3:4] == ["in"]):
+                              report.add("unit-no-logic", path, t.line,
+                                         "a for expression in a unit: a unit lists what exists; build the "
+                                         "collection in _common/units or the module")
+                      elif t.kind == "punct" and t.value == "?":
+                          report.add("unit-no-logic", path, t.line,
+                                     "a conditional (? :) in a unit: decide in the module or in account.hcl/context.hcl")
+                      elif t.kind == "str" and not t.heredoc:
+                          for inner in interpolations(t.value):
+                              if inner.startswith("%{") and re.match(r"%\{~?\s*(if|for)\b", inner):
+                                  report.add("unit-no-logic", path, t.line, "a template directive (%{ if/for }) in a unit")
+                              elif inner.startswith("${") and "?" in inner:
+                                  report.add("unit-no-logic", path, t.line, "a conditional (? :) in a unit")
+                              elif inner.startswith("${") and RE_FOR.search(inner):
+                                  report.add("unit-no-logic", path, t.line, "a for expression in a unit")
+
+
+          def rule_unit_comments(repo, params, units, report):
+              """A comment in a unit is one line (why, not what); longer text goes to docs/."""
+              for path in shape_units(repo, units):
+                  _, _, comments = repo.hcl(path)
+                  lines = text_lines(repo, path) or []
+                  standalone, in_block = [], False
+                  for n in sorted(comments):
+                      text = lines[n - 1].strip() if 0 < n <= len(lines) else ""
+                      if in_block:
+                          standalone.append(n)
+                          in_block = "*/" not in text
+                      elif text.startswith(("#", "//")):
+                          standalone.append(n)
+                      elif text.startswith("/*"):
+                          standalone.append(n)
+                          in_block = "*/" not in text[2:]
+                  run = []
+                  for n in standalone + [None]:
+                      if run and (n is None or n != run[-1] + 1):
+                          if len(run) > 1:
+                              report.add("unit-comments", path, run[0],
+                                         f"a comment of {len(run)} lines: one line, only when needed; "
+                                         "longer text goes to docs/, a README or governance")
+                          run = []
+                      if n is not None:
+                          run.append(n)
+
+
+          def rule_unit_block_order(repo, params, units, report):
+              """include (root, unit, then the rest), dependency, dependencies, locals, inputs; inputs = {} only with its comment."""
+              for path in shape_units(repo, units):
+                  root, _, _ = repo.hcl(path)
+                  items = [(b.line, b.kind, b) for b in root.blocks]
+                  items += [(a.line, a.name, a) for a in root.attrs.values()]
+                  highest, seen = -1, ""
+                  for line, kind, node in sorted(items, key=lambda x: x[0]):
+                      if kind not in UNIT_SHAPE_ORDER:
+                          continue
+                      rank = UNIT_SHAPE_ORDER.index(kind)
+                      if rank < highest:
+                          report.add("unit-block-order", path, line,
+                                     f"{kind} comes after {seen}; the order is {', '.join(UNIT_SHAPE_ORDER)}")
+                      else:
+                          highest, seen = rank, kind
+                  includes = [b.labels[0] if b.labels else "" for b in root.find("include")]
+                  ranked = [INCLUDE_ORDER.index(x) if x in INCLUDE_ORDER else len(INCLUDE_ORDER) for x in includes]
+                  if ranked != sorted(ranked):
+                      line = root.find("include")[0].line
+                      report.add("unit-block-order", path, line,
+                                 f"the includes are {', '.join(includes)}; the order is root, unit, then the dependencies")
+                  if "inputs" in root.attrs:
+                      attr = root.attrs["inputs"]
+                      if [t.value for t in attr.value] == ["{", "}"]:
+                          lines = text_lines(repo, path) or []
+                          above = lines[attr.line - 2].strip() if attr.line >= 2 else ""
+                          if above != CONTENT_COMMENT:
+                              report.add("unit-block-order", path, attr.line,
+                                         f"inputs = {{}} is allowed only for a collection, with the comment "
+                                         f"'{CONTENT_COMMENT}' directly above it")
+
+
+          def rule_no_guid_in_unit(repo, params, units, report):
+              """No GUID in a unit terragrunt.hcl: IDs come from account.hcl/context.hcl or a lookup by name in the module."""
+              for path in shape_units(repo, units):
+                  _, tokens, _ = repo.hcl(path)
+                  for t in tokens:
+                      if t.kind == "str":
+                          for g in re.findall(GUID, t.value):
+                              report.add("no-guid-in-unit", path, t.line,
+                                         f"the ID {g} is written into a unit: take it from account.hcl or "
+                                         "context.hcl, or look it up by name in the module")
+
+
+          def allowed_ids(repo, params):
+              """The GUIDs of the allow-list file, lower case: every GUID the file holds."""
+              path = params.get("allowlist", ".github/allowed-ids.yaml")
+              if not repo.exists(path):
+                  return set(), path
+              return {g.lower() for line in text_lines(repo, path) or [] for g in re.findall(GUID, line)}, path
+
+
+          def unit_yaml_files(repo, units):
+              """[(unit, path)] of the YAML files that sit in a unit's directory."""
+              dirs = {os.path.dirname(u) for u in shape_units(repo, units)}
+              out = []
+              for f in yaml_files(repo):
+                  unit = owning_unit(f, dirs)
+                  if unit:
+                      out.append((unit, f))
+              return out
+
+
+          def rule_yaml_ids(repo, params, units, report):
+              """A GUID in a collection file is allowed only when .github/allowed-ids.yaml lists it.
+
+              The list holds the well-known first- and third-party app IDs and the role
+              template IDs the API needs; the ID of anything the repository itself
+              creates is looked up by name in the module.
+              """
+              allowed, listfile = allowed_ids(repo, params)
+              for _, path in unit_yaml_files(repo, units):
+                  for n, line in enumerate(text_lines(repo, path) or [], 1):
+                      for g in re.findall(GUID, line):
+                          if g.lower() not in allowed:
+                              report.add("yaml-ids", path, n, f"the ID {g} is not in {listfile}: look it up by name "
+                                         "in the module, or list a well-known app or role template ID there with its name")
+
+
+          def rule_collection_layout(repo, params, units, report):
+              """A collection's YAML files sit under <unit>/definitions/ and are named [a-z0-9-]+.yaml."""
+              for unit, path in unit_yaml_files(repo, units):
+                  rel = path[len(unit) + 1:]
+                  if not rel.startswith("definitions/"):
+                      report.add("collection-layout", path, 1,
+                                 f"{rel} sits next to terragrunt.hcl: collection files live in {unit}/definitions/")
+                  name = os.path.basename(path)
+                  if not RE_YAML_NAME.match(name):
+                      report.add("collection-layout", path, 1,
+                                 f"the file name {name} is not ASCII lower case kebab-case English ([a-z0-9-]+.yaml); "
+                                 "the key is the name, the display name may be Czech")
 
 
           # --------------------------------------------------------------------------
@@ -1370,6 +1745,13 @@ jobs:
               "no-envcommon": rule_no_envcommon,
               "lock-none-needs-reason": rule_lock_none_needs_reason,
               "unit-assets": rule_unit_assets,
+              "no-raw-terraform": rule_no_raw_terraform,
+              "unit-no-logic": rule_unit_no_logic,
+              "unit-comments": rule_unit_comments,
+              "unit-block-order": rule_unit_block_order,
+              "no-guid-in-unit": rule_no_guid_in_unit,
+              "yaml-ids": rule_yaml_ids,
+              "collection-layout": rule_collection_layout,
               "collection-schema": rule_collection_schema,
               "scope-layout": rule_scope_layout,
               "folder-dictionary": rule_folder_dictionary,
@@ -1379,6 +1761,10 @@ jobs:
           # Rules every repository has without naming them (pr / check runs them);
           # level off turns one off.
           DEFAULT_ON = ("todo-issue", "markdown-links", "collection-schema")
+          # The shape rules run in every repository that names its units, as warnings
+          # until the repository sets a level (error, or off with a reason).
+          DEFAULT_WARN = ("no-raw-terraform", "unit-no-logic", "unit-comments", "unit-block-order",
+                          "no-guid-in-unit", "yaml-ids", "collection-layout")
           LEVELS = ("error", "warn", "off")
 
 
@@ -1390,6 +1776,8 @@ jobs:
               rules = dict(config.get("rules") or {})
               for name in DEFAULT_ON:
                   rules.setdefault(name, {"level": "error"})
+              for name in DEFAULT_WARN:
+                  rules.setdefault(name, {"level": "warn"})
               for name, params in rules.items():
                   if name not in RULES:
                       errors.append(f"unknown rule {name!r}; known: {', '.join(sorted(RULES))}")

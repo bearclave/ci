@@ -19,10 +19,11 @@ pull request comment, so "after" means after the plan job ended.
       approved (the step STEP below succeeded), not because it had none.
 
   destroy-approval.py review <head-sha> <workflow>
-      On a submitted review: re-runs the failed destroy check of the last
-      completed pull request run of <workflow> for <head-sha>, so that it
-      reads the new review. GitHub also re-runs the jobs that need it (the
-      gate).
+      On a submitted review: re-runs the failed gate of the last completed
+      pull request run of <workflow> for <head-sha>, so that its step STEP
+      reads the new review. (Runs from before the check moved into the gate
+      have a job "destroy / approved" of its own; that is re-run instead,
+      and GitHub re-runs the gate that needs it.)
 
 Reads the API with gh (GH_TOKEN) in GITHUB_REPOSITORY.
 """
@@ -31,8 +32,11 @@ import os
 import subprocess
 import sys
 
+# The step of the gate (on main: of the gate of the merged pull request's
+# run) that passes only on an approval.
 STEP = "Destroys approved after the plan"
-JOB_SUFFIX = "destroy / approved"
+JOB_SUFFIX = "destroy / approved"   # the job of runs before the check moved into the gate
+GATE_SUFFIX = "/ gate"
 
 
 def api(path: str, method: str = "GET"):
@@ -84,8 +88,17 @@ def last_run(runs: list):
 
 
 def destroy_job(jobs: list):
+    """The job that holds the approval check: the gate, or the job of an older run."""
+    for job in jobs:
+        if any(s.get("name") == STEP for s in job.get("steps", [])) and job.get("name", "").endswith(GATE_SUFFIX):
+            return job
     for job in jobs:
         if job.get("name", "").endswith(JOB_SUFFIX):
+            return job
+    # A gate that skipped the step (no destroys) has it listed too; one without
+    # the step list at all (a test, an old API answer) is found by name.
+    for job in jobs:
+        if job.get("name", "").endswith(GATE_SUFFIX):
             return job
     return None
 

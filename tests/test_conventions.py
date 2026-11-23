@@ -75,7 +75,9 @@ class Base(unittest.TestCase):
 
     def check(self, config):
         violations, errors = conventions.check(config, str(self.root))
-        return violations, errors
+        # The shape rules warn in every repository; the older tests look at their own rules.
+        quiet = set(conventions.DEFAULT_WARN) - set((config or {}).get("rules") or {})
+        return [v for v in violations if v["rule"] not in quiet], errors
 
     def rules_hit(self, config):
         violations, errors = self.check(config)
@@ -630,6 +632,159 @@ class EveryRepository(Base):
         self.assertEqual({v["rule"] for v in violations}, {"no-envcommon"})
         violations, _ = conventions.check(config, str(self.root), only=["todo-issue"])
         self.assertEqual({v["rule"] for v in violations}, {"todo-issue"})
+
+
+
+GUID_A = "a1b2c3d4-0000-4000-8000-123456789abc"
+GUID_B = "b1b2c3d4-0000-4000-8000-123456789abc"
+UNIT = "infrastructure/groups/terragrunt.hcl"
+SHAPE = {"units": ["infrastructure/**/terragrunt.hcl"]}
+GOOD_UNIT = (
+    'include "root" {\n  path = find_in_parent_folders("root.hcl")\n}\n\n'
+    'include "unit" {\n  path = "${get_repo_root()}/_common/units/groups.hcl"\n}\n\n'
+    'dependency "rg" {\n  config_path = "../rg"\n}\n\n'
+    'locals {\n  name = "x"\n}\n\n'
+    '# Content: the YAML files in definitions/.\n'
+    'inputs = {}\n')
+
+
+class Shape(Base):
+    """The shape rules: raw Terraform, the logic of a unit, IDs, the layout of collections."""
+
+    def hits(self, files, config=None):
+        self.write(files)
+        violations, errors = conventions.check(config or SHAPE, str(self.root))
+        self.assertEqual(errors, [])
+        return sorted((v["rule"], v["path"], v["line"]) for v in violations)
+
+    def unit(self, text, **more):
+        return self.hits({UNIT: text, **more})
+
+    def test_clean_unit(self):
+        self.assertEqual(self.unit(GOOD_UNIT, **{"infrastructure/groups/definitions/sg-a.yaml": "name: a\n"}), [])
+
+    def test_the_rules_warn_unless_the_repository_sets_a_level(self):
+        self.write({UNIT: "inputs = {\n  a = x ? 1 : 2\n}\n"})
+        violations, _ = conventions.check(SHAPE, str(self.root))
+        self.assertEqual({v["level"] for v in violations}, {"warn"})
+        config = {**SHAPE, "rules": {"unit-no-logic": {"level": "error"}}}
+        violations, _ = conventions.check(config, str(self.root))
+        self.assertIn(("unit-no-logic", "error"), {(v["rule"], v["level"]) for v in violations})
+        config = {**SHAPE, "rules": {"unit-no-logic": {"level": "off"}}}
+        violations, _ = conventions.check(config, str(self.root))
+        self.assertNotIn("unit-no-logic", {v["rule"] for v in violations})
+
+    def test_no_units_no_shape_rules(self):
+        self.write({"root.hcl": "x = <<EOF\nhi\nEOF\n"})
+        violations, _ = conventions.check({}, str(self.root))
+        self.assertEqual(violations, [])
+
+    # raw Terraform
+
+    def test_heredoc_in_any_hcl(self):
+        files = {UNIT: GOOD_UNIT, "root.hcl": 'locals {\n  a = <<-EOT\n    text\n  EOT\n}\n',
+                 "_common/units/x.hcl": 'locals {\n  b = <<EOF\nhi\nEOF\n}\n'}
+        self.assertEqual(self.hits(files), [("no-raw-terraform", "_common/units/x.hcl", 2),
+                                            ("no-raw-terraform", "root.hcl", 2)])
+
+    def test_generate_with_inline_contents(self):
+        root = ('generate "provider" {\n  path = "p.tf"\n  if_exists = "overwrite"\n'
+                '  contents = "provider \\"azurerm\\" {}"\n}\n'
+                'generate "versions" {\n  path = "v.tf"\n  contents = templatefile("x.tmpl", {})\n}\n')
+        self.assertEqual(self.hits({UNIT: GOOD_UNIT, "root.hcl": root}), [("no-raw-terraform", "root.hcl", 4)])
+
+    def test_inline_import_moved_removed(self):
+        root = ('generate "i" {\n  path = "i.tf"\n  contents = <<EOF\nimport {\n  to = a.b\n}\n'
+                'moved {\n  from = a\n  to = b\n}\nEOF\n}\n')
+        got = self.hits({UNIT: GOOD_UNIT, "root.hcl": root})
+        self.assertIn(("no-raw-terraform", "root.hcl", 4), got)
+        self.assertIn(("no-raw-terraform", "root.hcl", 7), got)
+
+    def test_templates_and_lock_files_are_not_hcl(self):
+        self.assertEqual(self.hits({UNIT: GOOD_UNIT, "_common/templates/imports.tf.tmpl": "import {\n}\n",
+                                    "infrastructure/groups/.terraform.lock.hcl": "provider \"x\" {\n}\n"}), [])
+
+    # the logic of a unit
+
+    def test_for_and_conditionals_in_a_unit(self):
+        text = ('inputs = {\n  a = [for x in local.l : x]\n  b = { for k, v in local.m : k => v }\n'
+                '  c = local.on ? 1 : 2\n  d = "${local.on ? "a" : "b"}"\n  e = "%{ if local.on }x%{ endif }"\n'
+                '  f = "${join(",", [for x in local.l : x])}"\n}\n')
+        self.assertEqual(self.unit(text), [("unit-no-logic", UNIT, n) for n in (2, 3, 4, 5, 6, 7)])
+
+    def test_logic_is_fine_outside_a_unit_file(self):
+        self.assertEqual(self.hits({UNIT: GOOD_UNIT, "_common/units/g.hcl": "locals {\n  a = [for x in [] : x]\n  b = true ? 1 : 2\n}\n",
+                                    "account.hcl": "locals {\n  a = true ? 1 : 2\n}\n"}), [])
+
+    def test_a_question_mark_in_a_url_is_no_conditional(self):
+        self.assertEqual(self.unit('inputs = {\n  url = "https://x/y?ref=1"\n  s = "${local.a}?ref=${local.b}"\n  for = 1\n}\n'), [])
+
+    def test_comments_of_more_than_one_line(self):
+        text = ('# one line is fine\ninputs = {\n  # two\n  # lines\n  a = 1 # trailing is fine\n'
+                '  /* a block\n     comment */\n  b = 2\n}\n')
+        self.assertEqual(self.unit(text), [("unit-comments", UNIT, 3), ("unit-comments", UNIT, 6)])
+
+    def test_block_order(self):
+        text = 'inputs = {\n  a = 1\n}\n\nlocals {\n  b = 2\n}\n\ninclude "root" {\n  path = "x"\n}\n'
+        self.assertEqual(self.unit(text), [("unit-block-order", UNIT, 5), ("unit-block-order", UNIT, 9)])
+
+    def test_dependencies_between_dependency_and_locals(self):
+        ok = 'include "root" {\n}\ndependency "a" {\n}\ndependencies {\n  paths = []\n}\nlocals {\n}\ninputs = {\n  a = 1\n}\n'
+        self.assertEqual(self.unit(ok), [])
+        bad = 'include "root" {\n}\ndependencies {\n  paths = []\n}\ndependency "a" {\n}\ninputs = {\n  a = 1\n}\n'
+        self.assertEqual(self.unit(bad), [("unit-block-order", UNIT, 6)])
+
+    def test_include_order(self):
+        bad = 'include "unit" {\n}\ninclude "root" {\n}\ninputs = {\n  a = 1\n}\n'
+        self.assertEqual(self.unit(bad), [("unit-block-order", UNIT, 1)])
+
+    def test_empty_inputs_needs_its_comment(self):
+        self.assertEqual(self.unit("inputs = {}\n"), [("unit-block-order", UNIT, 1)])
+        self.assertEqual(self.unit("# Content: the YAML files in definitions/.\n\ninputs = {}\n"),
+                         [("unit-block-order", UNIT, 3)])
+        self.assertEqual(self.unit("# something else\ninputs = {}\n"), [("unit-block-order", UNIT, 2)])
+
+    # IDs
+
+    def test_guid_in_a_unit(self):
+        text = f'inputs = {{\n  app = "{GUID_A}"\n  path = "/x/{GUID_B}/y"\n}}\n'
+        self.assertEqual(self.unit(text), [("no-guid-in-unit", UNIT, 2), ("no-guid-in-unit", UNIT, 3)])
+        self.assertEqual(self.hits({UNIT: GOOD_UNIT, "account.hcl": f'locals {{\n  t = "{GUID_A}"\n}}\n'}), [])
+
+    def test_guid_in_yaml_needs_the_allow_list(self):
+        yaml = f"name: a\napp: {GUID_A}\n"
+        files = {UNIT: GOOD_UNIT, "infrastructure/groups/definitions/sg-a.yaml": yaml}
+        self.assertEqual(self.hits(files), [("yaml-ids", "infrastructure/groups/definitions/sg-a.yaml", 2)])
+
+    def test_guid_in_yaml_on_the_allow_list(self):
+        yaml = f"name: a\napp: {GUID_A.upper()}\nother: {GUID_B}\n"
+        allow = f"# well-known IDs\nids:\n  - id: {GUID_A}\n    name: Microsoft Graph\n"
+        files = {UNIT: GOOD_UNIT, "infrastructure/groups/definitions/sg-a.yaml": yaml,
+                 ".github/allowed-ids.yaml": allow}
+        self.assertEqual(self.hits(files), [("yaml-ids", "infrastructure/groups/definitions/sg-a.yaml", 3)])
+
+    def test_allow_list_path_is_a_parameter(self):
+        config = {**SHAPE, "rules": {"yaml-ids": {"level": "error", "allowlist": "ids.yaml"}}}
+        files = {UNIT: GOOD_UNIT, "ids.yaml": f"- {GUID_A}\n",
+                 "infrastructure/groups/definitions/sg-a.yaml": f"app: {GUID_A}\n"}
+        self.assertEqual(self.hits(files, config), [])
+
+    # collections
+
+    def test_collection_files_under_definitions(self):
+        files = {UNIT: GOOD_UNIT, "infrastructure/groups/sg-a.yaml": "a: 1\n",
+                 "infrastructure/groups/definitions/ca/sg-b.yaml": "a: 1\n"}
+        self.assertEqual(self.hits(files), [("collection-layout", "infrastructure/groups/sg-a.yaml", 1)])
+
+    def test_collection_file_names(self):
+        base = "infrastructure/groups/definitions/"
+        files = {UNIT: GOOD_UNIT, base + "Sg-A.yaml": "a: 1\n", base + "sg_b.yaml": "a: 1\n",
+                 base + "skupina-\u010desk\u00e1.yaml": "a: 1\n", base + "sg-c.yml": "a: 1\n", base + "ok-1.yaml": "a: 1\n"}
+        self.assertEqual([h[1] for h in self.hits(files)],
+                         sorted(base + n for n in ("Sg-A.yaml", "sg_b.yaml", "skupina-\u010desk\u00e1.yaml", "sg-c.yml")))
+
+    def test_yaml_outside_a_unit_is_not_a_collection_file(self):
+        self.assertEqual(self.hits({UNIT: GOOD_UNIT, ".github/dependabot.yml": "version: 2\n"}), [])
 
 
 if __name__ == "__main__":
