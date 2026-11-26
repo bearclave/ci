@@ -18,10 +18,13 @@ PIPELINES = ("terragrunt-home", "terragrunt", "terraform-modules", "m365-dsc",
 
 
 def group_of(name: str) -> str:
-    for prefix, group in (("iac-", "iac"), ("app-", "app"), ("template-", "template"), ("content-", "template")):
+    """The layout group, from the name prefix (not the `group` property of the
+    Projects); a leading `dev-` (a test twin) is ignored."""
+    name = name.removeprefix("dev-")
+    for prefix, group in (("iac-", "iac"), ("app-", "app"), ("content-", "content")):
         if name.startswith(prefix):
             return group
-    return "platform"
+    return "other"
 
 
 def pipeline_of(name: str, root: str) -> str:
@@ -177,15 +180,18 @@ def self_test() -> int:
                                  "tenant/g/terragrunt.hcl", "tools/a.sh"],
          {"exceptions": [{"path": "tenant", "reason": "retired"},
                          {"path": "tools", "reason": "moving out"}]}, 0),
-        ("iac-modules", "terraform-modules", ["README.md", "azure/key-vault/main.tf", "tools/catalog.py"], {}, 0),
+        ("terraform-modules", "terraform-modules", ["README.md", "azure/key-vault/main.tf", "tools/catalog.py"], {}, 0),
         ("app-x", "checks", ["README.md", "content/a.txt", ".github/scripts/a.sh"], {}, 1),
-        ("handbook", "checks", ["README.md", "gotchas/a.md"],
+        # A dev- twin is laid out like the repository it tries things for.
+        ("dev-app-x", "checks", ["README.md", "content/a.txt"], {}, 0),
+        ("dev-terraform-modules", "terraform-modules", ["README.md", "azure/key-vault/main.tf"], {}, 0),
+        ("knowhow", "checks", ["README.md", "gotchas/a.md"],
          {"exceptions": [{"path": "gotchas", "reason": "content"}]}, 0),
-        ("handbook", "checks", ["gotchas/a.md"], {"exceptions": [{"path": "gotchas"}]}, 3),
+        ("knowhow", "checks", ["gotchas/a.md"], {"exceptions": [{"path": "gotchas"}]}, 3),
     ]
     cases_new = [
-        ("iac-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf"], {}, 0),
-        ("iac-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf", "azure/a/main.tf"], {}, 1),
+        ("terraform-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf"], {}, 0),
+        ("terraform-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf", "azure/a/main.tf"], {}, 1),
     ]
     failed = 0
     for lay, name, pipeline, paths, config, expected in (

@@ -37,11 +37,17 @@ class Layouts(unittest.TestCase):
             return [e[0] for e in layout_check.check(data, {}, name, root)[0]]
 
     def test_modules_repository(self):
-        self.assertEqual(self.errors(LAYOUTS["current"], "iac-modules", "terraform-modules",
+        self.assertEqual(self.errors(LAYOUTS["current"], "terraform-modules", "terraform-modules",
                                      ["README.md", "modules/azure/key-vault/main.tf"]), [])
         # A platform folder at the root fails: only modules/ is a folder of the layout.
-        self.assertEqual(self.errors(LAYOUTS["current"], "iac-modules", "terraform-modules",
+        self.assertEqual(self.errors(LAYOUTS["current"], "terraform-modules", "terraform-modules",
                                      ["README.md", "modules/a/b/main.tf", "azure/key-vault/main.tf"]), ["azure"])
+
+    def test_dev_twin_follows_its_original(self):
+        self.assertEqual(layout_check.group_of("dev-app-x"), "app")
+        self.assertEqual(layout_check.group_of("dev-ci"), "other")
+        self.assertEqual(self.errors(LAYOUTS["current"], "dev-terraform-modules", "terraform-modules",
+                                     ["README.md", "modules/azure/key-vault/main.tf"]), [])
 
     def test_terragrunt_repository(self):
         for layout in LAYOUTS.values():

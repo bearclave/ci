@@ -57,7 +57,7 @@ Graph.
 | `sp-tf-sentinel` | apply of `iac-sentinel` | `iac-sentinel`: `ci.yml` job `apply` | `AZURE_CLIENT_ID_APPLY` | `environment:sentinel-prod` | Microsoft Sentinel Contributor and Log Analytics Contributor on `rg-security`, Logic App Contributor on `rg-soar`, Security Reader on `sub-mgmt-prod`, `sub-osvc-prod`, `sub-sro-prod` (Defender for Cloud connectors); Security Administrator (Entra diagnostic setting, connectors); Graph as the plan; Storage Blob Data Contributor on `tfstate-sentinel` |
 | `sp-ci-major-tag` | moves `v2` to a published release | `ci`: `major-tag.yml` | `AZURE_CLIENT_ID_MAJOR_TAG` | `environment:major-tag` | Key Vault Secrets User on `kv-githubbot` (signs in as `bearclave-bot`) |
 | `sp-ci-deps` | dependency and pin bumps | `ci`: `deps.yml`, `ci-pins.yml` | `AZURE_CLIENT_ID_DEPS` | `environment:deps` | Key Vault Secrets User on `kv-githubbot` |
-| `sp-project-sync` | upkeep of the organisation's issues: Projects and the housekeeping report | `ci`: `project-sync.yml`, `housekeeping.yml`; `ops-tools`: `project-sync.yml` (variable `AZURE_CLIENT_ID`) | `AZURE_CLIENT_ID_PROJECT_SYNC` | `environment:project-sync`; `ops-tools`: `ref:refs/heads/main` | Key Vault Secrets User on `kv-githubbot` |
+| `sp-project-sync` | upkeep of the organisation's issues: Projects and the housekeeping report | `ci`: `project-sync.yml`, `housekeeping.yml`; `ops-tools` (archived): `project-sync.yml` (variable `AZURE_CLIENT_ID`) | `AZURE_CLIENT_ID_PROJECT_SYNC` | `environment:project-sync`; `ops-tools`: `ref:refs/heads/main` | Key Vault Secrets User on `kv-githubbot` |
 | `sp-swa-osvc-prod` | deploy of matejhrabalek.cz | `app-web-matejhrabalek`: `ci.yml` (`static-web-app.yml` job `deploy`) | `AZURE_CLIENT_ID` | `environment:prod` | Static Web App Secret Reader on its site; Contributor on its resource group `rg-web` |
 | `sp-swa-sro-prod` | deploy of bearclave.cz | `app-web-bearclave`: `ci.yml` (`static-web-app.yml` job `deploy`, from v2.8 with staging `deploy-prod`) | `AZURE_CLIENT_ID` | `environment:prod` | Static Web App Secret Reader on its site; Contributor on its resource group `rg-web` |
 | `sp-swa-osvc-staging` | deploy of the staging site and the previews of matejhrabalek.cz (v2.8) | `app-web-matejhrabalek`: `ci.yml` (`static-web-app.yml` jobs `deploy-staging`, `preview`, `preview-cleanup`) | `AZURE_CLIENT_ID_STAGING` | `environment:staging`, `environment:preview` | on the staging SWA only: `Microsoft.Web/staticSites/read`, `listSecrets/action`, `builds/read`, `builds/delete` (the previews) |
@@ -68,8 +68,7 @@ Graph.
 Two known exceptions, both until they are moved:
 
 - `sp-project-sync` keeps its credential on `ref:refs/heads/main` of
-  `ops-tools`, whose `project-sync.yml` still runs; it goes when that
-  workflow is deleted.
+  `ops-tools` (archived); it goes with the next change of `iac-identity`.
 - The transitional credentials of the callers before v2.5 are gone
   (`iac-identity` #9). The variables `AZURE_CLIENT_ID_PLATFORM` of
   `iac-azure` and `AZURE_CLIENT_ID` of `iac-home` are still defined in
@@ -94,7 +93,7 @@ says what each may do and how to check it.
 
 | Secret | Repositories | What | Key |
 |---|---|---|---|
-| `MODULES_DEPLOY_KEY` | every Terragrunt repository: `iac-azure`, `iac-github`, `iac-home`, `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-purview`, `iac-sentinel` | private half of a read-only deploy key of `iac-modules`, one per repository; the workflows check the modules out with it | public half in `iac-github` `repositories/iac-modules`, private half only in the secret |
+| `MODULES_DEPLOY_KEY` | every Terragrunt repository: `iac-azure`, `iac-github`, `iac-home`, `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-purview`, `iac-sentinel` | private half of a read-only deploy key of `terraform-modules`, one per repository; the workflows check the modules out with it | public half in `iac-github` `repositories/terraform-modules`, private half only in the secret |
 | `DEPLOY_KEY` | `app-home`, environment secret of `staging` and of `prod` (one key each) | SSH key of the NAS user `ci-deploy`; its forced command deploys `home-app` to that one environment and takes only the image tag (`app-nas` `docs/runner.md`). `container.yml` job `deploy`, on the NAS runner | public half in `/var/services/homes/ci-deploy/.ssh/authorized_keys` on the NAS, private half only in the environment secret |
 
 ## Environments

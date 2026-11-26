@@ -166,7 +166,7 @@ in [`iac-github` docs/setup.md](https://github.com/bearclave/iac-github/blob/mai
 on `environment:promote` would let any job of the application in that
 environment sign in (bearclave/ci#40). The promote identities therefore
 have an Entra flexible federated identity credential (preview, Graph beta;
-`github.jobWorkflowRef` of `entra/applications` in `iac-modules`, set in
+`github.jobWorkflowRef` of `entra/applications` in `terraform-modules`, set in
 `iac-identity`) that requires, besides the subject, the repository and
 owner IDs and a released `promote.yml` of `ci`:
 

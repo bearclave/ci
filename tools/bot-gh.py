@@ -15,7 +15,7 @@ Usage: bot-gh.py <gh arguments...>
 
 pr / check assigns a pull request of the App to the owner (vars.OWNER).
 Installed once as ~/.local/bin/bot-gh, a link to this file (README of
-bearclave/ci, docs/organisation-workflows.md); moved here from ops-tools.
+bearclave/ci, docs/organisation-workflows.md).
 
 The App's key, App ID and installation ID are read from the Key Vault
 kv-githubbot-sec-weu-001 with the current az sign-in (AZURE_CONFIG_DIR,

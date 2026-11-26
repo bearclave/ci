@@ -63,6 +63,17 @@ class Sync(unittest.TestCase):
         self.assertEqual(summary["added"], {"T1": 2, "T2": 1, "T3": 0, "T4": 0})
         self.assertEqual(summary["present"], 1)
 
+    def test_new_group_values_map_to_the_renamed_projects(self):
+        self.assertEqual({g: n for g, n in ps.PROJECTS.items() if "-" in g or g == "applications"},
+                         {"bearclave-infrastructure": 1, "applications": 2,
+                          "dev-infrastructure": 3, "bearclave-knowhow": 4})
+        gh = FakeGitHub(
+            repos={"iac-a": (False, "bearclave-infrastructure"), "app-b": (False, "applications"),
+                   "dev-ci": (False, "dev-infrastructure"), "knowhow": (False, "bearclave-knowhow")},
+            open_items={(r, "issues"): [(f"I-{r}", 1)] for r in ("iac-a", "app-b", "dev-ci", "knowhow")})
+        ps.sync(gh, dry_run=False)
+        self.assertEqual(gh.added, [("P1", "I-iac-a"), ("P2", "I-app-b"), ("P3", "I-dev-ci"), ("P4", "I-knowhow")])
+
     def test_second_run_adds_nothing(self):
         gh = FakeGitHub(repos={"iac-a": (False, "iac")}, items={1: ["I1", "I2"]},
                         open_items={("iac-a", "issues"): [("I1", 1), ("I2", 2)]})

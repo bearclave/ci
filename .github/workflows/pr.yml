@@ -324,9 +324,10 @@ jobs:
           # Root layout of the repositories, read by the layout check of bearclave/ci
           # (a step of "pr / check"). The rules in prose: layout.md.
           #
-          # A repository's entries are the union of `common`, its group (the name
-          # prefix: iac-, app-, template-/content-, none = platform; a provider fork
-          # `terraform-provider-<name>` is group app by its property) and its pipeline
+          # A repository's entries are the union of `common`, its layout group (from the
+          # name prefix: app-, content-; any other name has no group of its own; a
+          # leading `dev-` is ignored, so `dev-app-x` is laid out like `app-x`; this is
+          # not the `group` property of the organisation Projects) and its pipeline
           # (the shared workflow its ci.yml calls). `forbidden` takes folders of
           # `common` away from a group or pipeline.
           # Anything else needs an exception with a reason in .github/conventions.yaml:
@@ -397,7 +398,7 @@ jobs:
           groups:
             app:
               folders: [config, content, data, deploy, lib]
-            template:
+            content:
               # content-sentinel: the catalogue, in the collection folders of iac-sentinel.
               folders: [content]
 
@@ -451,10 +452,13 @@ jobs:
 
 
           def group_of(name: str) -> str:
-              for prefix, group in (("iac-", "iac"), ("app-", "app"), ("template-", "template"), ("content-", "template")):
+              """The layout group, from the name prefix (not the `group` property of the
+              Projects); a leading `dev-` (a test twin) is ignored."""
+              name = name.removeprefix("dev-")
+              for prefix, group in (("iac-", "iac"), ("app-", "app"), ("content-", "content")):
                   if name.startswith(prefix):
                       return group
-              return "platform"
+              return "other"
 
 
           def pipeline_of(name: str, root: str) -> str:
@@ -610,15 +614,18 @@ jobs:
                                            "tenant/g/terragrunt.hcl", "tools/a.sh"],
                    {"exceptions": [{"path": "tenant", "reason": "retired"},
                                    {"path": "tools", "reason": "moving out"}]}, 0),
-                  ("iac-modules", "terraform-modules", ["README.md", "azure/key-vault/main.tf", "tools/catalog.py"], {}, 0),
+                  ("terraform-modules", "terraform-modules", ["README.md", "azure/key-vault/main.tf", "tools/catalog.py"], {}, 0),
                   ("app-x", "checks", ["README.md", "content/a.txt", ".github/scripts/a.sh"], {}, 1),
-                  ("handbook", "checks", ["README.md", "gotchas/a.md"],
+                  # A dev- twin is laid out like the repository it tries things for.
+                  ("dev-app-x", "checks", ["README.md", "content/a.txt"], {}, 0),
+                  ("dev-terraform-modules", "terraform-modules", ["README.md", "azure/key-vault/main.tf"], {}, 0),
+                  ("knowhow", "checks", ["README.md", "gotchas/a.md"],
                    {"exceptions": [{"path": "gotchas", "reason": "content"}]}, 0),
-                  ("handbook", "checks", ["gotchas/a.md"], {"exceptions": [{"path": "gotchas"}]}, 3),
+                  ("knowhow", "checks", ["gotchas/a.md"], {"exceptions": [{"path": "gotchas"}]}, 3),
               ]
               cases_new = [
-                  ("iac-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf"], {}, 0),
-                  ("iac-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf", "azure/a/main.tf"], {}, 1),
+                  ("terraform-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf"], {}, 0),
+                  ("terraform-modules", "terraform-modules", ["README.md", "modules/azure/key-vault/main.tf", "azure/a/main.tf"], {}, 1),
               ]
               failed = 0
               for lay, name, pipeline, paths, config, expected in (

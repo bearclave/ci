@@ -1,4 +1,4 @@
-# The pipeline of a repository of Terraform modules (iac-modules). Nothing
+# The pipeline of a repository of Terraform modules (terraform-modules). Nothing
 # reaches a cloud: no credentials, no backend, no apply.
 #
 #   formatting, init -backend=false + validate per module, terraform test

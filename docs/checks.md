@@ -119,7 +119,7 @@ repository without collections pays nothing and one without a pipeline
   the module the unit runs (`azure/sentinel-analytic-rules` ->
   `.github/schemas/sentinel-analytic-rules.schema.json`); for a listed folder
   the `schema` of its entry. The schema is a copy of the module's
-  `schema.json` in `iac-modules`, refreshed in the pull request that moves
+  `schema.json` in `terraform-modules`, refreshed in the pull request that moves
   `modules_ref`.
 - **The schema itself** must be closed - every object has
   `additionalProperties: false` or a schema for the values of a map -
