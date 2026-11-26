@@ -68,6 +68,14 @@ select:
     # The rules in conventions.yaml; on a pull request only, main holds
     # nothing a pull request has not checked. The same step as
     # _fragments/conventions-steps.yml, which carries on after a failure here.
+    # A file of its own: actionlint cannot take a step script of about 64 KB.
+    - name: Conventions, the rules of what is left behind
+      if: github.event_name == 'pull_request' && inputs.conventions
+      run: |
+        cat >"$RUNNER_TEMP/conventions_left.py" <<'__CI_EOF__'
+        @@include src/conventions_left.py@@
+        __CI_EOF__
+
     - name: Conventions
       id: conventions
       if: github.event_name == 'pull_request' && inputs.conventions
@@ -697,6 +705,9 @@ plan:
         CHECKS: formatting and validation=${{ needs.validate.result }}
       run: |
         set -euo pipefail
+        # No share was downloaded when nothing is selected: find would fail
+        # on the missing directory and, under pipefail, the step.
+        mkdir -p parts
         find parts -name 'plan-*.txt' -print0 2>/dev/null | sort -z |
           xargs -0 -r cat >plan.txt
         args=()

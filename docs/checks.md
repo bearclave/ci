@@ -73,7 +73,7 @@ exceptions:
 | `todo-issue` (every repository) | a to-do comment names its issue: `TODO(#42): ...`; any tracked file but Markdown and binaries | `files`, `exclude` |
 | `markdown-links` (every repository) | a relative link or image in Markdown leads to a file or folder of the repository, and its `#anchor` to a heading of the linked Markdown; offline, nothing is fetched; links in code are skipped | `exclude` |
 
-**The shape of the HCL** (the next seven rules). They run in every repository
+**The shape of the HCL** (the next eleven rules). They run in every repository
 that names its `units`, without being listed, **as warnings** until the
 repository sets `level: error` (or `off`, with an exception's reason): a
 repository moves its code, then flips the switch.
@@ -87,12 +87,16 @@ repository moves its code, then flips the switch.
 | `no-guid-in-unit` | no GUID in a unit `terragrunt.hcl`: IDs come from `account.hcl`/`context.hcl` or a lookup by name in the module (wider than `no-hardcoded-ids`, which knows only the IDs of `account.hcl`) | - |
 | `yaml-ids` | a GUID in a YAML file of a unit only when the allow-list lists it. The list is `.github/allowed-ids.yaml`, read for every GUID it holds in any form (a list, a map with names, comments): the well-known first- and third-party app IDs and the role template IDs the API needs, each with its name; the repository owns the contents | `allowlist` |
 | `collection-layout` | a YAML file of a unit sits under `<unit>/definitions/` (subfolders allowed, the key is the basename), and is named `[a-z0-9-]+.yaml`: ASCII, lower case, kebab-case, so English (display names may be Czech) | - |
+| `collection-unit` | a unit whose included `_common/units/<module>.hcl` reads `definitions/` (`fileset()`, or `file()` of `settings.yaml`) (with or without objects yet) is the two includes (`root`, `unit`) and `inputs = {}`, no `dependency`, `locals` or other attribute; any other unit has no empty `inputs` | - |
+| `imports-left` | `imports.hcl` added more than 7 days ago (git history) warns; a line importing `...["key"]` in a collection unit without `definitions/**/key.yaml` fails whatever the level | `days` (7) |
+| `moves-left` | `moves.hcl` or `removed.hcl` added more than 7 days ago warns | `days` (7) |
+| `state-moves-stale` | an entry of `.github/state-moves.yaml` whose `to` is a unit, whose `from` is gone from the tree and that was added 7 or more days ago: its apply is long done, remove it | `days` (7), `root` (`infrastructure`), `file` |
 
 `imports.hcl` and `moves.hcl` next to a unit are temporary: added in the pull
 request that needs them, deleted in the next one after the apply. A pipeline
 run on `main` and the weekly drift warn ("Temporary file") about one that
 an earlier pull request added (`src/terragrunt/stale-temp-files.py`); it
-never fails a run. Both files select their unit like any file in it, and the
+never fails a run; `imports-left` and `moves-left` say the same in the conventions check of a pull request. `inputs-order` (the order of a unit's `inputs` by the interfaces table) stays planned: the table of governance is prose per module, not a list a script can read. Both files select their unit like any file in it, and the
 plan comment shows what they do: `moved` blocks as moves, imports as imports.
 
 Each violation is an annotation on its line and a row in the job summary. An
