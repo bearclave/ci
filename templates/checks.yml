@@ -1,5 +1,5 @@
 # The pipeline of a repository that builds and deploys nothing (governance,
-# handbook, ops-tools, app-office-templates, vs-code-extensions, .github):
+# knowhow, office-templates, vs-code-extensions, .github):
 # ESLint where the repository has JavaScript, an optional command of the
 # repository's own; the one job is the gate the ruleset requires.
 #

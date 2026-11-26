@@ -21,12 +21,12 @@ name, never `secrets: inherit`). The header of each workflow shows its caller.
 |---|---|---|---|
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck; review dates of the gitleaks allowlists |
 | `pr.yml` | `pr` | every repository | title, branch, description sections (people and Apps), labels, assignee; the root layout; to-dos with their issue and relative links; the YAML of collections against their JSON Schema; markdownlint ([checks.md](docs/checks.md)) |
-| `checks.yml` | `pipeline` | `governance`, `handbook`, `ops-tools`, `app-office-templates`, `vs-code-extensions`, `.github` | one job, the gate: ESLint where there is JavaScript, an optional command of the repository |
+| `checks.yml` | `pipeline` | `governance`, `knowhow`, `office-templates`, `vs-code-extensions`, `.github` | one job, the gate: ESLint where there is JavaScript, an optional command of the repository |
 | `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github`; `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-purview`, `iac-sentinel` | select (relevance, conventions, Sentinel lint, units), validate next to the plan of the affected units (read-only identity) with trivy and a plan comment, the approval of destroys (a step of the gate), apply from `main` in the environment, its verification, an apply comment, gate ([terragrunt.md](docs/terragrunt.md)) |
 | `terragrunt-home.yml` | `pipeline` | `iac-home` | the jobs of `terragrunt.yml`; plan and apply on the NAS runner in the home network (`network-runner`) or through WireGuard from a GitHub runner, with the certificate renewal on schedule ([runners.md](docs/runners.md)) |
 | `destroy-review.yml` | `review` | `iac-azure`, `iac-github`, `iac-home` | on a submitted approval, re-runs the failed gate (its destroy approval step) |
 | `terragrunt-drift.yml` | `drift` | the repositories of `terragrunt.yml` | weekly plan of the whole tree as the read-only identity, trivy, failed check blocks, analytic rules outside the code |
-| `terraform-modules.yml` | `pipeline` | `iac-modules` | fmt, validate per module (a pull request: the modules it touches and their callers, all of them when a shared block, a workflow or a tool setting changes; `src/terraform/changed-modules.py`), `terraform test`, tflint, trivy config, README tables (terraform-docs `--output-check`), `docs/catalog.md` (`src/terraform/catalog.py --check`), conventions |
+| `terraform-modules.yml` | `pipeline` | `terraform-modules` | fmt, validate per module (a pull request: the modules it touches and their callers, all of them when a shared block, a workflow or a tool setting changes; `src/terraform/changed-modules.py`), `terraform test`, tflint, trivy config, README tables (terraform-docs `--output-check`), `docs/catalog.md` (`src/terraform/catalog.py --check`), conventions |
 | `m365-dsc.yml`, `m365-drift.yml` | `pipeline`, `drift` | `iac-m365` | Microsoft365DSC: plan, apply, weekly drift; retired, removed in a minor release once the last domain has moved to Terraform and `iac-m365` is archived |
 | `static-web-app.yml` | `pipeline` | `app-web-*` | site checks (with SEO), ESLint, the site's own checks; with `staging-swa-name` the environment model: a preview per pull request, the build deployed to staging from `staging` and the same build to production from `prod`, noindex outside production, smoke tests ([applications.md](docs/applications.md)); without it the deploy into `environment` when the content changed |
 | `promote.yml` | `promote` | the applications, by a click | a commit of `staging` to production as the App `bearclave-promote`: checks its staging run and build, fast-forwards `prod`, waits for the production run, then tags `vX.Y.Z` and publishes the release ([applications.md](docs/applications.md)) |
@@ -86,7 +86,7 @@ for from the working directory, never from its own location.
 ## How to make a change
 
 ```bash
-git -C ~/Repositories/Bearclave.GitHub/platform/ci novy <type>/<slug>
+git -C ~/Repositories/Bearclave.GitHub/bearclave-infrastructure/ci novy <type>/<slug>
 # edit templates/, templates/_fragments/ or src/ - never the generated workflows
 tools/build.py
 python3 -m unittest discover -s tests
@@ -153,11 +153,11 @@ or their pin is bumped.
 
 ## Gotchas
 
-- [A skipped job passes a required check](https://github.com/bearclave/handbook/blob/main/gotchas/2026-10-02-skipped-job-passes-required-check.md) - why only the gate is required
-- [A paths filter and a required check](https://github.com/bearclave/handbook/blob/main/gotchas/2026-10-02-required-check-paths-filter.md)
-- [`${{` in a workflow heredoc](https://github.com/bearclave/handbook/blob/main/gotchas/2026-10-02-dollar-brace-in-workflow-heredoc.md) - what build.py refuses
-- [zizmor and a private reusable workflow](https://github.com/bearclave/handbook/blob/main/gotchas/2026-10-02-zizmor-ref-confusion-private-reusable.md)
-- [Terragrunt destroy plan flags](https://github.com/bearclave/handbook/blob/main/gotchas/2026-10-02-terragrunt-destroy-plan-flags.md), [trivy over a plan](https://github.com/bearclave/handbook/blob/main/gotchas/2026-10-02-trivy-plan-target-main-tf.md)
+- [A skipped job passes a required check](https://github.com/bearclave/knowhow/blob/main/gotchas/2026-10-02-skipped-job-passes-required-check.md) - why only the gate is required
+- [A paths filter and a required check](https://github.com/bearclave/knowhow/blob/main/gotchas/2026-10-02-required-check-paths-filter.md)
+- [`${{` in a workflow heredoc](https://github.com/bearclave/knowhow/blob/main/gotchas/2026-10-02-dollar-brace-in-workflow-heredoc.md) - what build.py refuses
+- [zizmor and a private reusable workflow](https://github.com/bearclave/knowhow/blob/main/gotchas/2026-10-02-zizmor-ref-confusion-private-reusable.md)
+- [Terragrunt destroy plan flags](https://github.com/bearclave/knowhow/blob/main/gotchas/2026-10-02-terragrunt-destroy-plan-flags.md), [trivy over a plan](https://github.com/bearclave/knowhow/blob/main/gotchas/2026-10-02-trivy-plan-target-main-tf.md)
 
 ## Repository settings
 

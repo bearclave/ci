@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Write docs/catalog.md of iac-modules from the module READMEs and variables.
+"""Write docs/catalog.md of terraform-modules from the module READMEs and variables.
 
-Usage: catalog.py <iac-modules checkout> [--check]
+Usage: catalog.py <terraform-modules checkout> [--check]
 --check exits 1 when docs/catalog.md differs from what would be written.
 """
 import json

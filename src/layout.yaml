@@ -2,9 +2,10 @@
 # Root layout of the repositories, read by the layout check of bearclave/ci
 # (a step of "pr / check"). The rules in prose: layout.md.
 #
-# A repository's entries are the union of `common`, its group (the name
-# prefix: iac-, app-, template-/content-, none = platform; a provider fork
-# `terraform-provider-<name>` is group app by its property) and its pipeline
+# A repository's entries are the union of `common`, its layout group (from the
+# name prefix: app-, content-; any other name has no group of its own; a
+# leading `dev-` is ignored, so `dev-app-x` is laid out like `app-x`; this is
+# not the `group` property of the organisation Projects) and its pipeline
 # (the shared workflow its ci.yml calls). `forbidden` takes folders of
 # `common` away from a group or pipeline.
 # Anything else needs an exception with a reason in .github/conventions.yaml:
@@ -75,7 +76,7 @@ common:
 groups:
   app:
     folders: [config, content, data, deploy, lib]
-  template:
+  content:
     # content-sentinel: the catalogue, in the collection folders of iac-sentinel.
     folders: [content]
 

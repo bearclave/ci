@@ -2,8 +2,9 @@
 """Adds every open issue and pull request of bearclave to the Project of its
 repository's group.
 
-The group is the repository's custom property `group` (iac, app, template,
-platform), read from GitHub on every run, so a new repository is covered by
+The group is the repository's custom property `group`
+(bearclave-infrastructure, applications, dev-infrastructure,
+bearclave-knowhow), read from GitHub on every run, so a new repository is covered by
 itself. Archived repositories and repositories without a group are skipped.
 Items already in the Project are left alone and nothing is ever removed.
 
@@ -15,7 +16,6 @@ current az sign-in (in the workflow: sp-project-sync by OIDC on the
 environment project-sync; locally: the owner, AZURE_CONFIG_DIR). The
 installation token is narrowed to what the sync needs. Runs daily at 06:15
 UTC (and on demand) from .github/workflows/project-sync.yml. Moved here from
-bearclave/ops-tools (tools/project-sync.py) unchanged in behaviour.
 """
 import argparse
 import json
@@ -29,10 +29,16 @@ API = github_bot.API
 
 # Group (custom property `group`) -> number of the organisation Project.
 PROJECTS = {
-    "iac": 1,        # IaC
-    "app": 2,        # Apps
-    "template": 3,   # Templates & content
-    "platform": 4,   # Platform
+    "bearclave-infrastructure": 1,
+    "applications": 2,
+    "dev-infrastructure": 3,
+    "bearclave-knowhow": 4,
+    # The old values, until the group property of every repository has
+    # moved to the new ones (iac-github); then they go.
+    "iac": 1,
+    "app": 2,
+    "template": 3,
+    "platform": 4,
 }
 
 # What the installation token may do; the App itself may do more.

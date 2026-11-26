@@ -56,7 +56,7 @@ on:
       modules-repository:
         description: The repository of the Terraform modules the units take their source from (a rename of it is this default)
         type: string
-        default: bearclave/iac-modules
+        default: bearclave/terraform-modules
     secrets:
       modules-deploy-key:
         required: true

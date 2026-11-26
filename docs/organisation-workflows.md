@@ -63,15 +63,16 @@ organisation owner and `bearclave-bot` move it.
 
 ## project-sync.yml
 
-Moved from `ops-tools` unchanged in behaviour. The group is the repository's
+The group is the repository's
 custom property `group`, read on every run, so a new repository needs nothing:
 
 | `group` | Project |
 |---|---|
-| `iac` | 1 IaC |
-| `app` | 2 Apps |
-| `template` | 3 Templates & content |
-| `platform` | 4 Platform |
+| `bearclave-infrastructure` | 1 |
+| `applications` | 2 |
+| `dev-infrastructure` | 3 |
+| `bearclave-knowhow` | 4 |
+| `iac`, `app`, `template`, `platform` | 1, 2, 3, 4 (the old values, until the property of every repository has moved) |
 
 Archived repositories and repositories without a group are skipped; items
 already in a Project stay and nothing is removed. A group with no Project
@@ -107,7 +108,7 @@ installation token (one hour) and runs `gh` with `GH_TOKEN`. Nothing is
 printed.
 
 ```bash
-ln -sf ~/Repositories/Bearclave.GitHub/platform/ci/tools/bot-gh.py ~/.local/bin/bot-gh   # once
+ln -sf ~/Repositories/Bearclave.GitHub/bearclave-infrastructure/ci/tools/bot-gh.py ~/.local/bin/bot-gh   # once
 
 git push -u origin feat/my-change
 bot-gh pr create --draft --head feat/my-change --title "feat(x): ..." --body-file /tmp/pr.md
