@@ -1377,8 +1377,12 @@ jobs:
               def __init__(self):
                   self.items = []
 
-              def add(self, rule, path, line, message):
-                  self.items.append({"rule": rule, "path": path, "line": line, "message": message})
+              def add(self, rule, path, line, message, level=None):
+                  """level: set when the standard says this finding fails whatever the rule's level."""
+                  item = {"rule": rule, "path": path, "line": line, "message": message}
+                  if level:
+                      item["forced_level"] = level
+                  self.items.append(item)
 
 
           # --------------------------------------------------------------------------
@@ -1662,6 +1666,10 @@ jobs:
               path = f"{unit}/terragrunt.hcl"
               files = [path] + [f for f in unit_includes(repo, path) if repo.exists(f)]
               return "\n".join("\n".join(text_lines(repo, f) or []) for f in files)
+
+
+          def text_of(repo, path):
+              return "\n".join(text_lines(repo, path) or [])
 
 
           def rule_unit_assets(repo, params, units, report):
@@ -2304,6 +2312,15 @@ jobs:
                               report.add("markdown-links", path, n, f"{target}: no heading #{anchor} in {dest}")
 
 
+          def left_rule(name):
+              """A rule of conventions_left.py, imported when it runs (the file travels next to this one)."""
+              def run(repo, params, units, report):
+                  import conventions_left
+                  getattr(conventions_left, "rule_" + name)(sys.modules[__name__], repo, params, units, report)
+              run.__doc__ = f"See conventions_left.rule_{name}."
+              return run
+
+
           def nearest(repo, directory, name):
               while True:
                   candidate = os.path.join(directory, name) if directory else name
@@ -2333,6 +2350,10 @@ jobs:
               "no-guid-in-unit": rule_no_guid_in_unit,
               "yaml-ids": rule_yaml_ids,
               "collection-layout": rule_collection_layout,
+              "collection-unit": left_rule("collection_unit"),
+              "imports-left": left_rule("imports_left"),
+              "moves-left": left_rule("moves_left"),
+              "state-moves-stale": left_rule("state_moves_stale"),
               "collection-schema": rule_collection_schema,
               "scope-layout": rule_scope_layout,
               "folder-dictionary": rule_folder_dictionary,
@@ -2345,7 +2366,8 @@ jobs:
           # The shape rules run in every repository that names its units, as warnings
           # until the repository sets a level (error, or off with a reason).
           DEFAULT_WARN = ("no-raw-terraform", "unit-no-logic", "unit-comments", "unit-block-order",
-                          "no-guid-in-unit", "yaml-ids", "collection-layout")
+                          "no-guid-in-unit", "yaml-ids", "collection-layout", "collection-unit",
+                          "imports-left", "moves-left", "state-moves-stale")
           LEVELS = ("error", "warn", "off")
 
 
@@ -2386,7 +2408,7 @@ jobs:
                       errors.append(f"rule {name} could not run: {e}")
               lines = {}
               for v in report.items:
-                  v["level"] = (rules[v["rule"]] or {}).get("level", "error")
+                  v["level"] = v.pop("forced_level", None) or (rules[v["rule"]] or {}).get("level", "error")
                   v["exception"] = None
                   for e in exceptions:
                       if e["rule"] != v["rule"] or not matches(v["path"], e.get("path", "**")):

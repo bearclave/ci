@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -642,10 +643,10 @@ SHAPE = {"units": ["infrastructure/**/terragrunt.hcl"]}
 GOOD_UNIT = (
     'include "root" {\n  path = find_in_parent_folders("root.hcl")\n}\n\n'
     'include "unit" {\n  path = "${get_repo_root()}/_common/units/groups.hcl"\n}\n\n'
-    'dependency "rg" {\n  config_path = "../rg"\n}\n\n'
-    'locals {\n  name = "x"\n}\n\n'
     '# Content: the YAML files in definitions/.\n'
     'inputs = {}\n')
+
+LEFTOVERS = ("collection-unit", "imports-left", "moves-left", "state-moves-stale")
 
 
 class Shape(Base):
@@ -655,7 +656,9 @@ class Shape(Base):
         self.write(files)
         violations, errors = conventions.check(config or SHAPE, str(self.root))
         self.assertEqual(errors, [])
-        return sorted((v["rule"], v["path"], v["line"]) for v in violations)
+        # The rules of the leftovers have a class of their own.
+        quiet = set(LEFTOVERS) - set((config or SHAPE).get("rules") or {})
+        return sorted((v["rule"], v["path"], v["line"]) for v in violations if v["rule"] not in quiet)
 
     def unit(self, text, **more):
         return self.hits({UNIT: text, **more})
@@ -785,6 +788,117 @@ class Shape(Base):
 
     def test_yaml_outside_a_unit_is_not_a_collection_file(self):
         self.assertEqual(self.hits({UNIT: GOOD_UNIT, ".github/dependabot.yml": "version: 2\n"}), [])
+
+
+DAY = 86400
+
+
+class Leftovers(Base):
+    """collection-unit, imports-left, moves-left and state-moves-stale."""
+
+    def commit(self, files, age_days=0, message="c"):
+        self.write(files)
+        when = f"{int(time.time()) - int(age_days * DAY)} +0000"
+        env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when,
+               "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@x"}
+        subprocess.run(["git", "commit", "-q", "--no-gpg-sign", "-m", message], cwd=self.root, check=True, env=env)
+
+    def hits(self, only):
+        violations, errors = conventions.check(SHAPE, str(self.root))
+        self.assertEqual(errors, [])
+        return sorted((v["rule"], v["path"], v["line"], v["level"]) for v in violations if v["rule"] in only)
+
+    READS = {"_common/units/groups.hcl":
+             'locals {\n  items = { for f in fileset(local.dir, "definitions/**/*.yaml") : f => 1 }\n}\n'}
+    # collection-unit
+
+    def test_a_collection_unit_is_the_two_includes_and_inputs(self):
+        self.commit({UNIT: GOOD_UNIT, "infrastructure/groups/definitions/sg-a.yaml": "name: a\n", **self.READS})
+        self.assertEqual(self.hits(LEFTOVERS), [])
+
+    def test_a_collection_unit_holds_nothing_else(self):
+        text = GOOD_UNIT.replace("# Content", 'dependency "rg" {\n}\n\nlocals {\n  a = 1\n}\n\n# Content')
+        self.commit({UNIT: text, "infrastructure/groups/definitions/sg-a.yaml": "name: a\n", **self.READS})
+        self.assertEqual(self.hits(LEFTOVERS), [("collection-unit", UNIT, 9, "warn"),
+                                                ("collection-unit", UNIT, 12, "warn")])
+
+    def test_a_collection_unit_has_empty_inputs(self):
+        text = GOOD_UNIT.replace("inputs = {}", "inputs = {\n  a = 1\n}")
+        self.commit({UNIT: text, "infrastructure/groups/definitions/sg-a.yaml": "name: a\n", **self.READS})
+        self.assertEqual(self.hits(LEFTOVERS), [("collection-unit", UNIT, 10, "warn")])
+
+    def test_a_collection_unit_needs_both_includes(self):
+        text = GOOD_UNIT.replace('include "unit"', 'include "other"')
+        self.commit({UNIT: text, "infrastructure/groups/definitions/sg-a.yaml": "name: a\n", **self.READS})
+        self.assertEqual(self.hits(LEFTOVERS), [("collection-unit", UNIT, 1, "warn")])
+
+    def test_a_collection_without_objects_yet_is_fine(self):
+        self.commit({UNIT: GOOD_UNIT, **self.READS})
+        self.assertEqual(self.hits(LEFTOVERS), [])
+
+    def test_empty_inputs_when_the_common_file_reads_no_definitions(self):
+        self.commit({UNIT: GOOD_UNIT, "_common/units/groups.hcl": "locals {}\n",
+                     "infrastructure/groups/definitions/sg-a.yaml": "name: a\\n"})
+        self.assertEqual(self.hits(LEFTOVERS), [("collection-unit", UNIT, 10, "warn")])
+
+    def test_a_unit_with_settings_is_fine(self):
+        self.commit({UNIT: GOOD_UNIT.replace("inputs = {}", "inputs = {\n  tier = 1\n}")})
+        self.assertEqual(self.hits(LEFTOVERS), [])
+
+    # imports-left, moves-left
+
+    def test_a_fresh_imports_file_is_fine(self):
+        self.commit({"infrastructure/x/imports.hcl": "imports = {}\n", "infrastructure/x/moves.hcl": "moves = {}\n"})
+        self.assertEqual(self.hits(LEFTOVERS), [])
+
+    def test_old_temporary_files_warn(self):
+        self.commit({"infrastructure/x/imports.hcl": "imports = {}\n", "infrastructure/x/moves.hcl": "moves = {}\n",
+                     "infrastructure/x/removed.hcl": "removed = []\n"}, age_days=8)
+        self.assertEqual(self.hits(LEFTOVERS), [("imports-left", "infrastructure/x/imports.hcl", 1, "warn"),
+                                                ("moves-left", "infrastructure/x/moves.hcl", 1, "warn"),
+                                                ("moves-left", "infrastructure/x/removed.hcl", 1, "warn")])
+
+    def test_the_age_is_a_parameter(self):
+        self.commit({"infrastructure/x/moves.hcl": "moves = {}\n"}, age_days=8)
+        config = {**SHAPE, "rules": {"moves-left": {"days": 14}}}
+        violations, _ = conventions.check(config, str(self.root))
+        self.assertEqual([v for v in violations if v["rule"] == "moves-left"], [])
+
+    def test_an_import_without_its_file_fails(self):
+        imports = ('imports = {\n  "module.this.x.this[\\"sg-a\\"]" = "1"\n  "module.this.x.this[\\"sg-gone\\"]" = "2"\n}\n')
+        self.commit({UNIT: GOOD_UNIT, "infrastructure/groups/definitions/sg-a.yaml": "name: a\n",
+                     "infrastructure/groups/imports.hcl": imports})
+        got = [h for h in self.hits(LEFTOVERS) if h[0] == "imports-left"]
+        self.assertEqual(got, [("imports-left", "infrastructure/groups/imports.hcl", 1, "error")])
+
+    # state-moves-stale
+
+    MOVES = "moves:\n  - from: old/unit\n    to: new/unit\n"
+
+    def moves_tree(self, **more):
+        return {"infrastructure/new/unit/terragrunt.hcl": GOOD_UNIT.replace("inputs = {}", "inputs = {\n  a = 1\n}"),
+                ".github/state-moves.yaml": self.MOVES, **more}
+
+    def test_an_applied_old_entry_is_stale(self):
+        self.commit(self.moves_tree(), age_days=10)
+        self.assertEqual(self.hits(("state-moves-stale",)), [("state-moves-stale", ".github/state-moves.yaml", 2, "warn")])
+
+    def test_a_young_entry_is_fine(self):
+        self.commit(self.moves_tree(), age_days=1)
+        self.assertEqual(self.hits(("state-moves-stale",)), [])
+
+    def test_an_entry_whose_old_unit_is_still_there_is_fine(self):
+        self.commit(self.moves_tree(**{"infrastructure/old/unit/terragrunt.hcl": "inputs = {}\n"}), age_days=10)
+        self.assertEqual(self.hits(("state-moves-stale",)), [])
+
+    def test_an_entry_without_its_new_unit_is_fine(self):
+        self.commit({".github/state-moves.yaml": self.MOVES}, age_days=10)
+        self.assertEqual(self.hits(("state-moves-stale",)), [])
+
+    def test_an_empty_list_is_fine(self):
+        self.commit({".github/state-moves.yaml": "# none\nmoves: []\n"}, age_days=10)
+        self.assertEqual(self.hits(("state-moves-stale",)), [])
 
 
 if __name__ == "__main__":

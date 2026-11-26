@@ -2,6 +2,13 @@
   with:
     persist-credentials: false
 
+# A file of its own: actionlint cannot take a step script of about 64 KB.
+- name: Conventions, the rules of what is left behind
+  run: |
+    cat >"$RUNNER_TEMP/conventions_left.py" <<'__CI_EOF__'
+    @@include src/conventions_left.py@@
+    __CI_EOF__
+
 - name: Conventions
   env:
     CONFIG: ${{ inputs.conventions-config }}
