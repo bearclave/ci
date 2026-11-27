@@ -110,7 +110,7 @@ standard library; the workflow turns the YAML into JSON with the runner's
 A collection is a unit that reads its objects with `fileset()` - one
 `<key>.yaml` per object, in organisational subfolders or not
 (governance `code/terragrunt.md#collections`) - or a folder that
-`collections` lists (the catalogue `content-sentinel`, which has no units).
+`collections` lists (the catalogue repository, which has no units).
 `collection-schema` runs in `pr / check` of every repository, so a
 repository without collections pays nothing and one without a pipeline
 (the catalogue) is checked all the same.
@@ -136,7 +136,7 @@ repository without collections pays nothing and one without a pipeline
   `python3 schema_check.py <schema.json> <object.json>` runs it locally.
 
 ```yaml
-# .github/conventions.yaml of content-sentinel
+# .github/conventions.yaml of a catalogue repository
 rules:
   collection-schema:
     collections:
@@ -151,7 +151,7 @@ where (`path`), why (`reason`; `statement` for trivy, the `description` for
 gitleaks) and `review`, the date (YYYY-MM-DD) by which it is looked at again.
 `src/exception_review.py` reads them all - in the conventions job
 (`conventions.yaml`, `sentinel-lint.yaml`, `trivyignore.yaml`), in
-`content-sentinel.yml` and, for `.gitleaks.toml`, in `security.yml`. A
+`checks.yml` and, for `.gitleaks.toml`, in `security.yml`. A
 missing reason or a malformed date fails; a review date that has passed, or
 one that is missing, is a warning. A layout exception may carry a `review`
 date too; it is optional there.

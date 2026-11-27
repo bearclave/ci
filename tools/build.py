@@ -2,7 +2,7 @@
 """Writes the reusable workflows that carry a script from src/.
 
 A reusable workflow runs in the calling repository, and the caller's token
-cannot read this private repository, so a script cannot be checked out next
+reaches only that repository, so a script cannot be checked out next
 to the workflow. It travels inside the workflow instead: templates/<name>.yml
 has a line `@@include src/<script>@@` inside a heredoc, and this puts the
 script there, indented like the marker.
