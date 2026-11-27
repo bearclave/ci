@@ -425,7 +425,6 @@ jobs:
               # api/ is the Functions folder the Static Web App deploys.
               folders: [api]
             container: {}
-            content-sentinel: {}
             checks: {}
             ci:
               # The workflow templates build.py writes .github/workflows/ from.
