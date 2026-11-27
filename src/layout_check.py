@@ -13,8 +13,8 @@ import subprocess
 import sys
 import tempfile
 
-PIPELINES = ("terragrunt-home", "terragrunt", "terraform-modules", "m365-dsc",
-             "static-web-app", "container", "content-sentinel", "checks")
+PIPELINES = ("terragrunt-home", "terragrunt", "terraform-modules",
+             "static-web-app", "container", "checks")
 
 
 def group_of(name: str) -> str:
