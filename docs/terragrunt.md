@@ -237,11 +237,11 @@ The result is `verification.md` (a `| Check | Result | Detail |` table) and
 `activity_log`, `checks`), in the job summary and the artifact
 `verification-<run id>`.
 
-**verify** runs only after a failed verification and is the only job that writes to the repository (`contents`,
-`pull-requests`, `issues: write`). When the verification failed it turns red
-and, without rolling anything back, opens a `Bug` issue `Apply of <sha>
-failed its verification` (`prio:high`, `source:drift`, assigned to
-`vars.OWNER`) and, on a push, a draft pull request `revert/<short-sha>`.
+**verify** runs only after a failed verification and writes only an issue
+(`issues: write`). It turns red and, without rolling anything back, opens a
+`Bug` issue `Apply of <sha> failed its verification` (`prio:high`,
+`source:drift`, assigned to `vars.OWNER`); whether to fix forward or revert
+is the owner's decision.
 
 ## Plan and apply comments
 

@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# After an apply whose verification failed: a Bug issue with the details and
-# a draft pull request that reverts the commit, so the owner decides. Nothing
-# is rolled back by itself.
+# After an apply whose verification failed: a Bug issue with the details, so
+# the owner decides. Nothing is rolled back by itself.
 #
 # Usage: verify-failed.sh <verification.json> <verification.md>
 # Env:   GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_EVENT_NAME,
 #        GITHUB_SERVER_URL, GITHUB_RUN_ID; OWNER (the organisation variable,
-#        assigned to the issue and the revert; empty assigns nobody); run in a
-#        checkout of main with its whole history.
+#        assigned to the issue; empty assigns nobody).
 set -euo pipefail
 
 JSON=${1:?missing verification.json}
@@ -17,10 +15,8 @@ SHA=${GITHUB_SHA:?}
 RUN_URL="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
 SHORT=${SHA:0:7}
 OWNER=${OWNER:-}
-assign_pr=()
 assign_issue=()
 if [ -n "$OWNER" ]; then
-  assign_pr=(--assignee "$OWNER")
   assign_issue=(-f "assignees[]=$OWNER")
 fi
 
@@ -30,81 +26,8 @@ if [ -n "$pr" ]; then
   title=$(jq -r .title <<<"$pr")
   pr_ref="#$(jq -r .number <<<"$pr")"
 else
-  title=$(git log -1 --format=%s "$SHA")
+  title=$(gh api "repos/$REPO/commits/$SHA" --jq '.commit.message | split("\n")[0]')
   pr_ref="commit $SHORT"
-fi
-
-# The revert: only for a push, where the run belongs to one commit. A manual
-# run applies whatever main holds, so there is nothing single to revert.
-revert_note=""
-branch="revert/$SHORT"
-# The token goes into each git command, never into .git/config.
-auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-git_auth() { git -c http.extraheader="AUTHORIZATION: basic $auth" "$@"; }
-if [ "$GITHUB_EVENT_NAME" != "push" ]; then
-  revert_note="No revert pull request: the run was started by hand and applies the whole of main, not one commit."
-elif git_auth ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
-  revert_note="The branch \`$branch\` exists already; its pull request is the revert."
-else
-  git config user.name "github-actions[bot]"
-  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-  git switch -c "$branch" origin/main
-  # A squash merge has one parent; a merge commit needs the mainline.
-  mainline=()
-  [ "$(git rev-list --parents -n1 "$SHA" | wc -w)" -gt 2 ] && mainline=(-m1)
-  rtitle="revert: $title"
-  [ "${#rtitle}" -le 72 ] || rtitle="${rtitle:0:69}..."
-  if ! git revert --no-commit "${mainline[@]}" "$SHA"; then
-    git revert --abort || true
-    revert_note="The revert of \`$SHORT\` does not apply cleanly on main; revert it by hand."
-  else
-    git commit -q -F - <<EOF
-$rtitle
-
-This reverts commit $SHA ($pr_ref): the verification after its apply
-failed in $RUN_URL. Merge only if the owner decides to roll back.
-EOF
-    if ! git_auth push -q origin "HEAD:refs/heads/$branch"; then
-      revert_note="The revert branch could not be pushed (a workflow file in the commit needs a token with the workflows permission); revert $SHORT by hand."
-    else
-      body=$(mktemp)
-      cat >"$body" <<EOF
-## Why
-
-The verification after the apply of $SHORT ($pr_ref) failed: $RUN_URL
-
-## What changes
-
-Reverts $SHA.
-
-## Impact
-
-Merging applies the previous code again. Decide first whether the failure is
-real; nothing is rolled back by itself.
-
-## Verification
-
-$(sed 's/^###/####/' "$MD")
-
-## Review
-
-Opened by the pipeline as a draft. Pushes made with the workflow token start
-no checks: push a commit or close and reopen the pull request to run them.
-
-## Links
-
-- Run: $RUN_URL
-- Original: $pr_ref
-EOF
-      if url=$(gh pr create --repo "$REPO" --draft --base main --head "$branch" \
-        --title "$rtitle" --body-file "$body" "${assign_pr[@]}" 2>&1); then
-        revert_note="Draft revert pull request: $url"
-      else
-        echo "::warning::gh pr create: $url"
-        revert_note="The branch \`$branch\` holds the revert; open the draft pull request from it: $GITHUB_SERVER_URL/$REPO/compare/main...$branch?expand=1 (GitHub Actions may not create pull requests in this repository)."
-      fi
-    fi
-  fi
 fi
 
 issue_title="Apply of $SHORT failed its verification"
@@ -126,7 +49,9 @@ Run: $RUN_URL
 
 ### Impact
 
-The deployed state may not be what the code says. $revert_note
+The deployed state may not be what the code says. Nothing was rolled back:
+decide whether the failure is real, then fix it forward or revert $SHORT by
+hand.
 
 ### How to reproduce
 
@@ -158,10 +83,8 @@ elif ! gh api -X POST "repos/$REPO/issues" -f title="$issue_title" -F body=@"$is
     "${assign_issue[@]}" -f 'labels[]=prio:high' -f 'labels[]=source:drift' \
     --jq '"Issue (without type): " + .html_url'
 fi
-echo "$revert_note"
 {
   echo "### After the failed verification"
   echo
   echo "- Issue: $issue_title"
-  echo "- $revert_note"
 } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
