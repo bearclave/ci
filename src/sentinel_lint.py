@@ -11,8 +11,12 @@ The workflow converts sentinel-lint.yaml to JSON first (yq). The config:
                `substitutions` of the terragrunt.hcl in substitutions_from.
                format "arm": ARM templates whose resources include
                .../alertRules, the query inside.
-  watchlists:  files that define watchlists; an alias is `alias = "X"` (HCL)
-               or "watchlistAlias": "X" (ARM)
+               format "yaml": one rule per <name>.yaml as the module
+               azure/sentinel-analytic-rules reads it (name, 1h, gt,
+               relevantTechniques); substitutions_from is then a list of
+               files, `<file>#<attribute>` for a map not called substitutions.
+  watchlists:  files that define watchlists; an alias is `alias = "X"` (HCL),
+               `alias: X` (YAML) or "watchlistAlias": "X" (ARM)
   checks:      {<check>: error | warn | off}, error when not listed
   exceptions:  [{rule (the check), path (a glob of the rule file), reason,
                 review (YYYY-MM-DD)}]; the older {check, rule (the glob)}
@@ -59,7 +63,11 @@ RE_DURATION = re.compile(r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$
 RE_PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 RE_COLUMN = re.compile(r"\{\{([^{}]*)\}\}")
 RE_WATCHLIST = re.compile(r"_GetWatchlist\(\s*['\"]([^'\"]+)['\"]")
-RE_ALIAS = re.compile(r"""(?:\balias\s*=\s*"([^"]+)"|"watchlistAlias"\s*:\s*"([^"]+)")""")
+RE_ALIAS = re.compile(r"""(?:\balias\s*=\s*"([^"]+)"|"watchlistAlias"\s*:\s*"([^"]+)"|^alias:\s*["']?([^"'\s#]+))""",
+                      re.M)
+OPERATOR_NAMES = {"gt": "GreaterThan", "lt": "LessThan", "eq": "Equal", "ne": "NotEqual"}
+# The keys of the YAML format where they differ from the API property.
+YAML_KEYS = {"displayName": "name", "techniques": "relevantTechniques", "subTechniques": "relevantTechniques"}
 
 
 def seconds(duration):
@@ -93,7 +101,11 @@ class Rule:
 
     def line(self, key):
         """The line where the key first appears in the file, or 1."""
-        pos = self.text.find(f'"{key}"')
+        if self.path.endswith((".yaml", ".yml")):
+            m = re.search(rf"^\s*{re.escape(YAML_KEYS.get(key, key))}:", self.text, re.M)
+            pos = m.start() if m else -1
+        else:
+            pos = self.text.find(f'"{key}"')
         return self.text.count("\n", 0, pos) + 1 if pos >= 0 else 1
 
     @property
@@ -107,10 +119,10 @@ def tracked(root):
     return sorted(out.splitlines())
 
 
-def substitution_keys(path):
-    """The keys of `substitutions = { ... }` in a terragrunt.hcl."""
+def substitution_keys(path, attribute="substitutions"):
+    """The keys of `<attribute> = { ... }` (substitutions by default) in an .hcl file."""
     text = open(path, encoding="utf-8").read()
-    m = re.search(r"\bsubstitutions\s*=\s*\{", text)
+    m = re.search(rf"\b{re.escape(attribute)}\s*=\s*\{{", text)
     if not m:
         return set()
     depth, i, keys = 1, m.end(), set()
@@ -134,16 +146,80 @@ def substitution_keys(path):
     return keys
 
 
+def iso(value):
+    """A duration as the module writes it to the API: 1h, 30m, 14d or ISO 8601."""
+    if not isinstance(value, str):
+        return value
+    if value.upper().startswith("P"):
+        return value.upper()
+    if value.lower().endswith("d"):
+        return f"P{value[:-1]}D"
+    return f"PT{value.upper()}"
+
+
+def yaml_rule(data):
+    """The API properties the module builds from one YAML rule."""
+    props = {k: v for k, v in data.items() if k not in ("name", "kind", "query", "relevantTechniques")}
+    props["displayName"] = data.get("name")
+    for key in ("queryFrequency", "queryPeriod", "suppressionDuration"):
+        if key in props:
+            props[key] = iso(props[key])
+    grouping = (props.get("incidentConfiguration") or {}).get("groupingConfiguration") or {}
+    if "lookbackDuration" in grouping:
+        grouping["lookbackDuration"] = iso(grouping["lookbackDuration"])
+    if "triggerOperator" in props:
+        props["triggerOperator"] = OPERATOR_NAMES.get(props["triggerOperator"], props["triggerOperator"])
+    techniques = [str(t) for t in data.get("relevantTechniques") or []]
+    if techniques:
+        props["techniques"] = list(dict.fromkeys(t.split(".")[0] for t in techniques))
+        props["subTechniques"] = [t for t in techniques if "." in t]
+    return props
+
+
+def read_yaml(path):
+    """A YAML file as JSON, through yq (the runner has it; the standard library has no YAML)."""
+    out = subprocess.run(["yq", "-o=json", ".", path], capture_output=True, text=True)
+    if out.returncode:
+        raise ValueError(out.stderr.strip())
+    return json.loads(out.stdout or "null")
+
+
 def load_rules(config, root, files, report):
     rules = []
     for source in config.get("rules") or []:
         base = source["path"].rstrip("/") + "/"
         fmt = source.get("format", "pair")
         subs = None
-        if fmt == "pair" and source.get("substitutions_from"):
-            subs = substitution_keys(os.path.join(root, source["substitutions_from"]))
+        if source.get("substitutions_from"):
+            subs = set()
+            sources = source["substitutions_from"]
+            for entry in [sources] if isinstance(sources, str) else sources:
+                file, _, attribute = entry.partition("#")
+                subs |= substitution_keys(os.path.join(root, file), attribute or "substitutions")
         for path in files:
-            if not path.startswith(base) or not path.endswith(".json"):
+            if not path.startswith(base):
+                continue
+            if fmt == "yaml":
+                if not path.endswith((".yaml", ".yml")):
+                    continue
+                full = os.path.join(root, path)
+                try:
+                    data = read_yaml(full)
+                except ValueError as e:
+                    report.add("json-valid", path, 1, os.path.basename(path), f"not valid YAML: {e}")
+                    continue
+                if not isinstance(data, dict):
+                    report.add("json-valid", path, 1, os.path.basename(path), "not a YAML mapping")
+                    continue
+                text = open(full, encoding="utf-8-sig").read()
+                query = data.get("query")
+                rule = Rule(path, data.get("kind"), yaml_rule(data), query, text,
+                            RE_PLACEHOLDER.findall(json.dumps(data)))
+                rule.substitutions = subs
+                rule.query_path = None
+                rules.append(rule)
+                continue
+            if not path.endswith(".json"):
                 continue
             full = os.path.join(root, path)
             text = open(full, encoding="utf-8-sig").read()
@@ -287,7 +363,8 @@ def lint(rule, report, aliases):
     if aliases is not None:
         for alias in sorted(set(RE_WATCHLIST.findall(rule.query or ""))):
             if alias not in aliases:
-                report.add("watchlist-exists", rule.query_path or rule.path, 1, rule.name,
+                report.add("watchlist-exists", rule.query_path or rule.path,
+                           1 if rule.query_path else rule.line("query"), rule.name,
                            f"_GetWatchlist('{alias}'): no such watchlist in the code")
 
 
@@ -319,7 +396,7 @@ def check(config, root):
         for path in files:
             if any(glob_re(g).match(path) for g in config["watchlists"]):
                 text = open(os.path.join(root, path), encoding="utf-8-sig").read()
-                aliases |= {a or b for a, b in RE_ALIAS.findall(text)}
+                aliases |= {a or b or c for a, b, c in RE_ALIAS.findall(text)}
     names = {}
     for rule in rules:
         lint(rule, report, aliases)
