@@ -50,9 +50,9 @@ for tool in git gh python3; do
 done
 gh auth status >/dev/null 2>&1 || die "gh is not signed in: gh auth login"
 if ! $dry_run; then
-  [ -n "$(git config --get user.signingkey || true)" ] ||
+  [ -n "$(git -C "$repo" config --get user.signingkey || true)" ] ||
     die "no signing key: set user.signingkey (and gpg.format) in the git config"
-  [ "$(git config --type=bool --get tag.gpgsign || echo false)" = true ] ||
+  [ "$(git -C "$repo" config --type=bool --get tag.gpgsign || echo false)" = true ] ||
     die "tag.gpgsign is not true: git config tag.gpgsign true"
 fi
 
