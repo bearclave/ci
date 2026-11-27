@@ -185,13 +185,16 @@ The Sentinel job reads `.github/sentinel-lint.yaml` of the calling repository
 
 ```yaml
 rules:
-  - path: mg-corp/.../analytic-rules/rules
+  - path: infrastructure/<workspace>/analytic-rules/definitions
+    format: yaml                  # <name>.yaml as the module reads it (1h, gt)
+    substitutions_from: [_common/context.hcl, account.hcl#principals]
+  - path: rules
     format: pair                  # <name>.json + <name>.kql, ${placeholders}
-    substitutions_from: mg-corp/.../analytic-rules/terragrunt.hcl
+    substitutions_from: rules/terragrunt.hcl
   - path: ARM/4-AnalyticRules
     format: arm                   # ARM templates with .../alertRules inside
-watchlists:                       # where `alias = "X"` or "watchlistAlias" is defined
-  - mg-corp/.../watchlists/terragrunt.hcl
+watchlists:                       # where `alias: X`, `alias = "X"` or "watchlistAlias" is defined
+  - infrastructure/<workspace>/watchlists/definitions/*.yaml
 checks:                           # error unless listed
   watchlist-exists: warn
 exceptions:
@@ -203,7 +206,7 @@ exceptions:
 
 | Check | What it catches |
 |---|---|
-| `json-valid` | a rule file that is not JSON |
+| `json-valid` | a rule file that is not JSON (or YAML) |
 | `kql-present` | a scheduled or NRT rule without a query |
 | `kind`, `severity`, `trigger` | values outside what the alertRules API takes |
 | `schedule` | frequency or period outside 5 minutes to 14 days, not ISO 8601, or a frequency longer than the period |
@@ -214,7 +217,7 @@ exceptions:
 | `custom-details` | more than 20 custom details |
 | `grouping` | grouping by an entity or custom detail the rule does not have |
 | `unique-name` | two rules with the same display name |
-| `substitutions` | a `${placeholder}` the unit's `substitutions` do not fill (pair format) |
+| `substitutions` | a `${placeholder}` the maps of `substitutions_from` do not fill |
 | `watchlist-exists` | `_GetWatchlist('X')` for a watchlist the repository does not define |
 
 The KQL itself is not run: that needs a workspace and an identity that may

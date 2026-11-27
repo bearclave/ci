@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of src/sentinel_lint.py over rules in both formats.
+"""Tests of src/sentinel_lint.py over rules in every format.
 
 Run: python3 -m unittest discover -s tests
 """
@@ -173,6 +173,43 @@ class Lint(unittest.TestCase):
         self.write("ARM/rule.json", "﻿" + json.dumps(arm))
         config = {"rules": [{"path": "ARM", "format": "arm"}]}
         self.assertEqual(self.found(config), ["tactics"])
+
+    def yaml_rule(self, text, config=None):
+        self.write("account.hcl", 'locals {\n  principals = {\n    writers = ["a"]\n  }\n}\n')
+        self.write("wl/definitions/break-glass.yaml", "alias: BreakGlassAccounts\ndisplayName: x\n")
+        self.write("rules/definitions/sign-in.yaml", text)
+        return self.found(config or {"rules": [{"path": "rules/definitions", "format": "yaml",
+                                                "substitutions_from": ["unit/terragrunt.hcl", "account.hcl#principals"]}],
+                                     "watchlists": ["wl/definitions/*.yaml"]})
+
+    YAML = (
+        "name: Break glass sign-in\nkind: Scheduled\nseverity: High\nqueryFrequency: 1h\nqueryPeriod: 1d\n"
+        "triggerOperator: gt\ntriggerThreshold: 0\nsuppressionEnabled: false\nsuppressionDuration: 5h\n"
+        "tactics: [InitialAccess]\nrelevantTechniques: [T1078, T1078.004]\n"
+        "query: |\n  SigninLogs | where U in (_GetWatchlist('BreakGlassAccounts') | project SearchKey)\n"
+        "  | where A in (${writers}) and S == '${state_account_name}'\n"
+        "incidentConfiguration:\n  createIncident: true\n  groupingConfiguration:\n    enabled: true\n"
+        "    matchingMethod: AnyAlert\n    lookbackDuration: 1d\n")
+
+    def test_yaml_format(self):
+        self.assertEqual(self.yaml_rule(self.YAML), [])
+
+    def test_yaml_format_findings(self):
+        text = (self.YAML.replace("queryFrequency: 1h", "queryFrequency: 2d").replace("gt", "above")
+                .replace("[T1078, T1078.004]", "[T1078.004]").replace("BreakGlassAccounts')", "Nowhere')")
+                .replace("${writers}", "${missing}"))
+        self.assertEqual(self.yaml_rule(text),
+                         ["schedule", "substitutions", "trigger", "watchlist-exists"])
+
+    def test_yaml_line_and_invalid(self):
+        self.yaml_rule(self.YAML.replace("tactics: [InitialAccess]", "tactics: [Evasion]"))
+        violations, _, _ = sentinel_lint.check({"rules": [{"path": "rules/definitions", "format": "yaml"}]},
+                                               str(self.root))
+        self.assertEqual([(v["check"], v["line"]) for v in violations], [("tactics", 10)])
+        self.write("rules/definitions/bad.yaml", "name: [unclosed\n")
+        violations, _, _ = sentinel_lint.check({"rules": [{"path": "rules/definitions", "format": "yaml"}]},
+                                               str(self.root))
+        self.assertIn("json-valid", [v["check"] for v in violations])
 
     def test_levels_and_exceptions(self):
         self.rule(change=lambda p: p.update(tactics=["Evasion"], techniques=["T1"]))
