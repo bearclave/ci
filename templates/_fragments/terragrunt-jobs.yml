@@ -1018,7 +1018,7 @@ apply:
     # Verification of what the apply did. It takes a minute or two: one more
     # plan of the applied units, at once, and a read of the Activity Log. It
     # never rolls anything back: a failure turns the run red and the verify
-    # job opens an issue and a draft revert for the owner to decide.
+    # job opens an issue for the owner to decide.
     #
     # 1. The second plan has to propose nothing (-detailed-exitcode 0). The
     #    apply may have not converged (a provider that sets a value of its
@@ -1115,7 +1115,7 @@ apply:
         cat verification.md >>"$GITHUB_STEP_SUMMARY"
         result=$(jq -r .result verification.json)
         echo "result=$result" >>"$GITHUB_OUTPUT"
-        [ "$result" = "passed" ] || echo "::error title=Verification::The apply did not verify (summary of this job). The verify job opens an issue and a draft revert."
+        [ "$result" = "passed" ] || echo "::error title=Verification::The apply did not verify (summary of this job). The verify job opens an issue."
 
     - name: Upload the verification
       if: ${{ !cancelled() && steps.verify.outcome == 'success' }}
@@ -1212,17 +1212,16 @@ report:
 
 # Runs only when the verification failed (a passed one is in the apply
 # comment of the report job, and a job that only echoes bills a minute): a
-# Bug issue (prio:high, source:drift) and a draft pull request that reverts
-# the commit, and the run is red. The only job that may write to the
-# repository.
+# Bug issue (prio:high, source:drift), and the run is red. It writes only the
+# issue.
 verify:
   needs: apply
   if: ${{ !cancelled() && needs.apply.outputs.verification == 'failed' }}
   runs-on: ubuntu-24.04
   timeout-minutes: 10
   permissions:
-    contents: write
-    pull-requests: write
+    contents: read
+    pull-requests: read
     issues: write
   steps:
     - name: Download the verification
@@ -1237,14 +1236,6 @@ verify:
         { printf '### Verification\n\n'; cat verification.md; } >>"$GITHUB_STEP_SUMMARY"
         echo "Verification $RESULT."
 
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      if: needs.apply.outputs.verification == 'failed'
-      with:
-        ref: main
-        path: repo
-        fetch-depth: 0
-        persist-credentials: false
-
     - name: Scripts
       if: needs.apply.outputs.verification == 'failed'
       run: |
@@ -1256,18 +1247,17 @@ verify:
         chmod +x "$d"/*
         echo "$d" >>"$GITHUB_PATH"
 
-    - name: Issue and draft revert
+    - name: Issue
       if: needs.apply.outputs.verification == 'failed'
-      working-directory: repo
       env:
         GH_TOKEN: ${{ github.token }}
         OWNER: ${{ vars.OWNER }}
-      run: verify-failed.sh ../verification.json ../verification.md
+      run: verify-failed.sh verification.json verification.md
 
     - name: The verification has to pass
       if: needs.apply.outputs.verification == 'failed'
       run: |
-        echo "::error::The apply went through but did not verify. See the summary, the issue and the draft revert; nothing was rolled back."
+        echo "::error::The apply went through but did not verify. See the summary and the issue; nothing was rolled back."
         exit 1
 
 # The required check. On a pull request: every check passed (or was

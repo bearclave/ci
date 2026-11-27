@@ -7,7 +7,7 @@ NAS, the Mac routines) are in `bearclave/iac-identity` and `iac-azure`.
 
 The identities are code. In `iac-identity`: the Entra applications with
 their federated credentials and Graph permissions
-(`infrastructure/applications/app-registrations/pipelines/` and `sites/`),
+(`infrastructure/applications/app-registrations/definitions/pipelines/`, `integrations/` and `sites/`),
 their Entra roles (`infrastructure/roles/directory-roles/`). In `iac-azure`:
 their Azure roles, in the units of the scopes they reach. In `iac-github`:
 the variables and environments (`infrastructure/repositories/<repository>`).
@@ -57,23 +57,13 @@ Graph.
 | `sp-tf-sentinel` | apply of `iac-sentinel` | `iac-sentinel`: `ci.yml` job `apply` | `AZURE_CLIENT_ID_APPLY` | `environment:sentinel-prod` | Microsoft Sentinel Contributor and Log Analytics Contributor on `rg-security`, Logic App Contributor on `rg-soar`, Security Reader on `sub-mgmt-prod`, `sub-osvc-prod`, `sub-sro-prod` (Defender for Cloud connectors); Security Administrator (Entra diagnostic setting, connectors); Graph as the plan; Storage Blob Data Contributor on `tfstate-sentinel` |
 | `sp-ci-major-tag` | moves `v2` to a published release | `ci`: `major-tag.yml` | `AZURE_CLIENT_ID_MAJOR_TAG` | `environment:major-tag` | Key Vault Secrets User on `kv-githubbot` (signs in as `bearclave-bot`) |
 | `sp-ci-deps` | dependency and pin bumps | `ci`: `deps.yml`, `ci-pins.yml` | `AZURE_CLIENT_ID_DEPS` | `environment:deps` | Key Vault Secrets User on `kv-githubbot` |
-| `sp-project-sync` | upkeep of the organisation's issues: Projects and the housekeeping report | `ci`: `project-sync.yml`, `housekeeping.yml`; `ops-tools` (archived): `project-sync.yml` (variable `AZURE_CLIENT_ID`) | `AZURE_CLIENT_ID_PROJECT_SYNC` | `environment:project-sync`; `ops-tools`: `ref:refs/heads/main` | Key Vault Secrets User on `kv-githubbot` |
+| `sp-project-sync` | upkeep of the organisation's issues: Projects and the housekeeping report | `ci`: `project-sync.yml`, `housekeeping.yml` | `AZURE_CLIENT_ID_PROJECT_SYNC` | `environment:project-sync` | Key Vault Secrets User on `kv-githubbot` |
 | `sp-swa-osvc-prod` | deploy of matejhrabalek.cz | `app-web-matejhrabalek`: `ci.yml` (`static-web-app.yml` job `deploy`) | `AZURE_CLIENT_ID` | `environment:prod` | Static Web App Secret Reader on its site; Contributor on its resource group `rg-web` |
 | `sp-swa-sro-prod` | deploy of bearclave.cz | `app-web-bearclave`: `ci.yml` (`static-web-app.yml` job `deploy`, from v2.8 with staging `deploy-prod`) | `AZURE_CLIENT_ID` | `environment:prod` | Static Web App Secret Reader on its site; Contributor on its resource group `rg-web` |
 | `sp-swa-osvc-staging` | deploy of the staging site and the previews of matejhrabalek.cz (v2.8) | `app-web-matejhrabalek`: `ci.yml` (`static-web-app.yml` jobs `deploy-staging`, `preview`, `preview-cleanup`) | `AZURE_CLIENT_ID_STAGING` | `environment:staging`, `environment:preview` | on the staging SWA only: `Microsoft.Web/staticSites/read`, `listSecrets/action`, `builds/read`, `builds/delete` (the previews) |
 | `sp-swa-sro-staging` | the same for bearclave.cz | `app-web-bearclave`: as above | `AZURE_CLIENT_ID_STAGING` | `environment:staging`, `environment:preview` | as above, on its staging SWA |
 | `sp-ci-promote-web-osvc`, `sp-ci-promote-web-sro` | promotion of a site to production as `bearclave-promote` (v2.8) | `app-web-matejhrabalek`, `app-web-bearclave`: `promote.yml` | `AZURE_CLIENT_ID_PROMOTE` | `environment:promote` as a flexible credential that also requires `repository_id`, `repository_owner_id` and `job_workflow_ref` of a released `ci` `promote.yml` ([applications.md](applications.md#the-app-and-its-key)) | Key Vault Secrets User on `kv-ghpromote-sec-weu-001` only, never on `kv-githubbot` |
 | `sp-ci-promote-home` | promotion of `app-home` to production as `bearclave-promote` (v2.9) | `app-home`: `promote.yml` | `AZURE_CLIENT_ID_PROMOTE` | `environment:promote` as a flexible credential that also requires `repository_id`, `repository_owner_id` and `job_workflow_ref` of a released `ci` `promote.yml` ([applications.md](applications.md#the-app-and-its-key)) | Key Vault Secrets User on `kv-ghpromote-sec-weu-001` only, never on `kv-githubbot` |
-
-Two known exceptions, both until they are moved:
-
-- `sp-project-sync` keeps its credential on `ref:refs/heads/main` of
-  `ops-tools` (archived); it goes with the next change of `iac-identity`.
-- The transitional credentials of the callers before v2.5 are gone
-  (`iac-identity` #9). The variables `AZURE_CLIENT_ID_PLATFORM` of
-  `iac-azure` and `AZURE_CLIENT_ID` of `iac-home` are still defined in
-  `iac-github` but no workflow reads them; they go with the next change
-  there.
 
 ## GitHub Apps
 

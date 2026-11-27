@@ -37,7 +37,7 @@
 #       uses: bearclave/ci/.github/workflows/terragrunt-home.yml@v2
 #       if: github.event_name != 'pull_request_review'
 #       permissions:
-#         contents: write        # verify: the revert branch
+#         contents: read
 #         id-token: write
 #         pull-requests: write
 #         issues: write          # verify: the issue

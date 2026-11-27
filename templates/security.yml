@@ -103,8 +103,8 @@ jobs:
       # to be pinned to a commit, which the organisation enforces as well.
       #
       # ref-confusion is off: it reads the branches and tags of every action
-      # referenced by a tag or branch, and the caller's token cannot read the
-      # private bearclave/ci, so the audit ends in a fatal error. Nothing else
+      # referenced by a tag or branch, and the caller's token cannot read
+      # bearclave/ci, so the audit ends in a fatal error. Nothing else
       # is referenced by a tag or branch - pinning to a commit is enforced -
       # so the audit has nothing left to check.
       - name: zizmor

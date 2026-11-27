@@ -21,17 +21,15 @@ name, never `secrets: inherit`). The header of each workflow shows its caller.
 |---|---|---|---|
 | `security.yml` | `security` | every repository | gitleaks over the whole history, actionlint, zizmor, shellcheck; review dates of the gitleaks allowlists |
 | `pr.yml` | `pr` | every repository | title, branch, description sections (people and Apps), labels, assignee; the root layout; to-dos with their issue and relative links; the YAML of collections against their JSON Schema; markdownlint ([checks.md](docs/checks.md)) |
-| `checks.yml` | `pipeline` | `governance`, `knowhow`, `office-templates`, `vs-code-extensions`, `.github` | one job, the gate: ESLint where there is JavaScript, an optional command of the repository |
-| `terragrunt.yml` | `pipeline` | `iac-azure`, `iac-github`; `iac-identity`, `iac-conditional-access`, `iac-intune`, `iac-exchange`, `iac-purview`, `iac-sentinel` | select (relevance, conventions, Sentinel lint, units), validate next to the plan of the affected units (read-only identity) with trivy and a plan comment, the approval of destroys (a step of the gate), apply from `main` in the environment, its verification, an apply comment, gate ([terragrunt.md](docs/terragrunt.md)) |
-| `terragrunt-home.yml` | `pipeline` | `iac-home` | the jobs of `terragrunt.yml`; plan and apply on the NAS runner in the home network (`network-runner`) or through WireGuard from a GitHub runner, with the certificate renewal on schedule ([runners.md](docs/runners.md)) |
-| `destroy-review.yml` | `review` | `iac-azure`, `iac-github`, `iac-home` | on a submitted approval, re-runs the failed gate (its destroy approval step) |
+| `checks.yml` | `pipeline` | the repositories with the pipeline `checks` | one job, the gate: ESLint where there is JavaScript, an optional command of the repository |
+| `terragrunt.yml` | `pipeline` | the repositories with the pipeline `terragrunt` | select (relevance, conventions, Sentinel lint, units), validate next to the plan of the affected units (read-only identity) with trivy and a plan comment, the approval of destroys (a step of the gate), apply from `main` in the environment, its verification, an apply comment, gate ([terragrunt.md](docs/terragrunt.md)) |
+| `terragrunt-home.yml` | `pipeline` | the repository with the pipeline `terragrunt-home` | the jobs of `terragrunt.yml`; plan and apply on the NAS runner in the home network (`network-runner`) or through WireGuard from a GitHub runner, with the certificate renewal on schedule ([runners.md](docs/runners.md)) |
+| `destroy-review.yml` | `review` | the repositories with the pipeline `terragrunt` or `terragrunt-home` | on a submitted approval, re-runs the failed gate (its destroy approval step) |
 | `terragrunt-drift.yml` | `drift` | the repositories of `terragrunt.yml` | weekly plan of the whole tree as the read-only identity, trivy, failed check blocks, analytic rules outside the code |
 | `terraform-modules.yml` | `pipeline` | `terraform-modules` | fmt, validate per module (a pull request: the modules it touches and their callers, all of them when a shared block, a workflow or a tool setting changes; `src/terraform/changed-modules.py`), `terraform test`, tflint, trivy config, README tables (terraform-docs `--output-check`), `docs/catalog.md` (`src/terraform/catalog.py --check`), conventions |
-| `m365-dsc.yml`, `m365-drift.yml` | `pipeline`, `drift` | `iac-m365` | Microsoft365DSC: plan, apply, weekly drift; retired, removed in a minor release once the last domain has moved to Terraform and `iac-m365` is archived |
 | `static-web-app.yml` | `pipeline` | `app-web-*` | site checks (with SEO), ESLint, the site's own checks; with `staging-swa-name` the environment model: a preview per pull request, the build deployed to staging from `staging` and the same build to production from `prod`, noindex outside production, smoke tests ([applications.md](docs/applications.md)); without it the deploy into `environment` when the content changed |
 | `promote.yml` | `promote` | the applications, by a click | a commit of `staging` to production as the App `bearclave-promote`: checks its staging run and build, fast-forwards `prod`, waits for the production run, then tags `vX.Y.Z` and publishes the release ([applications.md](docs/applications.md)) |
 | `container.yml` | `pipeline` | `app-home` | ESLint, lint and tests in the image; with `environments`: `staging` pushes `:staging` and `:sha-<commit>` and deploys staging on the NAS, `prod` deploys that image (no rebuild, also on a manual run), the release tag `vX.Y.Z` pushed by `promote.yml` adds `:vX.Y.Z` to it, smoke test of each deployment; without: push from `main` (`:main`) and from a release (`:vX.Y.Z`) |
-| `content-sentinel.yml` | `pipeline` | `content-sentinel` | Sentinel lint, generated views up to date |
 | `release.yml` | `release` | versioned repositories, by hand (no caller yet) | the next `vX.Y.Z` and its notes, and the commands of a signed release; publishes nothing |
 
 The workflows of this repository itself:
@@ -46,9 +44,8 @@ The organisation rulesets (in `iac-github`) require three checks on `main`:
 pipeline ends with a `gate` job that always runs: a skipped job passes a
 required check, so only the gate may be required.
 
-This repository is private; its Actions access is "Accessible from
-repositories in the 'bearclave' organization". Another organisation cannot
-reach it.
+This repository is public; its Actions access is "Accessible from
+repositories in the 'bearclave' organization".
 
 ## Layout
 
@@ -57,7 +54,7 @@ templates/            the workflows, with @@include markers; _fragments/ shared 
 .github/workflows/    generated from templates/ by tools/build.py (do not edit), and
                       this repository's own: ci, pr-check, deps, ci-pins, major-tag,
                       project-sync, housekeeping
-src/                  the scripts the workflows carry or run; terragrunt/, terraform/, m365/;
+src/                  the scripts the workflows carry or run; terragrunt/, terraform/;
                       layout.yaml (managed copy from governance), markdownlint.yaml
 tests/                unit tests of src/, mirroring it
 tools/                build.py, sanitise-plan.py, move-major-tag.sh, bot-gh.py, release.sh
@@ -74,7 +71,7 @@ docs/                 identities.md, runners.md, terragrunt.md, applications.md,
 - [docs/releasing.md](docs/releasing.md) - versions, pins of the tools, releasing and the major tag
 
 **How a script gets into a workflow.** A reusable workflow runs in the
-calling repository, whose token cannot read this private repository, so a
+calling repository, whose token reaches only that repository, so a
 script travels inside the workflow: `templates/<name>.yml` has a line
 `@@include src/<script>@@` inside a heredoc, and `tools/build.py` writes
 `.github/workflows/<name>.yml` with the script in its place.
@@ -98,7 +95,7 @@ zizmor --persona=regular --min-severity=medium .github/workflows
 
 A pull request runs `ci.yml` and `pr-check.yml` from its own branch, so the
 changed workflows are tried on this repository first: `security / scan`,
-`pr / check`, `pipeline / gate` (the tests, Pester, `build.py --check`), the
+`pr / check`, `pipeline / gate` (the tests, `build.py --check`), the
 conventions and Sentinel self-tests.
 
 Versions, pins and how a release is made:
@@ -106,7 +103,9 @@ Versions, pins and how a release is made:
 
 **Releasing any versioned repository.** The owner runs
 `tools/release.sh <repo-path> [vX.Y.Z]` from this clone against a clone of the
-repository. It refuses unless the checkout is a clean `main` equal to
+repository, at a terminal (piping the version to the prompt works; without a
+terminal only `--dry-run` runs). It checks first that git, gh and python3
+exist, that `gh` is signed in and that a signing key is configured. It refuses unless the checkout is a clean `main` equal to
 `origin/main`, while an open pull request has auto-merge on or is approved
 and mergeable (`--force-open`), when nothing since the last tag calls for a
 release, and when the given version differs from the one the titles give

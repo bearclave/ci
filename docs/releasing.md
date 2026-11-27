@@ -37,8 +37,7 @@ gh api repos/gitleaks/gitleaks/releases/tags/v8.30.1 \
 
 Every release fans out a `ci-pins` pull request to each repository that pins
 `v2.Y.Z`, and in a Terragrunt repository each of those plans the whole
-tree: the fifteen releases of 19 and 20 November 2026 cost more than a third
-of that fortnight's Actions minutes. So:
+tree, which costs Actions minutes. So:
 
 - **At most one release a week**, on a fixed day (Monday), collecting what
   merged since. Merge as often as needed; releasing is the owner's choice and
@@ -54,19 +53,21 @@ of that fortnight's Actions minutes. So:
 
 ## Making a release
 
-`ci` is released by the owner, by hand, because its tags are signed;
-`release.yml` works out the same version and notes in its dry run.
+`ci` is released by the owner, with `tools/release.sh`, the only way to
+release ([versioning.md](https://github.com/bearclave/governance/blob/main/standards/versioning.md#releasing)):
+its tags are signed, which a workflow cannot do. `release.yml` works out the
+same version and notes in its dry run. An agent only says that a release is due.
 
 1. Change the workflow in a pull request; merge it once its own run is
    green.
-2. Tag and publish:
+2. From a clone of `ci`, at a terminal:
 
    ```bash
-   git switch main && git pull --ff-only
-   git tag -s v2.5.0 -m v2.5.0 && git push origin v2.5.0
-   gh release create v2.5.0 --verify-tag --generate-notes
+   tools/release.sh <repo-path> --dry-run   # the checks and the version
+   tools/release.sh <repo-path>             # type the version to confirm
    ```
 
+   The script is described in the [README](../README.md).
 3. Publishing runs `major-tag.yml` (moves `v2` as `bearclave-bot`) and
    `ci-pins.yml` (a pull request in every repository that pins an older
    `v2.Y.Z`). Check them with

@@ -24,9 +24,6 @@
 # counted for the size label of a pull request (pr check).
 .github/workflows/checks.yml linguist-generated
 .github/workflows/container.yml linguist-generated
-.github/workflows/content-sentinel.yml linguist-generated
-.github/workflows/m365-drift.yml linguist-generated
-.github/workflows/m365-dsc.yml linguist-generated
 .github/workflows/pr.yml linguist-generated
 .github/workflows/static-web-app.yml linguist-generated
 .github/workflows/terraform-modules.yml linguist-generated

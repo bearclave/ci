@@ -36,7 +36,6 @@ jobs:
         python3 src/pr_check.py --self-test
         python3 src/layout_check.py --self-test
         python3 src/schema_check.py --self-test
-        pwsh -NoProfile -Command '$r = Invoke-Pester ./tests/m365 -PassThru -Output Detailed; if ($r.FailedCount -gt 0) { exit 1 }'
         tools/build.py --check
         yq -o=json . tests/fixtures/selftest.yaml >"$RUNNER_TEMP/conventions.json"
         python3 src/conventions.py "$RUNNER_TEMP/conventions.json" . --skip todo-issue,markdown-links

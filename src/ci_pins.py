@@ -4,8 +4,8 @@
 Run by .github/workflows/ci-pins.yml when a release of this repository is
 published, as the GitHub App bearclave-bot (see github_bot.py). Repositories
 that touch production call `bearclave/ci/.github/workflows/<name>.yml@vX.Y.Z`
-instead of following the major tag; Dependabot cannot read the private
-repository, so this opens the bump: one pull request per repository whose
+instead of following the major tag; Dependabot does not read these pins, so
+this opens the bump: one pull request per repository whose
 workflows pin an older release of the same major, from the branch deps/ci,
 labelled type:deps and assigned to the owner, who approves and merges it
 after its plan.
@@ -14,8 +14,7 @@ The repositories are found by reading .github/workflows/ of every repository
 of the organisation through the API (the code search index can lag behind).
 A pull request still open on deps/ci is moved to the new release (the branch
 is rebuilt from the default branch, the title and description rewritten).
-Calls of `@v2` and of another major are left alone. iac-m365 is skipped (being
-retired).
+Calls of `@v2` and of another major are left alone.
 
 A pin is not moved when nothing it calls has changed: every pull request
 costs a whole-tree plan in a Terragrunt repository, and most releases touch a
@@ -40,7 +39,7 @@ import github_bot as gh  # noqa: E402
 import major_tag  # noqa: E402
 
 THIS_REPO = "ci"
-SKIP = {THIS_REPO, "iac-m365"}
+SKIP = {THIS_REPO}
 BRANCH = "deps/ci"
 RELEASE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 PIN = re.compile(r"(bearclave/ci/\.github/workflows/[\w.-]+\.ya?ml)@(v\d+\.\d+\.\d+)\b")

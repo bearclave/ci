@@ -33,12 +33,6 @@ PROJECTS = {
     "applications": 2,
     "dev-infrastructure": 3,
     "bearclave-knowhow": 4,
-    # The old values, until the group property of every repository has
-    # moved to the new ones (iac-github); then they go.
-    "iac": 1,
-    "app": 2,
-    "template": 3,
-    "platform": 4,
 }
 
 # What the installation token may do; the App itself may do more.

@@ -31,7 +31,7 @@ merges it:
 
 A version is proposed when it is a release at least 7 days old and of the
 same major; a newer major is only listed. A pull request still open on the
-branch is left alone. `iac-m365` (being retired) is skipped. The
+branch is left alone. The
 markdownlint image of `pr.yml` (version and digest) is bumped by hand.
 
 It replaces Dependabot in this repository (#12): Dependabot bumped the
@@ -47,7 +47,7 @@ GH_TOKEN=$(gh auth token) python3 src/deps.py --dry-run --scope tools --repo iac
 Every repository whose `.github/workflows/` pins `bearclave/ci/...@vX.Y.Z` to
 an older release of the same major gets a pull request from `deps/ci`, or its
 open one is moved to the new release; the owner merges it after its plan.
-`@v2` callers, other majors and `iac-m365` are left alone.
+`@v2` callers and other majors are left alone.
 
 ```bash
 gh workflow run ci-pins.yml -f release=v2.5.0          # dry run
@@ -72,7 +72,6 @@ custom property `group`, read on every run, so a new repository needs nothing:
 | `applications` | 2 |
 | `dev-infrastructure` | 3 |
 | `bearclave-knowhow` | 4 |
-| `iac`, `app`, `template`, `platform` | 1, 2, 3, 4 (the old values, until the property of every repository has moved) |
 
 Archived repositories and repositories without a group are skipped; items
 already in a Project stay and nothing is removed. A group with no Project

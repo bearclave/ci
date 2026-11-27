@@ -15,7 +15,7 @@
 #                           destroys were approved in the merged pull request;
 #                           then verify the apply (second plan, Activity Log,
 #                           check blocks) - a failure is red and opens an
-#                           issue and a draft revert, nothing rolls back;
+#                           issue, nothing rolls back;
 #                           the apply comment goes on the merged pull
 #                           request (README, Plan and apply comments)
 # Manual run on main      -> the same; with allow-destroy it also applies what
@@ -55,7 +55,7 @@
 #       uses: bearclave/ci/.github/workflows/terragrunt.yml@v2
 #       if: github.event_name != 'pull_request_review'
 #       permissions:
-#         contents: write        # verify: the revert branch
+#         contents: read
 #         id-token: write
 #         pull-requests: write
 #         issues: write          # verify: the issue

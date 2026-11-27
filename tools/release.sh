@@ -35,6 +35,27 @@ if [ -n "$wanted" ] && ! [[ $wanted =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 $force_version && [ -z "$wanted" ] && die "--force-version needs the version"
 
+# A release is the owner's, at a terminal (versioning.md#releasing): the output
+# of an agent or a script is not one. Piping the version to the prompt
+# (printf 'vX.Y.Z\n' | tools/release.sh ...) still works, as the output stays
+# on the terminal; a run without the owner at the terminal stops here. A
+# dry run changes nothing and may run anywhere.
+if ! $dry_run && ! { [ -t 1 ] && [ -t 2 ]; }; then
+  die "not run in a terminal: a release is made by the owner (--dry-run previews)"
+fi
+
+# The tools and sign-ins the release needs, before anything is fetched.
+for tool in git gh python3; do
+  command -v "$tool" >/dev/null || die "$tool is not installed"
+done
+gh auth status >/dev/null 2>&1 || die "gh is not signed in: gh auth login"
+if ! $dry_run; then
+  [ -n "$(git config --get user.signingkey || true)" ] ||
+    die "no signing key: set user.signingkey (and gpg.format) in the git config"
+  [ "$(git config --type=bool --get tag.gpgsign || echo false)" = true ] ||
+    die "tag.gpgsign is not true: git config tag.gpgsign true"
+fi
+
 ci=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo"
 cd "$(git rev-parse --show-toplevel)"
@@ -103,7 +124,8 @@ if $dry_run; then
 fi
 
 # (e) Typed confirmation, then the signed tag and the release.
-read -r -p "Type $version to tag $head and publish the release of $slug: " answer
+read -r -p "Type $version to tag $head and publish the release of $slug: " answer ||
+  die "no version typed, nothing tagged"
 [ "$answer" = "$version" ] || die "not confirmed, nothing tagged"
 git tag -s "$version" -m "$version"
 git push origin "refs/tags/$version"
