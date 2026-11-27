@@ -43,7 +43,6 @@ import re
 import subprocess
 import sys
 import urllib.parse
-import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import github_bot as gh  # noqa: E402
@@ -51,9 +50,6 @@ import github_bot as gh  # noqa: E402
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 THIS_REPO = "ci"
 COOLDOWN_DAYS = 7
-# iac-m365 is being retired.
-SKIP = {"iac-m365"}
-
 GH_DL = "https://github.com"
 # NAME of NAME_VERSION -> where its releases are, and the asset whose sha256
 # is pinned ({v}: the version without the v). No asset: only the version.
@@ -66,7 +62,6 @@ TOOLS = {
     "ACTIONLINT": {"github": "rhysd/actionlint", "asset": "actionlint_{v}_linux_amd64.tar.gz"},
     "ZIZMOR": {"github": "zizmorcore/zizmor", "asset": "zizmor-x86_64-unknown-linux-gnu.tar.gz"},
     "SHELLCHECK": {"github": "koalaman/shellcheck", "asset": "shellcheck-v{v}.linux.x86_64.tar.gz"},
-    "M365DSC": {"psgallery": "Microsoft365DSC"},
 }
 # Providers whose source is not in _common/templates/*.tmpl (a unit
 # generates it itself).
@@ -217,27 +212,6 @@ class Upstream:
             return out
         return self._once(("github", repo), fetch)
 
-    def psgallery(self, module: str) -> list:
-        def fetch():
-            url = ("https://www.powershellgallery.com/api/v2/FindPackagesById()?id="
-                   + urllib.parse.quote(f"'{module}'") + "&$orderby=Published%20desc&$top=100")
-            ns = {"a": "http://www.w3.org/2005/Atom",
-                  "m": "http://schemas.microsoft.com/ado/2007/08/dataservices/metadata",
-                  "d": "http://schemas.microsoft.com/ado/2007/08/dataservices"}
-            root = ET.fromstring(gh.request("GET", url, raw=True))
-            out = []
-            for entry in root.findall("a:entry", ns):
-                props = entry.find("m:properties", ns)
-                version = props.findtext("d:Version", default="", namespaces=ns)
-                if props.findtext("d:IsPrerelease", default="false", namespaces=ns) == "true":
-                    continue
-                published = props.findtext("d:Published", default="", namespaces=ns)
-                if version and published:
-                    out.append({"version": version, "published": when(published),
-                                "url": f"https://www.powershellgallery.com/packages/{module}/{version}"})
-            return out
-        return self._once(("psgallery", module), fetch)
-
     def provider(self, source: str) -> list:
         def fetch():
             ns, name = source.lower().split("/")
@@ -249,7 +223,7 @@ class Upstream:
 
     def tool(self, name: str) -> list:
         spec = TOOLS[name]
-        return self.github(spec["github"]) if "github" in spec else self.psgallery(spec["psgallery"])
+        return self.github(spec["github"])
 
     def sha256(self, name: str, release: dict):
         """sha256 of the tool's pinned asset in a release; None for a tool
@@ -520,7 +494,7 @@ def main(argv: list) -> int:
     up = Upstream(read_token)
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    repos = [r for r in gh.repositories(read_token) if r["name"] not in SKIP and not r.get("fork")]
+    repos = [r for r in gh.repositories(read_token) if not r.get("fork")]
     if only:
         repos = [r for r in repos if r["name"] in only]
 
